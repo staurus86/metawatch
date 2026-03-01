@@ -25,7 +25,7 @@ app.use(helmet({
       scriptSrc: ["'self'", 'cdn.jsdelivr.net', "'unsafe-inline'"],
       styleSrc:  ["'self'", "'unsafe-inline'"],
       imgSrc:    ["'self'", 'data:', 'https:'],
-      connectSrc: ["'self'"],
+      connectSrc: ["'self'", 'cdn.jsdelivr.net'],
       fontSrc:   ["'self'", 'data:']
     }
   }
@@ -84,3 +84,4 @@ async function start() {
 }
 
 start();
+
