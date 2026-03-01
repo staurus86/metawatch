@@ -157,6 +157,19 @@ function initCharts() {
     .then(r => r.json())
     .then(stats => {
 
+      // Shared donut options
+      const donutOpts = {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '60%',
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { font: { size: 12 }, boxWidth: 14, padding: 10 }
+          }
+        }
+      };
+
       // Status codes donut
       if (chartStatus && stats.statusCodes) {
         const codes = Object.keys(stats.statusCodes);
@@ -170,7 +183,7 @@ function initCharts() {
         new Chart(chartStatus, {
           type: 'doughnut',
           data: { labels: codes, datasets: [{ data: vals, backgroundColor: colors, borderWidth: 2 }] },
-          options: { plugins: { legend: { position: 'right', labels: { font: { size: 11 } } } }, cutout: '65%' }
+          options: donutOpts
         });
       }
 
@@ -183,7 +196,7 @@ function initCharts() {
             labels: ['Indexed', 'noindex'],
             datasets: [{ data: [indexed, noindex], backgroundColor: ['#48bb78', '#e53e3e'], borderWidth: 2 }]
           },
-          options: { plugins: { legend: { position: 'right', labels: { font: { size: 11 } } } }, cutout: '65%' }
+          options: donutOpts
         });
       }
 
@@ -196,7 +209,7 @@ function initCharts() {
             labels: ['Changed (24h)', 'Unchanged'],
             datasets: [{ data: [changed, unchanged], backgroundColor: ['#ed8936', '#48bb78'], borderWidth: 2 }]
           },
-          options: { plugins: { legend: { position: 'right', labels: { font: { size: 11 } } } }, cutout: '65%' }
+          options: donutOpts
         });
       }
 

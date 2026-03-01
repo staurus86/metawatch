@@ -93,6 +93,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .charts-row { display: grid; grid-template-columns: repeat(3, 1fr) 2fr; gap: 16px; margin-bottom: 20px; }
 .chart-card { }
 .chart-card--wide { }
+.chart-donut-wrap { position: relative; height: 220px; padding: 12px 16px; }
 
 /* ─── Tabs ─── */
 .tabs { display: flex; gap: 0; margin-top: 20px; }
