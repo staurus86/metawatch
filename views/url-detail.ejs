@@ -1,0 +1,323 @@
+<div class="page-header">
+  <div>
+    <div class="breadcrumb"><a href="/">Dashboard</a> / URL Detail</div>
+    <h1 class="page-title url-title"><%= urlRecord.url %></h1>
+  </div>
+  <div style="display:flex;gap:8px;flex-shrink:0">
+    <a href="/export/url/<%= urlRecord.id %>.xlsx" class="btn btn-ghost" style="font-size:12px">
+      ⬇ Export XLSX
+    </a>
+  </div>
+</div>
+
+<!-- Actions bar -->
+<div class="actions-bar">
+  <form action="/urls/<%= urlRecord.id %>/check-now" method="POST" style="display:inline">
+    <button type="submit" class="btn btn-primary">▶ Check Now</button>
+  </form>
+  <form action="/urls/<%= urlRecord.id %>/toggle" method="POST" style="display:inline">
+    <button type="submit" class="btn btn-ghost">
+      <%= urlRecord.is_active ? '⏸ Pause' : '▶ Resume' %>
+    </button>
+  </form>
+  <% if (alerts.length > 0) { %>
+    <form action="/urls/<%= urlRecord.id %>/accept-changes" method="POST" style="display:inline">
+      <button type="submit" class="btn btn-ghost">✓ Accept Changes</button>
+    </form>
+  <% } %>
+  <form action="/urls/<%= urlRecord.id %>/delete" method="POST" style="display:inline"
+        data-confirm="Delete this URL and all its history? This cannot be undone.">
+    <button type="submit" class="btn btn-danger">✕ Delete</button>
+  </form>
+</div>
+
+<!-- Info cards -->
+<div class="info-grid">
+  <div class="card info-card">
+    <div class="info-label">Status</div>
+    <div class="info-value">
+      <% if (!snapshots.length) { %>
+        <span class="badge badge--pending">Pending first check</span>
+      <% } else { %>
+        <span class="badge badge--<%= snapshots[0].status_code === 200 ? 'ok' : 'error' %>">
+          HTTP <%= snapshots[0].status_code === 0 ? 'Error' : snapshots[0].status_code %>
+        </span>
+      <% } %>
+    </div>
+  </div>
+  <div class="card info-card">
+    <div class="info-label">Monitoring</div>
+    <div class="info-value">
+      <span class="badge badge--<%= urlRecord.is_active ? 'ok' : 'paused' %>">
+        <%= urlRecord.is_active ? 'Active' : 'Paused' %>
+      </span>
+    </div>
+  </div>
+  <div class="card info-card">
+    <div class="info-label">Interval</div>
+    <div class="info-value">
+      Every <%= urlRecord.check_interval_minutes >= 60 ? (urlRecord.check_interval_minutes / 60) + 'h' : urlRecord.check_interval_minutes + 'min' %>
+    </div>
+  </div>
+  <div class="card info-card">
+    <div class="info-label">Next Check</div>
+    <div class="info-value">
+      <% if (nextCheck) { %>
+        <span class="time-ago" data-ts="<%= nextCheck.toISOString() %>" data-mode="future"></span>
+      <% } else { %><span class="text-muted">—</span><% } %>
+    </div>
+  </div>
+  <div class="card info-card">
+    <div class="info-label">Alert Email</div>
+    <div class="info-value"><%= urlRecord.email || '—' %></div>
+  </div>
+  <div class="card info-card">
+    <div class="info-label">Snapshots</div>
+    <div class="info-value"><%= snapshots.length %></div>
+  </div>
+  <% if (refSnapshot) { %>
+  <div class="card info-card">
+    <div class="info-label">Reference Snapshot</div>
+    <div class="info-value" style="font-size:12px">
+      #<%= refSnapshot.id %> — <span class="time-ago" data-ts="<%= new Date(refSnapshot.checked_at).toISOString() %>"></span>
+    </div>
+  </div>
+  <% } %>
+  <% if (urlRecord.ignore_numbers) { %>
+  <div class="card info-card">
+    <div class="info-label">Ignore Numbers</div>
+    <div class="info-value"><span class="badge badge--paused">Enabled</span></div>
+  </div>
+  <% } %>
+</div>
+
+<!-- Tab navigation -->
+<div class="tabs" style="margin-top:20px;margin-bottom:0">
+  <a href="/urls/<%= urlRecord.id %>?tab=overview"
+     class="tab-link <%= activeTab === 'overview' ? 'tab-link--active' : '' %>">Overview</a>
+  <a href="/urls/<%= urlRecord.id %>?tab=changes"
+     class="tab-link <%= activeTab === 'changes' ? 'tab-link--active' : '' %>">
+    Changes
+    <% if (alerts.length > 0) { %><span class="tab-badge"><%= alerts.length %></span><% } %>
+  </a>
+  <a href="/urls/<%= urlRecord.id %>?tab=snapshots"
+     class="tab-link <%= activeTab === 'snapshots' ? 'tab-link--active' : '' %>">Snapshots</a>
+  <a href="/urls/<%= urlRecord.id %>?tab=robots"
+     class="tab-link <%= activeTab === 'robots' ? 'tab-link--active' : '' %>">robots.txt</a>
+</div>
+
+<!-- Tab content -->
+<div class="card tab-content-card">
+
+  <!-- OVERVIEW tab -->
+  <% if (activeTab === 'overview') { %>
+    <% const latest = snapshots[0]; %>
+    <% if (latest) { %>
+      <div style="padding:20px">
+        <div class="snapshot-grid">
+          <div class="snap-field">
+            <div class="snap-label">Title</div>
+            <div class="snap-val"><%= latest.title || '—' %></div>
+          </div>
+          <div class="snap-field">
+            <div class="snap-label">Meta Description</div>
+            <div class="snap-val"><%= latest.description || '—' %></div>
+          </div>
+          <div class="snap-field">
+            <div class="snap-label">H1</div>
+            <div class="snap-val"><%= latest.h1 || '—' %></div>
+          </div>
+          <div class="snap-field">
+            <div class="snap-label">Canonical</div>
+            <div class="snap-val"><%= latest.canonical || '—' %></div>
+          </div>
+          <div class="snap-field">
+            <div class="snap-label">noindex</div>
+            <div class="snap-val">
+              <span class="badge badge--<%= latest.noindex ? 'error' : 'ok' %>">
+                <%= latest.noindex ? 'noindex' : 'index' %>
+              </span>
+            </div>
+          </div>
+          <div class="snap-field">
+            <div class="snap-label">Redirect</div>
+            <div class="snap-val"><%= latest.redirect_url || '—' %></div>
+          </div>
+          <% if (latest.og_title) { %>
+          <div class="snap-field">
+            <div class="snap-label">OG Title</div>
+            <div class="snap-val"><%= latest.og_title %></div>
+          </div>
+          <% } %>
+          <% if (latest.og_description) { %>
+          <div class="snap-field">
+            <div class="snap-label">OG Description</div>
+            <div class="snap-val"><%= latest.og_description %></div>
+          </div>
+          <% } %>
+          <% if (latest.og_image) { %>
+          <div class="snap-field">
+            <div class="snap-label">OG Image</div>
+            <div class="snap-val">
+              <a href="<%= latest.og_image %>" target="_blank" style="font-size:12px;word-break:break-all">
+                <%= latest.og_image %>
+              </a>
+            </div>
+          </div>
+          <% } %>
+          <% if (latest.hreflang) { %>
+          <div class="snap-field" style="grid-column:1/-1">
+            <div class="snap-label">hreflang</div>
+            <div class="snap-val">
+              <% try { const hl = JSON.parse(latest.hreflang); %>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
+                  <% hl.forEach(function(h) { %>
+                    <span class="badge badge--paused"><%= h.lang %></span>
+                  <% }) %>
+                </div>
+              <% } catch(e) { %><%= latest.hreflang %><% } %>
+            </div>
+          </div>
+          <% } %>
+          <% if (urlRecord.custom_text) { %>
+          <div class="snap-field">
+            <div class="snap-label">Custom Text "<%= urlRecord.custom_text %>"</div>
+            <div class="snap-val">
+              <span class="badge badge--<%= latest.custom_text_found ? 'ok' : 'error' %>">
+                <%= latest.custom_text_found ? 'Found' : 'Not found' %>
+              </span>
+            </div>
+          </div>
+          <% } %>
+        </div>
+      </div>
+    <% } else { %>
+      <div class="empty-state" style="padding:32px">
+        <p class="text-muted">No snapshots yet. First check is running in the background.</p>
+      </div>
+    <% } %>
+
+  <!-- CHANGES tab -->
+  <% } else if (activeTab === 'changes') { %>
+    <% if (urlRecord.ignore_numbers) { %>
+      <div style="padding:12px 20px 0;font-size:12px;color:var(--text-muted)">
+        ℹ️ Numbers are excluded from comparison for this URL.
+      </div>
+    <% } %>
+    <% if (alerts.length > 0) { %>
+      <div class="alerts-detail-list">
+        <% alerts.forEach(function(alert) { %>
+          <div class="alert-detail-row">
+            <div class="alert-detail-header">
+              <span class="alert-field-badge"><%= alert.field_changed %></span>
+              <span class="alert-time text-muted">
+                <span class="time-ago" data-ts="<%= new Date(alert.detected_at).toISOString() %>"></span>
+                — <%= new Date(alert.detected_at).toUTCString() %>
+              </span>
+            </div>
+            <div class="diff-container">
+              <div class="diff-panel diff-panel--old">
+                <div class="diff-panel-label">Previous</div>
+                <div class="diff-panel-value"><%- alert.diffOldHtml || (alert.old_value || '(empty)') %></div>
+              </div>
+              <div class="diff-panel diff-panel--new">
+                <div class="diff-panel-label">Current</div>
+                <div class="diff-panel-value"><%- alert.diffNewHtml || (alert.new_value || '(empty)') %></div>
+              </div>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+    <% } else { %>
+      <div class="empty-state" style="padding:32px">
+        <div class="empty-icon">✅</div>
+        <p>No changes detected yet.</p>
+      </div>
+    <% } %>
+
+  <!-- SNAPSHOTS tab -->
+  <% } else if (activeTab === 'snapshots') { %>
+    <% if (snapshots.length === 0) { %>
+      <div class="empty-state" style="padding:24px">
+        <p class="text-muted">No snapshots yet.</p>
+      </div>
+    <% } else { %>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Checked At</th>
+              <th>Status</th>
+              <th>Title</th>
+              <th>H1</th>
+              <th>noindex</th>
+              <th>Canonical</th>
+              <th>Redirect</th>
+              <th>OG Title</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% snapshots.forEach(function(snap, i) { %>
+              <tr class="<%= i === 0 ? 'row-latest' : '' %> <%= urlRecord.reference_snapshot_id === snap.id ? 'row-reference' : '' %>">
+                <td class="nowrap">
+                  <span class="time-ago" data-ts="<%= new Date(snap.checked_at).toISOString() %>"></span><br>
+                  <small class="text-muted"><%= new Date(snap.checked_at).toUTCString().replace(' GMT','') %></small>
+                  <% if (urlRecord.reference_snapshot_id === snap.id) { %>
+                    <br><span class="badge badge--paused" style="font-size:9px;margin-top:2px">reference</span>
+                  <% } %>
+                </td>
+                <td>
+                  <span class="badge <%= snap.status_code === 200 ? 'badge--ok' : snap.status_code === 0 ? 'badge--error' : snap.status_code >= 300 && snap.status_code < 400 ? 'badge--changed' : 'badge--error' %>">
+                    <%= snap.status_code === 0 ? 'ERR' : snap.status_code %>
+                  </span>
+                </td>
+                <td class="truncate" title="<%= snap.title || '' %>"><%= snap.title || '—' %></td>
+                <td class="truncate" title="<%= snap.h1 || '' %>"><%= snap.h1 || '—' %></td>
+                <td>
+                  <span class="badge badge--<%= snap.noindex ? 'error' : 'ok' %>">
+                    <%= snap.noindex ? 'noindex' : 'index' %>
+                  </span>
+                </td>
+                <td class="truncate" title="<%= snap.canonical || '' %>"><%= snap.canonical ? snap.canonical.replace(/^https?:\/\/[^/]+/, '') : '—' %></td>
+                <td class="truncate" title="<%= snap.redirect_url || '' %>"><%= snap.redirect_url ? '→ ' + snap.redirect_url.substring(0, 30) + '…' : '—' %></td>
+                <td class="truncate" title="<%= snap.og_title || '' %>"><%= snap.og_title || '—' %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+
+  <!-- ROBOTS.TXT tab -->
+  <% } else if (activeTab === 'robots') { %>
+    <% const latestRobots = snapshots.find(s => s.raw_robots_txt); %>
+    <% if (!latestRobots) { %>
+      <div class="empty-state" style="padding:32px">
+        <p class="text-muted">No robots.txt content captured yet.</p>
+      </div>
+    <% } else { %>
+      <div style="padding:16px">
+        <% if (robotsDiff && refSnapshot) { %>
+          <h3 style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text-muted)">
+            Diff: Reference (#<%= refSnapshot.id %>) → Latest
+          </h3>
+          <div class="robots-diff-box">
+            <% robotsDiff.forEach(function(part) { %>
+              <% if (part.added) { %>
+                <div class="robots-line robots-line--added"><span class="robots-marker">+</span><%= part.value.replace(/\n$/, '') %></div>
+              <% } else if (part.removed) { %>
+                <div class="robots-line robots-line--removed"><span class="robots-marker">−</span><%= part.value.replace(/\n$/, '') %></div>
+              <% } else { %>
+                <div class="robots-line"><span class="robots-marker"> </span><%= part.value.replace(/\n$/, '') %></div>
+              <% } %>
+            <% }) %>
+          </div>
+        <% } else { %>
+          <h3 style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text-muted)">Latest robots.txt</h3>
+          <pre class="robots-content"><%= latestRobots.raw_robots_txt %></pre>
+        <% } %>
+      </div>
+    <% } %>
+  <% } %>
+
+</div>

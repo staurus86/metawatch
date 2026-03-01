@@ -1,0 +1,129 @@
+<div class="page-header">
+  <h1 class="page-title">Bulk URL Import</h1>
+  <a href="/" class="btn btn-ghost">← Dashboard</a>
+</div>
+
+<% if (error) { %>
+  <div class="alert-banner alert-banner--error" style="margin-bottom:16px"><%= error %></div>
+<% } %>
+
+<% if (preview) { %>
+  <!-- Preview mode -->
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-header">
+      <h2 class="card-title">Import Preview</h2>
+    </div>
+    <div style="padding:20px">
+      <div class="stats-row" style="margin-bottom:20px">
+        <div class="stat-card">
+          <div class="stat-value"><%= preview.all %></div>
+          <div class="stat-label">Total Found</div>
+        </div>
+        <div class="stat-card stat-card--ok">
+          <div class="stat-value"><%= preview.newCount %></div>
+          <div class="stat-label">New URLs</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value"><%= preview.skipped %></div>
+          <div class="stat-label">Already Monitored</div>
+        </div>
+      </div>
+
+      <% if (preview.urls.length > 0) { %>
+        <div style="background:#f7fafc;border:1px solid var(--border);border-radius:6px;max-height:300px;overflow-y:auto;padding:12px;margin-bottom:16px">
+          <% preview.urls.forEach(function(u) { %>
+            <div style="font-size:13px;padding:3px 0;color:var(--text-primary);word-break:break-all"><%= u %></div>
+          <% }) %>
+          <% if (preview.newCount > 50) { %>
+            <div style="color:var(--text-muted);font-size:12px;padding-top:8px">
+              … and <%= preview.newCount - 50 %> more
+            </div>
+          <% } %>
+        </div>
+      <% } else { %>
+        <p class="text-muted">No new URLs to import.</p>
+      <% } %>
+
+      <% if (preview.newCount > 0) { %>
+        <form action="/urls/bulk" method="POST">
+          <input type="hidden" name="source" value="<%= preview.source %>">
+          <input type="hidden" name="urls_text" value="<%= preview.urls_text || '' %>">
+          <input type="hidden" name="sitemap_url" value="<%= preview.sitemap_url || '' %>">
+          <input type="hidden" name="confirm" value="1">
+
+          <div class="form-group" style="margin-bottom:12px;max-width:260px">
+            <label class="form-label">Check Interval</label>
+            <select name="check_interval_minutes" class="form-select">
+              <option value="15">Every 15 minutes</option>
+              <option value="60" selected>Every hour</option>
+              <option value="360">Every 6 hours</option>
+              <option value="1440">Every 24 hours</option>
+            </select>
+          </div>
+
+          <div style="display:flex;gap:10px">
+            <button type="submit" class="btn btn-primary">
+              Import <%= preview.newCount %> URLs
+            </button>
+            <a href="/urls/bulk" class="btn btn-ghost">Cancel</a>
+          </div>
+        </form>
+      <% } else { %>
+        <a href="/urls/bulk" class="btn btn-ghost">Back</a>
+      <% } %>
+    </div>
+  </div>
+
+<% } else { %>
+  <!-- Input form -->
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;align-items:start">
+
+    <!-- Textarea -->
+    <div class="card">
+      <div class="card-header"><h2 class="card-title">Paste URLs</h2></div>
+      <form action="/urls/bulk" method="POST" class="form" style="padding:16px">
+        <input type="hidden" name="source" value="text">
+        <div class="form-group">
+          <label class="form-label">One URL per line</label>
+          <textarea name="urls_text" class="form-input" rows="10"
+                    placeholder="https://example.com&#10;https://example.com/page&#10;https://another.com"
+                    style="font-family:monospace;font-size:12px;resize:vertical"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">Preview</button>
+      </form>
+    </div>
+
+    <!-- File upload -->
+    <div class="card">
+      <div class="card-header"><h2 class="card-title">Upload CSV / XLSX</h2></div>
+      <form action="/urls/bulk" method="POST" enctype="multipart/form-data" class="form" style="padding:16px">
+        <input type="hidden" name="source" value="file">
+        <div class="form-group">
+          <label class="form-label">File (CSV or XLSX)</label>
+          <input type="file" name="file" class="form-input" accept=".csv,.xlsx,.xls" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">URL Column Index (0 = first)</label>
+          <input type="number" name="column" class="form-input" value="0" min="0">
+        </div>
+        <button type="submit" class="btn btn-primary">Preview</button>
+      </form>
+    </div>
+
+    <!-- Sitemap -->
+    <div class="card">
+      <div class="card-header"><h2 class="card-title">Sitemap URL</h2></div>
+      <form action="/urls/bulk" method="POST" class="form" style="padding:16px">
+        <input type="hidden" name="source" value="sitemap">
+        <div class="form-group">
+          <label class="form-label">Sitemap URL</label>
+          <input type="url" name="sitemap_url" class="form-input"
+                 placeholder="https://example.com/sitemap.xml" required>
+          <p class="form-hint">Supports sitemap index (nested sitemaps)</p>
+        </div>
+        <button type="submit" class="btn btn-primary">Fetch & Preview</button>
+      </form>
+    </div>
+
+  </div>
+<% } %>

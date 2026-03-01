@@ -1,0 +1,131 @@
+<div class="page-header">
+  <h1 class="page-title">Add URL to Monitor</h1>
+</div>
+
+<div class="card" style="max-width:740px">
+  <% if (error) { %>
+    <div class="alert-banner alert-banner--error"><%= error %></div>
+  <% } %>
+
+  <form action="/urls/add" method="POST" class="form">
+
+    <!-- Basic info -->
+    <div class="form-section-title">URL & Email</div>
+
+    <div class="form-group">
+      <label class="form-label" for="url">URL <span class="required">*</span></label>
+      <input type="url" id="url" name="url" class="form-input"
+             placeholder="https://example.com/page"
+             value="<%= values.url || '' %>" required>
+      <p class="form-hint">Must include http:// or https://</p>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="email">Alert Email</label>
+        <input type="email" id="email" name="email" class="form-input"
+               placeholder="you@example.com" value="<%= values.email || '' %>">
+        <p class="form-hint">Leave blank to disable email alerts</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="check_interval_minutes">Check Interval <span class="required">*</span></label>
+        <select id="check_interval_minutes" name="check_interval_minutes" class="form-select">
+          <option value="15"  <%= values.check_interval_minutes == '15'   ? 'selected' : '' %>>Every 15 minutes</option>
+          <option value="60"  <%= values.check_interval_minutes == '60'  || !values.check_interval_minutes ? 'selected' : '' %>>Every hour</option>
+          <option value="360" <%= values.check_interval_minutes == '360'  ? 'selected' : '' %>>Every 6 hours</option>
+          <option value="1440"<%= values.check_interval_minutes == '1440' ? 'selected' : '' %>>Every 24 hours</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Monitored fields -->
+    <div class="form-section-title">Fields to Monitor</div>
+
+    <div class="checkbox-grid">
+      <% const fields = [
+        { name: 'monitor_title',       label: 'Title' },
+        { name: 'monitor_description', label: 'Meta Description' },
+        { name: 'monitor_h1',          label: 'H1 Tag' },
+        { name: 'monitor_body',        label: 'Page Content' },
+        { name: 'monitor_status_code', label: 'Response Code' },
+        { name: 'monitor_noindex',     label: 'noindex Flag' },
+        { name: 'monitor_redirect',    label: 'Redirect URL' },
+        { name: 'monitor_canonical',   label: 'Canonical' },
+        { name: 'monitor_robots',      label: 'robots.txt' },
+        { name: 'monitor_hreflang',    label: 'hreflang' },
+        { name: 'monitor_og',          label: 'OG Tags' }
+      ]; %>
+      <% fields.forEach(function(f) { %>
+        <label class="checkbox-label">
+          <input type="checkbox" name="<%= f.name %>" value="1"
+            <%= (values[f.name] === '1' || values[f.name] === true || values[f.name] === 1) ? 'checked' : '' %>>
+          <span><%= f.label %></span>
+        </label>
+      <% }) %>
+    </div>
+
+    <!-- Custom text -->
+    <div class="form-group" style="margin-top:16px">
+      <label class="form-label" for="custom_text">Custom Text Search</label>
+      <input type="text" id="custom_text" name="custom_text" class="form-input"
+             placeholder='e.g. "In Stock" or "©2025"'
+             value="<%= values.custom_text || '' %>">
+      <p class="form-hint">Alert when this exact text appears or disappears from the page</p>
+    </div>
+
+    <!-- Advanced options (collapsible) -->
+    <details class="form-details">
+      <summary class="form-section-title" style="cursor:pointer">Advanced Options ▾</summary>
+
+      <div style="padding-top:12px">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="user_agent">Custom User-Agent</label>
+            <input type="text" id="user_agent" name="user_agent" class="form-input"
+                   placeholder="Mozilla/5.0 …"
+                   value="<%= values.user_agent || '' %>">
+            <p class="form-hint">Leave blank to use the default MetaWatch bot</p>
+          </div>
+          <div class="form-group">
+            <label class="checkbox-label" style="margin-top:28px">
+              <input type="checkbox" name="ignore_numbers" value="1"
+                <%= (values.ignore_numbers === '1' || values.ignore_numbers === true) ? 'checked' : '' %>>
+              <span>Ignore Number Changes</span>
+            </label>
+            <p class="form-hint" style="margin-top:4px">Skip changes where only digits differ</p>
+          </div>
+        </div>
+
+        <div class="form-section-title" style="margin-top:8px">Telegram Alerts</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="telegram_bot_token">Bot Token</label>
+            <input type="text" id="telegram_bot_token" name="telegram_bot_token" class="form-input"
+                   placeholder="123456:ABC-DEF…"
+                   value="<%= values.telegram_bot_token || '' %>">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="telegram_chat_id">Chat ID</label>
+            <input type="text" id="telegram_chat_id" name="telegram_chat_id" class="form-input"
+                   placeholder="-100123456789"
+                   value="<%= values.telegram_chat_id || '' %>">
+          </div>
+        </div>
+
+        <div class="form-section-title" style="margin-top:8px">Webhook</div>
+        <div class="form-group">
+          <label class="form-label" for="webhook_url">Webhook URL</label>
+          <input type="url" id="webhook_url" name="webhook_url" class="form-input"
+                 placeholder="https://hooks.slack.com/…"
+                 value="<%= values.webhook_url || '' %>">
+          <p class="form-hint">Receives a JSON POST on each change</p>
+        </div>
+      </div>
+    </details>
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Start Monitoring</button>
+      <a href="/" class="btn btn-ghost">Cancel</a>
+    </div>
+  </form>
+</div>

@@ -1,0 +1,88 @@
+<div class="page-header">
+  <h1 class="page-title">My Profile</h1>
+</div>
+
+<% if (locals.message) { %>
+  <div class="alert-banner alert-banner--info" style="margin-bottom:16px"><%= message %></div>
+<% } %>
+<% if (locals.error) { %>
+  <div class="alert-banner alert-banner--error" style="margin-bottom:16px"><%= error %></div>
+<% } %>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:860px">
+
+  <!-- Account info -->
+  <div class="card">
+    <div class="card-header"><h2 class="card-title">Account Info</h2></div>
+    <div style="padding:20px">
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-label">Email</div>
+        <div class="info-value"><%= locals.user.email %></div>
+      </div>
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-label">Role</div>
+        <div class="info-value">
+          <span class="badge badge--<%= locals.user.role === 'admin' ? 'changed' : 'pending' %>">
+            <%= locals.user.role %>
+          </span>
+        </div>
+      </div>
+      <div class="info-card">
+        <div class="info-label">Member Since</div>
+        <div class="info-value"><%= new Date(locals.user.created_at).toISOString().split('T')[0] %></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- API Key -->
+  <div class="card">
+    <div class="card-header"><h2 class="card-title">API Key</h2></div>
+    <div style="padding:20px">
+      <p class="text-muted" style="font-size:13px;margin-bottom:12px">
+        Use this key with the <code>X-API-Key</code> header to access the REST API.
+      </p>
+      <div class="api-key-box">
+        <code id="api-key-val"><%= locals.user.api_key || 'Not generated' %></code>
+        <button onclick="navigator.clipboard.writeText('<%= locals.user.api_key %>');this.textContent='Copied!'"
+                class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-left:8px">
+          Copy
+        </button>
+      </div>
+      <form action="/profile/regenerate-key" method="POST" style="margin-top:12px"
+            data-confirm="Regenerate API key? The old key will stop working immediately.">
+        <button type="submit" class="btn btn-ghost">Regenerate Key</button>
+      </form>
+
+      <hr style="margin:20px 0;border:none;border-top:1px solid var(--border)">
+      <p class="text-muted" style="font-size:13px;margin-bottom:8px">
+        <strong>API Endpoints:</strong>
+      </p>
+      <ul style="font-size:12px;color:var(--text-muted);padding-left:20px;line-height:1.8">
+        <li><code>GET /api/tasks</code> — list all monitored URLs</li>
+        <li><code>GET /api/tasks/:id/results</code> — latest snapshot</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Change password -->
+  <div class="card" style="grid-column:1/-1;max-width:480px">
+    <div class="card-header"><h2 class="card-title">Change Password</h2></div>
+    <form action="/profile/change-password" method="POST" class="form" style="padding:20px">
+      <div class="form-group">
+        <label class="form-label" for="current_password">Current Password</label>
+        <input type="password" id="current_password" name="current_password" class="form-input" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="new_password">New Password</label>
+        <input type="password" id="new_password" name="new_password" class="form-input"
+               minlength="8" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="new_password2">Confirm New Password</label>
+        <input type="password" id="new_password2" name="new_password2" class="form-input"
+               minlength="8" required>
+      </div>
+      <button type="submit" class="btn btn-primary">Update Password</button>
+    </form>
+  </div>
+</div>

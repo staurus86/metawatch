@@ -1,0 +1,32 @@
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <span class="logo-icon">👁</span>
+      <span class="logo-text">MetaWatch</span>
+    </div>
+    <h1 class="auth-title">Sign In</h1>
+
+    <% if (error) { %>
+      <div class="alert-banner alert-banner--error"><%= error %></div>
+    <% } %>
+
+    <form action="/login" method="POST" class="auth-form">
+      <div class="form-group">
+        <label class="form-label" for="email">Email</label>
+        <input type="email" id="email" name="email" class="form-input"
+               placeholder="you@example.com" required autofocus>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="password">Password</label>
+        <input type="password" id="password" name="password" class="form-input"
+               placeholder="••••••••" required>
+      </div>
+      <button type="submit" class="btn btn-primary btn-full">Sign In</button>
+    </form>
+
+    <div class="auth-footer">
+      No account? <a href="/register">Create one</a>
+      <span class="text-muted"> (first user only)</span>
+    </div>
+  </div>
+</div>

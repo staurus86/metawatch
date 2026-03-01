@@ -1,0 +1,171 @@
+<div class="page-header">
+  <h1 class="page-title">Dashboard</h1>
+  <div style="display:flex;gap:8px;align-items:center">
+    <button id="scan-all-btn" class="btn btn-ghost">⟳ Scan All</button>
+    <a href="/urls/add" class="btn btn-primary">+ Add URL</a>
+  </div>
+</div>
+
+<!-- Stats row -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-value"><%= stats.total %></div>
+    <div class="stat-label">Total URLs</div>
+  </div>
+  <div class="stat-card stat-card--ok">
+    <div class="stat-value"><%= stats.ok %></div>
+    <div class="stat-label">OK</div>
+  </div>
+  <div class="stat-card stat-card--changed">
+    <div class="stat-value"><%= stats.changed %></div>
+    <div class="stat-label">Changed</div>
+  </div>
+  <div class="stat-card stat-card--error">
+    <div class="stat-value"><%= stats.error %></div>
+    <div class="stat-label">Error</div>
+  </div>
+</div>
+
+<!-- Charts row -->
+<div class="charts-row">
+  <div class="card chart-card">
+    <div class="card-header"><h3 class="card-title">Response Codes</h3></div>
+    <div style="padding:16px;height:180px;display:flex;align-items:center;justify-content:center">
+      <canvas id="chart-status" width="160" height="160"></canvas>
+    </div>
+  </div>
+  <div class="card chart-card">
+    <div class="card-header"><h3 class="card-title">Indexability</h3></div>
+    <div style="padding:16px;height:180px;display:flex;align-items:center;justify-content:center">
+      <canvas id="chart-index" width="160" height="160"></canvas>
+    </div>
+  </div>
+  <div class="card chart-card">
+    <div class="card-header"><h3 class="card-title">Change Status (24h)</h3></div>
+    <div style="padding:16px;height:180px;display:flex;align-items:center;justify-content:center">
+      <canvas id="chart-changes" width="160" height="160"></canvas>
+    </div>
+  </div>
+  <div class="card chart-card chart-card--wide">
+    <div class="card-header"><h3 class="card-title">Alerts (last 30 days)</h3></div>
+    <div style="padding:16px;height:180px">
+      <canvas id="chart-trend"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs" style="margin-bottom:0">
+  <a href="/" class="tab-link <%= tab === 'all' ? 'tab-link--active' : '' %>">All URLs</a>
+  <a href="/?tab=problems" class="tab-link <%= tab === 'problems' ? 'tab-link--active' : '' %>">
+    Problems
+    <% if (stats.changed + stats.error > 0) { %>
+      <span class="tab-badge"><%= stats.changed + stats.error %></span>
+    <% } %>
+  </a>
+</div>
+
+<!-- URL list -->
+<div class="card" style="border-top-left-radius:0">
+  <div class="card-header">
+    <h2 class="card-title">
+      <% if (tab === 'problems') { %>Problem URLs<% } else { %>Monitored URLs<% } %>
+    </h2>
+    <% if (tab === 'problems' && urls.length > 0) { %>
+      <form action="/urls/accept-all-changes" method="POST">
+        <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:4px 10px">
+          ✓ Accept All Changes
+        </button>
+      </form>
+    <% } %>
+  </div>
+  <% if (urls.length === 0) { %>
+    <div class="empty-state">
+      <div class="empty-icon"><% if (tab === 'problems') { %>✅<% } else { %>🔍<% } %></div>
+      <p><% if (tab === 'problems') { %>No problems detected!<% } else { %>No URLs monitored yet.<% } %></p>
+      <% if (tab !== 'problems') { %>
+        <a href="/urls/add" class="btn btn-primary">Add your first URL</a>
+      <% } %>
+    </div>
+  <% } else { %>
+    <div class="url-list">
+      <% urls.forEach(function(u) { %>
+        <a href="/urls/<%= u.id %>" class="url-row">
+          <div class="url-row-left">
+            <span class="status-dot status-dot--<%= u.status.toLowerCase() %>"></span>
+            <div class="url-info">
+              <div class="url-text"><%= u.url %></div>
+              <div class="url-meta">
+                <% if (u.last_checked) { %>
+                  Last checked: <span class="time-ago" data-ts="<%= new Date(u.last_checked).toISOString() %>"></span>
+                <% } else { %>
+                  <span class="text-muted">Not checked yet</span>
+                <% } %>
+                &nbsp;·&nbsp; Every <%= u.check_interval_minutes >= 60 ? (u.check_interval_minutes / 60) + 'h' : u.check_interval_minutes + 'min' %>
+                <% if (!u.is_active) { %>&nbsp;·&nbsp; <span class="badge badge--paused">Paused</span><% } %>
+              </div>
+            </div>
+          </div>
+          <div class="url-row-right">
+            <% if (u.last_status_code) { %>
+              <span class="badge <%= u.last_status_code === 200 ? 'badge--ok' : 'badge--error' %>">
+                <%= u.last_status_code === 0 ? 'ERR' : u.last_status_code %>
+              </span>
+            <% } %>
+            <span class="badge badge--<%= u.status.toLowerCase() %>"><%= u.status %></span>
+            <% if (u.recent_alert_count > 0) { %>
+              <span class="alert-count"><%= u.recent_alert_count %> alert<%= u.recent_alert_count !== 1 ? 's' : '' %></span>
+            <% } %>
+          </div>
+        </a>
+      <% }) %>
+    </div>
+  <% } %>
+</div>
+
+<!-- Recent Alerts -->
+<div class="card" style="margin-top:24px">
+  <div class="card-header">
+    <h2 class="card-title">
+      Recent Alerts
+      <span class="text-muted" style="font-size:14px;font-weight:400">(last 24h)</span>
+    </h2>
+    <% if (alertFields.length > 0) { %>
+      <div style="display:flex;align-items:center;gap:8px">
+        <label style="font-size:12px;color:var(--text-muted)">Filter:</label>
+        <select onchange="window.location='/?tab=<%= tab %>&field='+this.value"
+                class="form-select" style="padding:4px 8px;font-size:12px;width:auto">
+          <option value="">All fields</option>
+          <% alertFields.forEach(function(f) { %>
+            <option value="<%= f %>" <%= fieldFilter === f ? 'selected' : '' %>><%= f %></option>
+          <% }) %>
+        </select>
+      </div>
+    <% } %>
+  </div>
+  <% if (recentAlerts.length === 0) { %>
+    <div class="empty-state" style="padding:32px">
+      <p class="text-muted">No alerts in the last 24 hours.</p>
+    </div>
+  <% } else { %>
+    <div class="alerts-list">
+      <% recentAlerts.forEach(function(alert) { %>
+        <div class="alert-row">
+          <div class="alert-row-main">
+            <span class="alert-field"><%= alert.field_changed %></span>
+            changed on
+            <a href="/urls/<%= alert.url_id %>" class="alert-url"><%= alert.url %></a>
+          </div>
+          <div class="alert-row-meta">
+            <span class="time-ago" data-ts="<%= new Date(alert.detected_at).toISOString() %>"></span>
+          </div>
+          <div class="alert-diff">
+            <span class="diff-old"><%= (alert.old_value || '').substring(0, 100) %><%= (alert.old_value || '').length > 100 ? '…' : '' %></span>
+            <span class="diff-arrow">→</span>
+            <span class="diff-new"><%= (alert.new_value || '').substring(0, 100) %><%= (alert.new_value || '').length > 100 ? '…' : '' %></span>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+  <% } %>
+</div>

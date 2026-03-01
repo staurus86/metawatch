@@ -1,0 +1,131 @@
+<div class="page-header">
+  <h1 class="page-title">Admin — User Management</h1>
+</div>
+
+<% if (locals.message) { %>
+  <div class="alert-banner alert-banner--info" style="margin-bottom:16px"><%= message %></div>
+<% } %>
+
+<!-- Invite user -->
+<div class="card" style="max-width:520px;margin-bottom:24px">
+  <div class="card-header">
+    <h2 class="card-title">Invite User</h2>
+  </div>
+  <form action="/admin/invite" method="POST" class="form" style="padding:20px">
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label" for="inv-email">Email address</label>
+      <input type="email" id="inv-email" name="email" class="form-input"
+             placeholder="newuser@example.com" required>
+    </div>
+    <button type="submit" class="btn btn-primary">Generate Invite Link</button>
+  </form>
+
+  <% if (inviteLink) { %>
+    <div style="padding:0 20px 20px">
+      <div class="alert-banner alert-banner--info">
+        <strong>Invite Link:</strong><br>
+        <a href="<%= inviteLink %>" target="_blank" style="word-break:break-all"><%= inviteLink %></a>
+        <button onclick="navigator.clipboard.writeText('<%= inviteLink %>');this.textContent='Copied!'"
+                class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-left:8px">
+          Copy
+        </button>
+      </div>
+    </div>
+  <% } %>
+</div>
+
+<!-- Users list -->
+<div class="card" style="margin-bottom:24px">
+  <div class="card-header">
+    <h2 class="card-title">Users (<%= users.length %>)</h2>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Joined</th>
+          <th>API Key</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% users.forEach(function(u) { %>
+          <tr>
+            <td>
+              <%= u.email %>
+              <% if (u.id === locals.user.id) { %>
+                <span class="badge badge--ok" style="font-size:10px;margin-left:4px">you</span>
+              <% } %>
+            </td>
+            <td>
+              <span class="badge badge--<%= u.role === 'admin' ? 'changed' : 'pending' %>">
+                <%= u.role %>
+              </span>
+            </td>
+            <td class="text-muted nowrap">
+              <%= new Date(u.created_at).toISOString().split('T')[0] %>
+            </td>
+            <td class="truncate" style="max-width:120px;font-family:monospace;font-size:11px">
+              <%= u.api_key ? u.api_key.substring(0, 16) + '…' : '—' %>
+            </td>
+            <td>
+              <% if (u.id !== locals.user.id) { %>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  <form action="/admin/users/<%= u.id %>/role" method="POST" style="display:inline-flex;gap:4px">
+                    <select name="role" class="form-select" style="padding:3px 6px;font-size:12px;width:auto">
+                      <option value="admin" <%= u.role === 'admin' ? 'selected' : '' %>>admin</option>
+                      <option value="viewer" <%= u.role === 'viewer' ? 'selected' : '' %>>viewer</option>
+                    </select>
+                    <button type="submit" class="btn btn-ghost" style="font-size:11px;padding:3px 8px">Save</button>
+                  </form>
+                  <form action="/admin/users/<%= u.id %>/revoke" method="POST"
+                        data-confirm="Remove user <%= u.email %>? This cannot be undone.">
+                    <button type="submit" class="btn btn-danger" style="font-size:11px;padding:3px 8px">
+                      Revoke
+                    </button>
+                  </form>
+                </div>
+              <% } %>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Pending invites -->
+<div class="card">
+  <div class="card-header">
+    <h2 class="card-title">Recent Invites</h2>
+  </div>
+  <% if (invites.length === 0) { %>
+    <div class="empty-state" style="padding:24px"><p class="text-muted">No invites yet.</p></div>
+  <% } else { %>
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr><th>Email</th><th>Invited By</th><th>Status</th><th>Created</th></tr>
+        </thead>
+        <tbody>
+          <% invites.forEach(function(inv) { %>
+            <tr>
+              <td><%= inv.email %></td>
+              <td class="text-muted"><%= inv.inviter_email || '—' %></td>
+              <td>
+                <span class="badge badge--<%= inv.used ? 'ok' : 'pending' %>">
+                  <%= inv.used ? 'Used' : 'Pending' %>
+                </span>
+              </td>
+              <td class="text-muted nowrap">
+                <%= new Date(inv.created_at).toISOString().split('T')[0] %>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
