@@ -207,6 +207,80 @@ async function migrate() {
         ON uptime_incidents(monitor_id, started_at DESC)
     `);
 
+    // ─── Sprint 5 additions ───────────────────────────────────────────────────
+    // alerts: add severity + notified columns
+    const alertExtra = [
+      "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS severity VARCHAR(10) NOT NULL DEFAULT 'info'",
+      "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS notified BOOLEAN NOT NULL DEFAULT false"
+    ];
+    for (const sql of alertExtra) await client.query(sql);
+
+    // snapshots: text_rules_json for multiple text rule results
+    await client.query(
+      "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS text_rules_json TEXT"
+    );
+
+    // users: onboarding_completed
+    await client.query(
+      "ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN NOT NULL DEFAULT false"
+    );
+
+    // uptime_incidents: postmortem_text
+    await client.query(
+      "ALTER TABLE uptime_incidents ADD COLUMN IF NOT EXISTS postmortem_text TEXT"
+    );
+
+    // ─── text_monitors ────────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS text_monitors (
+        id SERIAL PRIMARY KEY,
+        url_id INT NOT NULL REFERENCES monitored_urls(id) ON DELETE CASCADE,
+        label VARCHAR(100) NOT NULL,
+        text TEXT NOT NULL,
+        match_type VARCHAR(20) NOT NULL DEFAULT 'contains',
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    // ─── notification_log ────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notification_log (
+        id SERIAL PRIMARY KEY,
+        url_id INT REFERENCES monitored_urls(id) ON DELETE CASCADE,
+        monitor_id INT REFERENCES uptime_monitors(id) ON DELETE CASCADE,
+        channel VARCHAR(20) NOT NULL,
+        field_changed VARCHAR(100),
+        severity VARCHAR(10),
+        status VARCHAR(10) NOT NULL DEFAULT 'sent',
+        error_message TEXT,
+        sent_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_notification_log_sent ON notification_log(sent_at DESC)`
+    );
+
+    // ─── webhook_delivery_log ─────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS webhook_delivery_log (
+        id SERIAL PRIMARY KEY,
+        url_id INT REFERENCES monitored_urls(id) ON DELETE CASCADE,
+        monitor_id INT REFERENCES uptime_monitors(id) ON DELETE CASCADE,
+        webhook_url TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        attempts INT NOT NULL DEFAULT 0,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        last_attempt_at TIMESTAMPTZ,
+        next_retry_at TIMESTAMPTZ DEFAULT NOW(),
+        error_message TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_webhook_retry ON webhook_delivery_log(next_retry_at) WHERE status = 'pending'`
+    );
+
     // ─── users self-ref FK (invited_by_id) ────────────────────────────────────
     // Add FK only if it doesn't already exist
     await client.query(`

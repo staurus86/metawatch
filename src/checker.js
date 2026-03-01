@@ -4,6 +4,45 @@ const { notify } = require('./notifier');
 
 const SSL_WARN_DAYS = parseInt(process.env.SSL_WARN_DAYS || '30', 10);
 
+// Classify alert severity based on field and values
+function classifySeverity(fieldLabel, oldValue, newValue) {
+  const critical = ['Response Code', 'noindex', 'SSL Expiry Warning', 'SSL Certificate'];
+  const warning  = ['Title', 'Meta Description', 'Canonical', 'Redirect URL', 'hreflang'];
+  const info     = ['H1', 'Page Content', 'robots.txt', 'OG Title', 'OG Description', 'OG Image', 'Custom Text'];
+
+  if (critical.includes(fieldLabel)) {
+    // noindex: only critical when it appears (false→true)
+    if (fieldLabel === 'noindex') {
+      return (String(newValue) === 'true' || newValue === true) ? 'critical' : 'warning';
+    }
+    // Response Code: critical if going to/from error
+    if (fieldLabel === 'Response Code') {
+      const nc = parseInt(newValue, 10);
+      return (!nc || nc >= 400) ? 'critical' : 'warning';
+    }
+    return 'critical';
+  }
+  if (warning.includes(fieldLabel)) {
+    // Title: critical if new value is empty
+    if (fieldLabel === 'Title' && (!newValue || newValue === 'null' || newValue === '')) {
+      return 'critical';
+    }
+    return 'warning';
+  }
+  return 'info';
+}
+
+// Write to notification_log
+async function logNotification({ urlId, monitorId, channel, fieldChanged, severity, status, errorMessage }) {
+  try {
+    await pool.query(
+      `INSERT INTO notification_log (url_id, monitor_id, channel, field_changed, severity, status, error_message)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [urlId || null, monitorId || null, channel, fieldChanged || null, severity || null, status, errorMessage || null]
+    );
+  } catch { /* non-critical */ }
+}
+
 const MONITORED_FIELDS = [
   { key: 'title',            monitorKey: 'monitor_title',       label: 'Title' },
   { key: 'description',      monitorKey: 'monitor_description', label: 'Meta Description' },
@@ -55,10 +94,17 @@ async function checkUrl(urlId) {
     refSnapshot = prevRows[0] || null;
   }
 
+  // Load active text rules for this URL
+  const { rows: textRules } = await pool.query(
+    'SELECT * FROM text_monitors WHERE url_id = $1 AND is_active = true',
+    [urlId]
+  );
+
   // Scrape current state
   const scraped = await scrapeUrl(urlRecord.url, {
     userAgent: urlRecord.user_agent || undefined,
-    customText: urlRecord.custom_text || undefined
+    customText: urlRecord.custom_text || undefined,
+    textRules: textRules.length > 0 ? textRules : undefined
   });
 
   const robotsData = urlRecord.monitor_robots
@@ -69,14 +115,19 @@ async function checkUrl(urlId) {
     ? await checkSsl(urlRecord.url)
     : null;
 
+  // Serialize text rule results
+  const textRulesJson = scraped.textRuleResults && scraped.textRuleResults.length > 0
+    ? JSON.stringify(scraped.textRuleResults)
+    : null;
+
   // Save new snapshot
   const { rows: [snap] } = await pool.query(
     `INSERT INTO snapshots
        (url_id, title, description, h1, body_text_hash, status_code, noindex,
         redirect_url, canonical, robots_txt_hash, raw_robots_txt,
         hreflang, og_title, og_description, og_image, custom_text_found,
-        response_time_ms, ssl_expires_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+        response_time_ms, ssl_expires_at, text_rules_json)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
      RETURNING *`,
     [
       urlId,
@@ -96,7 +147,8 @@ async function checkUrl(urlId) {
       scraped.og_image,
       scraped.custom_text_found,
       scraped.response_time_ms ?? null,
-      sslExpiresAt ?? null
+      sslExpiresAt ?? null,
+      textRulesJson
     ]
   );
 
@@ -137,10 +189,12 @@ async function checkUrl(urlId) {
       ? (snap.raw_robots_txt ?? rawNew)
       : rawNew;
 
+    const severity = classifySeverity(field.label, rawOld, rawNew);
+
     await pool.query(
-      `INSERT INTO alerts (url_id, field_changed, old_value, new_value)
-       VALUES ($1, $2, $3, $4)`,
-      [urlId, field.label, String(rawOld ?? ''), String(rawNew ?? '')]
+      `INSERT INTO alerts (url_id, field_changed, old_value, new_value, severity)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [urlId, field.label, String(rawOld ?? ''), String(rawNew ?? ''), severity]
     );
 
     alertsGenerated.push(field.label);
@@ -148,13 +202,57 @@ async function checkUrl(urlId) {
     // Skip notifications if URL is in maintenance window
     const silenced = urlRecord.silenced_until && new Date(urlRecord.silenced_until) > new Date();
     if (!silenced) {
-      await notify({
-        urlRecord,
-        field: field.label,
-        oldValue: displayOld,
-        newValue: displayNew,
-        timestamp: new Date()
-      });
+      try {
+        await notify({
+          urlRecord,
+          field: field.label,
+          oldValue: displayOld,
+          newValue: displayNew,
+          severity,
+          timestamp: new Date()
+        });
+        await logNotification({ urlId, channel: 'email', fieldChanged: field.label, severity, status: 'sent' });
+      } catch (notifyErr) {
+        await logNotification({ urlId, channel: 'email', fieldChanged: field.label, severity, status: 'failed', errorMessage: notifyErr.message });
+      }
+    }
+  }
+
+  // ── Text rule change detection ──────────────────────────────────────────────
+  if (textRules.length > 0 && scraped.textRuleResults && refSnapshot) {
+    let refRuleResults = [];
+    try { refRuleResults = JSON.parse(refSnapshot.text_rules_json || '[]'); } catch { refRuleResults = []; }
+
+    for (const result of scraped.textRuleResults) {
+      const prevResult = refRuleResults.find(r => r.id === result.id);
+      const prevMatched = prevResult ? prevResult.matched : null;
+
+      if (prevMatched !== null && prevMatched !== result.matched) {
+        const label = result.label || result.text;
+        const oldVal = prevMatched ? 'Found' : 'Not found';
+        const newVal = result.matched ? 'Found' : 'Not found';
+
+        await pool.query(
+          `INSERT INTO alerts (url_id, field_changed, old_value, new_value, severity)
+           VALUES ($1, $2, $3, $4, 'info')`,
+          [urlId, `Text: ${label}`, oldVal, newVal]
+        );
+        alertsGenerated.push(`Text: ${label}`);
+
+        const silenced2 = urlRecord.silenced_until && new Date(urlRecord.silenced_until) > new Date();
+        if (!silenced2) {
+          try {
+            await notify({
+              urlRecord,
+              field: `Text Rule: ${label}`,
+              oldValue: oldVal,
+              newValue: newVal,
+              severity: 'info',
+              timestamp: new Date()
+            });
+          } catch { /* non-critical */ }
+        }
+      }
     }
   }
 
@@ -171,20 +269,26 @@ async function checkUrl(urlId) {
       );
       if (recentWarn.length === 0) {
         await pool.query(
-          `INSERT INTO alerts (url_id, field_changed, old_value, new_value)
-           VALUES ($1, 'SSL Expiry Warning', $2, $3)`,
+          `INSERT INTO alerts (url_id, field_changed, old_value, new_value, severity)
+           VALUES ($1, 'SSL Expiry Warning', $2, $3, 'critical')`,
           [urlId, `${daysLeft} days remaining`, sslExpiresAt.toISOString()]
         );
         alertsGenerated.push(`SSL Expiry Warning (${daysLeft}d)`);
         const silenced = urlRecord.silenced_until && new Date(urlRecord.silenced_until) > new Date();
         if (!silenced) {
-          await notify({
-            urlRecord,
-            field: 'SSL Expiry Warning',
-            oldValue: `${daysLeft} days remaining`,
-            newValue: `Certificate expires: ${sslExpiresAt.toUTCString()}`,
-            timestamp: new Date()
-          });
+          try {
+            await notify({
+              urlRecord,
+              field: 'SSL Expiry Warning',
+              oldValue: `${daysLeft} days remaining`,
+              newValue: `Certificate expires: ${sslExpiresAt.toUTCString()}`,
+              severity: 'critical',
+              timestamp: new Date()
+            });
+            await logNotification({ urlId, channel: 'email', fieldChanged: 'SSL Expiry Warning', severity: 'critical', status: 'sent' });
+          } catch (notifyErr) {
+            await logNotification({ urlId, channel: 'email', fieldChanged: 'SSL Expiry Warning', severity: 'critical', status: 'failed', errorMessage: notifyErr.message });
+          }
         }
       }
     }

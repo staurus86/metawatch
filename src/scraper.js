@@ -119,9 +119,26 @@ async function scrapeUrl(url, options = {}) {
     result.body_text_hash = sha256(bodyText);
 
     // Custom text search (body only)
+    const fullBodyText = $('body').text();
     if (customText) {
-      const fullBodyText = $('body').text();
       result.custom_text_found = fullBodyText.includes(customText);
+    }
+
+    // Multi-rule text monitors
+    if (options.textRules && options.textRules.length > 0) {
+      result.textRuleResults = options.textRules.map(rule => {
+        let matched = false;
+        try {
+          if (rule.match_type === 'contains') {
+            matched = fullBodyText.toLowerCase().includes(rule.text.toLowerCase());
+          } else if (rule.match_type === 'not_contains') {
+            matched = !fullBodyText.toLowerCase().includes(rule.text.toLowerCase());
+          } else if (rule.match_type === 'regex') {
+            matched = new RegExp(rule.text, 'i').test(fullBodyText);
+          }
+        } catch { matched = false; }
+        return { id: rule.id, label: rule.label, text: rule.text, match_type: rule.match_type, matched };
+      });
     }
 
   } catch (err) {

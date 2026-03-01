@@ -30,7 +30,7 @@ async function sendWebhook({ webhookUrl, payload }) {
   }
 }
 
-async function notify({ urlRecord, field, oldValue, newValue, timestamp }) {
+async function notify({ urlRecord, field, oldValue, newValue, severity, timestamp }) {
   const results = { email: false, telegram: false, webhook: false };
 
   // Email
@@ -81,6 +81,7 @@ async function notify({ urlRecord, field, oldValue, newValue, timestamp }) {
         field,
         old_value: oldValue,
         new_value: newValue,
+        severity: severity || 'info',
         timestamp: timestamp instanceof Date ? timestamp.toISOString() : timestamp,
         dashboard_url: process.env.BASE_URL
           ? `${process.env.BASE_URL}/urls/${urlRecord.id}`

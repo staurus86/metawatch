@@ -138,6 +138,11 @@
      class="tab-link <%= activeTab === 'snapshots' ? 'tab-link--active' : '' %>">Snapshots</a>
   <a href="/urls/<%= urlRecord.id %>?tab=robots"
      class="tab-link <%= activeTab === 'robots' ? 'tab-link--active' : '' %>">robots.txt</a>
+  <a href="/urls/<%= urlRecord.id %>?tab=text-rules"
+     class="tab-link <%= activeTab === 'text-rules' ? 'tab-link--active' : '' %>">
+    Text Rules
+    <% if (textRules && textRules.length > 0) { %><span class="tab-badge" style="background:var(--accent)"><%= textRules.length %></span><% } %>
+  </a>
 </div>
 
 <!-- Tab content -->
@@ -294,6 +299,13 @@
           <div class="alert-detail-row">
             <div class="alert-detail-header">
               <span class="alert-field-badge"><%= alert.field_changed %></span>
+              <% if (alert.severity === 'critical') { %>
+                <span class="badge badge--severity-critical">Critical</span>
+              <% } else if (alert.severity === 'warning') { %>
+                <span class="badge badge--severity-warning">Warning</span>
+              <% } else if (alert.severity) { %>
+                <span class="badge badge--severity-info">Info</span>
+              <% } %>
               <span class="alert-time text-muted">
                 <span class="time-ago" data-ts="<%= new Date(alert.detected_at).toISOString() %>"></span>
                 — <%= new Date(alert.detected_at).toUTCString() %>
@@ -371,6 +383,81 @@
         </table>
       </div>
     <% } %>
+
+  <!-- TEXT RULES tab -->
+  <% } else if (activeTab === 'text-rules') { %>
+    <div style="padding:16px 20px">
+      <div class="section-label" style="margin-bottom:14px">Text Monitor Rules</div>
+
+      <!-- Add rule form -->
+      <div class="card" style="margin-bottom:16px;padding:16px">
+        <form action="/urls/<%= urlRecord.id %>/text-rules" method="POST">
+          <div style="display:grid;grid-template-columns:1fr 1fr auto auto;gap:10px;align-items:end">
+            <div>
+              <label class="form-label" style="font-size:11px">Label</label>
+              <input name="label" type="text" class="form-input" placeholder="e.g. Price check" style="padding:7px 10px;font-size:13px">
+            </div>
+            <div>
+              <label class="form-label" style="font-size:11px">Text to find <span class="required">*</span></label>
+              <input name="text" type="text" class="form-input" placeholder="e.g. Add to cart" required style="padding:7px 10px;font-size:13px">
+            </div>
+            <div>
+              <label class="form-label" style="font-size:11px">Match type</label>
+              <select name="match_type" class="form-select" style="padding:7px 10px;font-size:13px">
+                <option value="contains">Contains</option>
+                <option value="not_contains">Not contains</option>
+                <option value="regex">Regex</option>
+              </select>
+            </div>
+            <div style="padding-top:16px">
+              <button type="submit" class="btn btn-primary" style="font-size:13px;padding:7px 14px">+ Add</button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <!-- Existing rules -->
+      <% if (!textRules || textRules.length === 0) { %>
+        <div class="empty-state" style="padding:24px">
+          <p class="text-muted">No text rules defined. Add your first rule above.</p>
+        </div>
+      <% } else { %>
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr><th>Label</th><th>Text</th><th>Match Type</th><th>Status</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+              <% textRules.forEach(function(rule) { %>
+                <tr>
+                  <td><strong><%= rule.label %></strong></td>
+                  <td style="font-size:12px;word-break:break-all"><code><%= rule.text %></code></td>
+                  <td>
+                    <span class="badge badge--paused" style="text-transform:uppercase;font-size:10px"><%= rule.match_type.replace('_',' ') %></span>
+                  </td>
+                  <td>
+                    <span class="badge badge--<%= rule.is_active ? 'ok' : 'pending' %>">
+                      <%= rule.is_active ? 'Active' : 'Paused' %>
+                    </span>
+                  </td>
+                  <td style="display:flex;gap:6px">
+                    <form action="/urls/<%= urlRecord.id %>/text-rules/<%= rule.id %>/toggle" method="POST" style="display:inline">
+                      <button type="submit" class="btn btn-ghost" style="font-size:11px;padding:4px 10px">
+                        <%= rule.is_active ? '⏸ Pause' : '▶ Resume' %>
+                      </button>
+                    </form>
+                    <form action="/urls/<%= urlRecord.id %>/text-rules/<%= rule.id %>/delete" method="POST" style="display:inline"
+                          data-confirm="Delete this text rule?">
+                      <button type="submit" class="btn btn-danger" style="font-size:11px;padding:4px 10px">✕</button>
+                    </form>
+                  </td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </div>
 
   <!-- ROBOTS.TXT tab -->
   <% } else if (activeTab === 'robots') { %>

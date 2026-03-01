@@ -1,4 +1,5 @@
 const cron = require('node-cron');
+const axios = require('axios');
 const pool = require('./db');
 const { checkUrl } = require('./checker');
 const { checkMonitor } = require('./uptime-checker');
@@ -108,6 +109,10 @@ async function startScheduler() {
   // Weekly: every Monday at 08:00
   cron.schedule('0 8 * * 1', () => sendDigests('weekly'));
   console.log('[Scheduler] Email digest jobs scheduled (daily 08:00, weekly Mon 08:00)');
+
+  // Webhook retry cron — runs every 2 minutes
+  cron.schedule('*/2 * * * *', () => retryWebhooks());
+  console.log('[Scheduler] Webhook retry queue active (every 2 min)');
 }
 
 async function sendDigests(frequency) {
@@ -148,6 +153,56 @@ async function sendDigests(frequency) {
     }
   } catch (err) {
     console.error(`[Digest] Error sending ${frequency} digests:`, err.message);
+  }
+}
+
+// ─── Webhook retry queue ──────────────────────────────────────────────────────
+
+async function retryWebhooks() {
+  try {
+    const { rows: pending } = await pool.query(
+      `SELECT * FROM webhook_delivery_log
+       WHERE status = 'pending' AND next_retry_at <= NOW()
+       ORDER BY next_retry_at ASC LIMIT 20`
+    );
+
+    for (const job of pending) {
+      try {
+        await axios.post(job.webhook_url, JSON.parse(job.payload), {
+          timeout: 10000,
+          headers: { 'Content-Type': 'application/json', 'User-Agent': 'MetaWatch/2.0' }
+        });
+        await pool.query(
+          `UPDATE webhook_delivery_log
+           SET status = 'delivered', last_attempt_at = NOW(), attempts = attempts + 1
+           WHERE id = $1`,
+          [job.id]
+        );
+      } catch (err) {
+        const attempts = job.attempts + 1;
+        const MAX_ATTEMPTS = 5;
+        const backoffSeconds = Math.pow(2, attempts) * 60; // 2min, 4min, 8min, 16min, 32min
+
+        if (attempts >= MAX_ATTEMPTS) {
+          await pool.query(
+            `UPDATE webhook_delivery_log
+             SET status = 'failed', last_attempt_at = NOW(), attempts = $1, error_message = $2
+             WHERE id = $3`,
+            [attempts, err.message, job.id]
+          );
+        } else {
+          await pool.query(
+            `UPDATE webhook_delivery_log
+             SET last_attempt_at = NOW(), attempts = $1, error_message = $2,
+                 next_retry_at = NOW() + INTERVAL '${backoffSeconds} seconds'
+             WHERE id = $3`,
+            [attempts, err.message, job.id]
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[WebhookRetry] Error:', err.message);
   }
 }
 

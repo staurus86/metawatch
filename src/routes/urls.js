@@ -451,6 +451,12 @@ router.get('/:id', requireAuth, async (req, res) => {
     `, [urlId]);
     const uptimePct = uptimeRow?.uptime_pct ?? null;
 
+    // Load text rules for this URL
+    const { rows: textRules } = await pool.query(
+      'SELECT * FROM text_monitors WHERE url_id = $1 ORDER BY created_at ASC',
+      [urlId]
+    );
+
     res.render('url-detail', {
       title: urlRecord.url,
       urlRecord,
@@ -460,7 +466,8 @@ router.get('/:id', requireAuth, async (req, res) => {
       refSnapshot,
       robotsDiff,
       activeTab: req.query.tab || 'overview',
-      uptimePct
+      uptimePct,
+      textRules
     });
   } catch (err) {
     console.error(err);
@@ -718,5 +725,83 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+// ─── Text Rules CRUD ──────────────────────────────────────────────────────────
+
+// POST /urls/:id/text-rules — add a text rule
+router.post('/:id/text-rules', requireAuth, async (req, res) => {
+  const urlId = parseInt(req.params.id, 10);
+  if (isNaN(urlId)) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
+
+  try {
+    const { query, params } = ownedUrlQuery(urlId, req);
+    const { rows: [urlRecord] } = await pool.query(query, params);
+    if (!urlRecord) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
+
+    const { label, text, match_type } = req.body;
+    if (!text || !match_type) return res.redirect(`/urls/${urlId}?tab=text-rules&error=missing`);
+
+    await pool.query(
+      `INSERT INTO text_monitors (url_id, label, text, match_type)
+       VALUES ($1, $2, $3, $4)`,
+      [urlId, label || text, text, match_type]
+    );
+
+    res.redirect(`/urls/${urlId}?tab=text-rules`);
+  } catch (err) { res.status(500).render('error', { title: 'Error', error: err.message }); }
+});
+
+// POST /urls/:id/text-rules/:ruleId/delete — delete a text rule
+router.post('/:id/text-rules/:ruleId/delete', requireAuth, async (req, res, next) => {
+  const urlId  = parseInt(req.params.id, 10);
+  const ruleId = parseInt(req.params.ruleId, 10);
+  if (isNaN(urlId) || isNaN(ruleId)) return res.status(404).render('error', { title: 'Not Found', error: 'Not found' });
+
+  try {
+    const { query, params } = ownedUrlQuery(urlId, req);
+    const { rows: [urlRecord] } = await pool.query(query, params);
+    if (!urlRecord) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
+
+    await pool.query(
+      'DELETE FROM text_monitors WHERE id = $1 AND url_id = $2',
+      [ruleId, urlId]
+    );
+
+    res.redirect(`/urls/${urlId}?tab=text-rules`);
+  } catch (err) { next(err); }
+});
+
+// POST /urls/:id/text-rules/:ruleId/toggle — toggle active state
+router.post('/:id/text-rules/:ruleId/toggle', requireAuth, async (req, res, next) => {
+  const urlId  = parseInt(req.params.id, 10);
+  const ruleId = parseInt(req.params.ruleId, 10);
+  if (isNaN(urlId) || isNaN(ruleId)) return res.status(404).render('error', { title: 'Not Found', error: 'Not found' });
+
+  try {
+    const { query, params } = ownedUrlQuery(urlId, req);
+    const { rows: [urlRecord] } = await pool.query(query, params);
+    if (!urlRecord) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
+
+    await pool.query(
+      'UPDATE text_monitors SET is_active = NOT is_active WHERE id = $1 AND url_id = $2',
+      [ruleId, urlId]
+    );
+
+    res.redirect(`/urls/${urlId}?tab=text-rules`);
+  } catch (err) { next(err); }
+});
+
+// ─── Onboarding complete ──────────────────────────────────────────────────────
+router.post('/onboarding-complete', requireAuth, async (req, res) => {
+  try {
+    await pool.query(
+      'UPDATE users SET onboarding_completed = true WHERE id = $1',
+      [req.user.id]
+    );
+    res.json({ ok: true });
+  } catch {
+    res.json({ ok: false });
+  }
+});
 
 module.exports = router;

@@ -50,6 +50,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>
           Alerts CSV
         </a>
+        <a href="/notifications" class="nav-link <%= typeof title !== 'undefined' && title === 'Notification History' ? 'active' : '' %>">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+          Notifications
+        </a>
         <% if (locals.user && locals.user.role === 'admin') { %>
         <a href="/admin/users" class="nav-link nav-link--admin">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
@@ -81,6 +85,49 @@
       <%- body %>
     </main>
   </div>
+
+  <!-- Onboarding Modal (shown once to new users) -->
+  <% if (locals.user && !locals.user.onboarding_completed) { %>
+  <div id="onboarding-modal" class="onboarding-overlay">
+    <div class="onboarding-box">
+      <div class="onboarding-steps">
+        <!-- Step 1 -->
+        <div class="onboarding-step" id="ob-step-1">
+          <div class="onboarding-icon">👁</div>
+          <h2 class="onboarding-title">Welcome to MetaWatch!</h2>
+          <p class="onboarding-desc">MetaWatch monitors your website's metadata, uptime, and content changes — and notifies you the moment something changes.</p>
+          <button class="btn btn-primary" onclick="obNext(2)">Next →</button>
+        </div>
+        <!-- Step 2 -->
+        <div class="onboarding-step" id="ob-step-2" style="display:none">
+          <div class="onboarding-icon">🔗</div>
+          <h2 class="onboarding-title">Add your first URL</h2>
+          <p class="onboarding-desc">Go to <strong>Add URL</strong> to start monitoring a page. Choose which fields to track: title, meta description, H1, canonical, and more.</p>
+          <div style="display:flex;gap:10px;justify-content:center;margin-top:4px">
+            <button class="btn btn-ghost" onclick="obNext(1)">← Back</button>
+            <button class="btn btn-primary" onclick="obNext(3)">Next →</button>
+          </div>
+        </div>
+        <!-- Step 3 -->
+        <div class="onboarding-step" id="ob-step-3" style="display:none">
+          <div class="onboarding-icon">🔔</div>
+          <h2 class="onboarding-title">Set up alerts</h2>
+          <p class="onboarding-desc">Configure email, Telegram, or webhook notifications per URL. You can also set maintenance windows to silence alerts temporarily.</p>
+          <div style="display:flex;gap:10px;justify-content:center;margin-top:4px">
+            <button class="btn btn-ghost" onclick="obNext(2)">← Back</button>
+            <button class="btn btn-primary" onclick="obFinish()">Get Started ✓</button>
+          </div>
+        </div>
+      </div>
+      <div class="onboarding-dots">
+        <span class="ob-dot ob-dot--active" id="ob-dot-1"></span>
+        <span class="ob-dot" id="ob-dot-2"></span>
+        <span class="ob-dot" id="ob-dot-3"></span>
+      </div>
+      <button class="onboarding-skip" onclick="obFinish()">Skip</button>
+    </div>
+  </div>
+  <% } %>
 
   <!-- Scan-all progress modal -->
   <div id="scan-modal" class="scan-modal" style="display:none">

@@ -439,7 +439,23 @@ function updateBulkBar() {
   }
 }
 
-// Wait for Chart.js CDN to load
+// ─── Onboarding Wizard ───────────────────────────────────────────────────────
+function obNext(step) {
+  [1, 2, 3].forEach(n => {
+    const s = document.getElementById('ob-step-' + n);
+    const d = document.getElementById('ob-dot-' + n);
+    if (s) s.style.display = n === step ? '' : 'none';
+    if (d) d.classList.toggle('ob-dot--active', n === step);
+  });
+}
+
+function obFinish() {
+  const modal = document.getElementById('onboarding-modal');
+  if (modal) modal.style.display = 'none';
+  fetch('/urls/onboarding-complete', { method: 'POST' }).catch(() => {});
+}
+
+// ─── Wait for Chart.js CDN to load ───────────────────────────────────────────
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => { initCharts(); initResponseTimeChart(); initUptimeChart(); });
 } else {

@@ -1,0 +1,117 @@
+<div class="page-header">
+  <div>
+    <div class="breadcrumb">Account</div>
+    <h1 class="page-title">Notification History</h1>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="card" style="margin-bottom:16px">
+  <form method="GET" action="/notifications" style="display:flex;gap:10px;padding:14px 16px;flex-wrap:wrap;align-items:flex-end">
+    <div>
+      <label class="form-label" style="font-size:11px;margin-bottom:3px">Channel</label>
+      <select name="channel" class="form-select" style="width:120px;padding:6px 10px;font-size:13px">
+        <option value="">All</option>
+        <option value="email" <%= filters.channel === 'email' ? 'selected' : '' %>>Email</option>
+        <option value="telegram" <%= filters.channel === 'telegram' ? 'selected' : '' %>>Telegram</option>
+        <option value="webhook" <%= filters.channel === 'webhook' ? 'selected' : '' %>>Webhook</option>
+      </select>
+    </div>
+    <div>
+      <label class="form-label" style="font-size:11px;margin-bottom:3px">Severity</label>
+      <select name="severity" class="form-select" style="width:120px;padding:6px 10px;font-size:13px">
+        <option value="">All</option>
+        <option value="critical" <%= filters.severity === 'critical' ? 'selected' : '' %>>Critical</option>
+        <option value="warning"  <%= filters.severity === 'warning'  ? 'selected' : '' %>>Warning</option>
+        <option value="info"     <%= filters.severity === 'info'     ? 'selected' : '' %>>Info</option>
+      </select>
+    </div>
+    <div>
+      <label class="form-label" style="font-size:11px;margin-bottom:3px">Status</label>
+      <select name="status" class="form-select" style="width:110px;padding:6px 10px;font-size:13px">
+        <option value="">All</option>
+        <option value="sent"   <%= filters.status === 'sent'   ? 'selected' : '' %>>Sent</option>
+        <option value="failed" <%= filters.status === 'failed' ? 'selected' : '' %>>Failed</option>
+      </select>
+    </div>
+    <button type="submit" class="btn btn-ghost" style="font-size:13px;padding:6px 14px">Filter</button>
+    <a href="/notifications" class="btn btn-ghost" style="font-size:13px;padding:6px 14px">Clear</a>
+    <span style="font-size:12px;color:var(--text-muted);margin-left:auto;align-self:center"><%= total %> record(s)</span>
+  </form>
+</div>
+
+<!-- Table -->
+<div class="card">
+  <% if (notifications.length === 0) { %>
+    <div class="empty-state" style="padding:40px">
+      <div class="empty-icon">🔔</div>
+      <p>No notifications recorded yet.</p>
+    </div>
+  <% } else { %>
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Target</th>
+            <th>Channel</th>
+            <th>Field</th>
+            <th>Severity</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% notifications.forEach(function(n) { %>
+            <tr>
+              <td class="nowrap">
+                <span class="time-ago" data-ts="<%= new Date(n.sent_at).toISOString() %>"></span><br>
+                <small class="text-muted"><%= new Date(n.sent_at).toUTCString().replace(' GMT','') %></small>
+              </td>
+              <td style="font-size:12px;max-width:220px">
+                <% if (n.url_url) { %>
+                  <a href="/urls/<%= n.url_id %>" class="alert-url" style="word-break:break-all"><%= n.url_url.substring(0, 60) %></a>
+                <% } else if (n.monitor_name) { %>
+                  <a href="/uptime/<%= n.monitor_id %>" class="alert-url"><%= n.monitor_name %></a>
+                  <div style="font-size:11px;color:var(--text-muted)"><%= n.monitor_url %></div>
+                <% } else { %>
+                  <span class="text-muted">—</span>
+                <% } %>
+              </td>
+              <td>
+                <span class="badge badge--paused" style="text-transform:uppercase"><%= n.channel %></span>
+              </td>
+              <td style="font-size:12px"><%= n.field_changed || '—' %></td>
+              <td>
+                <% if (n.severity === 'critical') { %>
+                  <span class="badge badge--severity-critical">Critical</span>
+                <% } else if (n.severity === 'warning') { %>
+                  <span class="badge badge--severity-warning">Warning</span>
+                <% } else if (n.severity === 'info') { %>
+                  <span class="badge badge--severity-info">Info</span>
+                <% } else { %>
+                  <span class="text-muted">—</span>
+                <% } %>
+              </td>
+              <td>
+                <span class="badge badge--<%= n.status === 'sent' ? 'ok' : 'error' %>">
+                  <%= n.status %>
+                </span>
+                <% if (n.error_message) { %>
+                  <div style="font-size:11px;color:var(--text-muted);margin-top:2px"><%= n.error_message.substring(0, 60) %></div>
+                <% } %>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+
+    <% if (totalPages > 1) { %>
+    <div class="pagination">
+      <% if (page > 1) { %><a href="?page=<%= page - 1 %>&channel=<%= filters.channel %>&severity=<%= filters.severity %>&status=<%= filters.status %>" class="btn btn-ghost btn-sm">← Prev</a><% } %>
+      <span class="pagination-info">Page <%= page %> of <%= totalPages %></span>
+      <% if (page < totalPages) { %><a href="?page=<%= page + 1 %>&channel=<%= filters.channel %>&severity=<%= filters.severity %>&status=<%= filters.status %>" class="btn btn-ghost btn-sm">Next →</a><% } %>
+    </div>
+    <% } %>
+  <% } %>
+</div>

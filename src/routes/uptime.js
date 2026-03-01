@@ -387,4 +387,28 @@ router.post('/:id/delete', requireAuth, async (req, res) => {
   }
 });
 
+// ─── POST /uptime/:id/incidents/:incidentId/postmortem ───────────────────────
+router.post('/:id/incidents/:incidentId/postmortem', requireAuth, async (req, res) => {
+  const monitorId  = parseInt(req.params.id, 10);
+  const incidentId = parseInt(req.params.incidentId, 10);
+  if (isNaN(monitorId) || isNaN(incidentId)) {
+    return res.status(404).render('error', { title: 'Not Found', error: 'Not found' });
+  }
+  try {
+    const { query, params } = ownedMonitorQuery(monitorId, req);
+    const { rows: [monitor] } = await pool.query(query, params);
+    if (!monitor) return res.status(404).render('error', { title: 'Not Found', error: 'Monitor not found' });
+
+    const { postmortem_text } = req.body;
+    await pool.query(
+      'UPDATE uptime_incidents SET postmortem_text = $1 WHERE id = $2 AND monitor_id = $3',
+      [postmortem_text || null, incidentId, monitorId]
+    );
+
+    res.redirect(`/uptime/${monitorId}?tab=incidents`);
+  } catch (err) {
+    res.status(500).render('error', { title: 'Error', error: err.message });
+  }
+});
+
 module.exports = router;
