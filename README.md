@@ -20,6 +20,8 @@ Key production flags (see `.env.example` for full list):
 - `DEFAULT_ALERT_COOLDOWN_MINUTES=60` controls duplicate alert cooldown.
 - `SLOW_QUERY_MS=250` logs slow SQL queries.
 - `WEBHOOK_SIGNING_SECRET=` adds `X-MetaWatch-Signature` HMAC header to outgoing webhooks.
+- `ENABLE_SCHEDULER=true` controls cron startup (useful for web/worker split).
+- `API_RATE_LIMIT_WINDOW_MS` and `API_RATE_LIMIT_MAX` tune `/api` rate limiting.
 - `ALERT_RETENTION_DAYS`, `NOTIFICATION_LOG_RETENTION_DAYS`, `WEBHOOK_LOG_RETENTION_DAYS` control data retention.
 
 ## Browser Extension

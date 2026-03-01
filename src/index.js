@@ -75,7 +75,12 @@ app.use((err, req, res, next) => {
 async function start() {
   try {
     await migrate();
-    await startScheduler();
+    const schedulerEnabled = String(process.env.ENABLE_SCHEDULER || 'true').toLowerCase() !== 'false';
+    if (schedulerEnabled) {
+      await startScheduler();
+    } else {
+      console.log('[Scheduler] Disabled by ENABLE_SCHEDULER=false');
+    }
     app.listen(PORT, () => {
       console.log(`✓ MetaWatch v2 running on http://localhost:${PORT}`);
     });

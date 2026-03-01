@@ -11,9 +11,32 @@ const {
 const loginAttempts = new Map();
 const RATE_LIMIT_MAX = 10;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_ATTEMPTS_MAX_TRACKED = 50000;
+
+function pruneLoginAttempts(now = Date.now()) {
+  for (const [key, entry] of loginAttempts.entries()) {
+    if (!entry || now > entry.resetAt) {
+      loginAttempts.delete(key);
+    }
+  }
+  if (loginAttempts.size <= LOGIN_ATTEMPTS_MAX_TRACKED) return;
+  const oldestKeys = [...loginAttempts.entries()]
+    .sort((a, b) => (a[1]?.resetAt || 0) - (b[1]?.resetAt || 0))
+    .slice(0, loginAttempts.size - LOGIN_ATTEMPTS_MAX_TRACKED)
+    .map(([ip]) => ip);
+  oldestKeys.forEach(ip => loginAttempts.delete(ip));
+}
+
+const loginAttemptsCleanupTimer = setInterval(() => {
+  pruneLoginAttempts();
+}, 5 * 60 * 1000);
+if (typeof loginAttemptsCleanupTimer.unref === 'function') {
+  loginAttemptsCleanupTimer.unref();
+}
 
 function isRateLimited(ip) {
   const now = Date.now();
+  pruneLoginAttempts(now);
   const entry = loginAttempts.get(ip);
   if (!entry || now > entry.resetAt) {
     loginAttempts.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });

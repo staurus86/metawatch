@@ -7,10 +7,13 @@ const { scanEmitter, isScanRunning } = require('../scan-events');
 const { getSchedulerStatus } = require('../scheduler');
 const { ipKeyGenerator } = require('express-rate-limit');
 
-// 100 req/min per API key (or IP for cookie/no-key requests)
+const API_RATE_LIMIT_WINDOW_MS = Math.max(1000, parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || '60000', 10) || 60000);
+const API_RATE_LIMIT_MAX = Math.max(1, parseInt(process.env.API_RATE_LIMIT_MAX || '100', 10) || 100);
+
+// Rate limit per API key (or IP for cookie/no-key requests)
 const apiLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 100,
+  windowMs: API_RATE_LIMIT_WINDOW_MS,
+  max: API_RATE_LIMIT_MAX,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
@@ -21,7 +24,7 @@ const apiLimiter = rateLimit({
     }
     return `ip:${ipKeyGenerator(req.ip)}`;
   },
-  message: { error: 'Too many requests. Limit: 100/min per API key or IP.' }
+  message: { error: `Too many requests. Limit: ${API_RATE_LIMIT_MAX} per ${Math.round(API_RATE_LIMIT_WINDOW_MS / 1000)}s per API key or IP.` }
 });
 router.use(apiLimiter);
 
@@ -130,59 +133,121 @@ router.get('/stats', requireAuth, async (req, res) => {
     }
 
     const isAdmin = req.user?.role === 'admin';
-    const userWhere = isAdmin ? '' : 'AND mu.user_id = $1';
-    const params = isAdmin ? [] : [req.user.id];
 
-    // Latest snapshot per URL (scoped to user)
-    const { rows: latest } = await pool.query(`
-      SELECT DISTINCT ON (s.url_id) s.url_id, s.status_code, s.noindex
-      FROM snapshots s
-      JOIN monitored_urls mu ON mu.id = s.url_id
-      WHERE true ${userWhere}
-      ORDER BY s.url_id, s.checked_at DESC
-    `, params);
+    const summarySql = isAdmin ? `
+      WITH latest AS (
+        SELECT DISTINCT ON (s.url_id)
+          s.url_id,
+          COALESCE(s.status_code, 0) AS status_code,
+          COALESCE(s.noindex, false) AS noindex
+        FROM snapshots s
+        JOIN monitored_urls mu ON mu.id = s.url_id
+        ORDER BY s.url_id, s.checked_at DESC
+      ),
+      changed AS (
+        SELECT DISTINCT a.url_id
+        FROM alerts a
+        JOIN monitored_urls mu ON mu.id = a.url_id
+        WHERE a.detected_at > NOW() - INTERVAL '24 hours'
+      )
+      SELECT
+        (SELECT COUNT(*)::int FROM monitored_urls) AS total_urls,
+        (SELECT COUNT(*)::int FROM latest) AS latest_count,
+        (SELECT COUNT(*)::int FROM latest WHERE status_code = 0 OR status_code >= 400) AS error_count,
+        (SELECT COUNT(*)::int FROM latest WHERE noindex = true) AS noindex_count,
+        (SELECT COUNT(*)::int FROM latest WHERE noindex = false) AS indexed_count,
+        (SELECT COUNT(*)::int
+           FROM latest l
+           JOIN changed c ON c.url_id = l.url_id
+          WHERE l.status_code BETWEEN 1 AND 399) AS changed_count
+    ` : `
+      WITH latest AS (
+        SELECT DISTINCT ON (s.url_id)
+          s.url_id,
+          COALESCE(s.status_code, 0) AS status_code,
+          COALESCE(s.noindex, false) AS noindex
+        FROM snapshots s
+        JOIN monitored_urls mu ON mu.id = s.url_id
+        WHERE mu.user_id = $1
+        ORDER BY s.url_id, s.checked_at DESC
+      ),
+      changed AS (
+        SELECT DISTINCT a.url_id
+        FROM alerts a
+        JOIN monitored_urls mu ON mu.id = a.url_id
+        WHERE a.detected_at > NOW() - INTERVAL '24 hours'
+          AND mu.user_id = $1
+      )
+      SELECT
+        (SELECT COUNT(*)::int FROM monitored_urls WHERE user_id = $1) AS total_urls,
+        (SELECT COUNT(*)::int FROM latest) AS latest_count,
+        (SELECT COUNT(*)::int FROM latest WHERE status_code = 0 OR status_code >= 400) AS error_count,
+        (SELECT COUNT(*)::int FROM latest WHERE noindex = true) AS noindex_count,
+        (SELECT COUNT(*)::int FROM latest WHERE noindex = false) AS indexed_count,
+        (SELECT COUNT(*)::int
+           FROM latest l
+           JOIN changed c ON c.url_id = l.url_id
+          WHERE l.status_code BETWEEN 1 AND 399) AS changed_count
+    `;
+
+    const statusSql = isAdmin ? `
+      WITH latest AS (
+        SELECT DISTINCT ON (s.url_id)
+          s.url_id,
+          COALESCE(s.status_code, 0) AS status_code
+        FROM snapshots s
+        JOIN monitored_urls mu ON mu.id = s.url_id
+        ORDER BY s.url_id, s.checked_at DESC
+      )
+      SELECT status_code, COUNT(*)::int AS cnt
+      FROM latest
+      GROUP BY status_code
+    ` : `
+      WITH latest AS (
+        SELECT DISTINCT ON (s.url_id)
+          s.url_id,
+          COALESCE(s.status_code, 0) AS status_code
+        FROM snapshots s
+        JOIN monitored_urls mu ON mu.id = s.url_id
+        WHERE mu.user_id = $1
+        ORDER BY s.url_id, s.checked_at DESC
+      )
+      SELECT status_code, COUNT(*)::int AS cnt
+      FROM latest
+      GROUP BY status_code
+    `;
+
+    const params = isAdmin ? [] : [req.user.id];
+    const { rows: [summary] } = await pool.query(summarySql, params);
+    const { rows: statusRows } = await pool.query(statusSql, params);
 
     const statusCodes = {};
-    let indexed = 0, noindex = 0;
-
-    for (const r of latest) {
-      const code = String(r.status_code || 0);
-      statusCodes[code] = (statusCodes[code] || 0) + 1;
-      if (r.noindex) noindex++; else indexed++;
+    for (const row of statusRows) {
+      statusCodes[String(row.status_code)] = parseInt(row.cnt, 10);
     }
 
-    // Changed vs unchanged (24h alert activity, scoped to user)
-    const { rows: changed24h } = await pool.query(`
-      SELECT DISTINCT a.url_id
-      FROM alerts a
-      JOIN monitored_urls mu ON mu.id = a.url_id
-      WHERE a.detected_at > NOW() - INTERVAL '24 hours' ${userWhere}
-    `, params);
-    const changedSet = new Set(changed24h.map(r => r.url_id));
-    const totalFromLatest = latest.length;
-    const changedCount = changedSet.size;
-    const unchangedCount = totalFromLatest - changedCount;
-
-    // Summary counters for dashboard stat cards
-    const { rows: [{ total_urls }] } = await pool.query(
-      `SELECT COUNT(*)::int AS total_urls FROM monitored_urls mu WHERE true ${userWhere}`,
-      params
-    );
-    const totalUrls = total_urls || 0;
-    const errorCount = latest.filter(r => r.status_code === 0 || r.status_code >= 400).length;
+    const totalUrls = summary?.total_urls || 0;
+    const totalFromLatest = summary?.latest_count || 0;
+    const changedCount = summary?.changed_count || 0;
+    const unchangedCount = Math.max(0, totalFromLatest - changedCount);
+    const errorCount = summary?.error_count || 0;
+    const indexed = summary?.indexed_count || 0;
+    const noindex = summary?.noindex_count || 0;
     const pendingCount = Math.max(0, totalUrls - totalFromLatest);
     const okCount = Math.max(0, totalUrls - errorCount - changedCount - pendingCount);
 
     // Alerts per day for last 30 days (scoped to user)
+    const alertsParams = isAdmin ? [] : [req.user.id];
+    const alertsUserWhere = isAdmin ? '' : 'AND mu.user_id = $1';
     const { rows: alertsPerDay } = await pool.query(`
       SELECT DATE(a.detected_at AT TIME ZONE 'UTC') AS date,
              COUNT(*) AS count
       FROM alerts a
       JOIN monitored_urls mu ON mu.id = a.url_id
-      WHERE a.detected_at > NOW() - INTERVAL '30 days' ${userWhere}
+      WHERE a.detected_at > NOW() - INTERVAL '30 days' ${alertsUserWhere}
       GROUP BY DATE(a.detected_at AT TIME ZONE 'UTC')
       ORDER BY date ASC
-    `, params);
+    `, alertsParams);
 
     const payload = {
       statusCodes,
@@ -445,6 +510,7 @@ router.get('/uptime/check-domain', async (req, res) => {
 // GET /api/docs — public API documentation page
 router.get('/docs', (req, res) => {
   const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+  const limitWindowSec = Math.round(API_RATE_LIMIT_WINDOW_MS / 1000);
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(`<!DOCTYPE html>
 <html lang="en">
@@ -477,7 +543,7 @@ router.get('/docs', (req, res) => {
   <pre>curl -H "X-API-Key: YOUR_KEY" ${baseUrl}/api/tasks</pre>
 
   <h2>Rate Limits</h2>
-  <div class="note">100 requests per minute per API key (or per IP if no API key). Exceeding returns <code>429</code>.</div>
+  <div class="note">${API_RATE_LIMIT_MAX} requests per ${limitWindowSec}s per API key (or per IP if no API key). Exceeding returns <code>429</code>.</div>
 
   <h2>Endpoints</h2>
   <table>
@@ -505,7 +571,7 @@ router.get('/docs', (req, res) => {
   <h3>Error responses</h3>
   <pre>{ "error": "Unauthorized" }  // 401
 { "error": "Not found" }       // 404
- { "error": "Too many requests. Limit: 100/min per API key or IP." }  // 429</pre>
+ { "error": "Too many requests..." }  // 429</pre>
 
   <p style="margin-top:40px;color:#a0aec0;font-size:13px">MetaWatch API v2 · <a href="${baseUrl}">Back to dashboard</a></p>
 </body>
