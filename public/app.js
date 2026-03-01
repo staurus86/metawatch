@@ -56,12 +56,18 @@ document.querySelectorAll('button[data-confirm-message]').forEach(btn => {
 // ─── URL search / filter ───
 const urlSearch = document.getElementById('url-search');
 if (urlSearch) {
+  let searchDebounceTimer = null;
+
   urlSearch.addEventListener('input', function () {
-    const q = this.value.trim().toLowerCase();
-    document.querySelectorAll('.url-row').forEach(row => {
-      const text = row.querySelector('.url-text')?.textContent?.toLowerCase() || '';
-      row.style.display = !q || text.includes(q) ? '' : 'none';
-    });
+    const value = this.value;
+    if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(() => {
+      const q = value.trim().toLowerCase();
+      document.querySelectorAll('.url-row').forEach(row => {
+        const text = row.querySelector('.url-text')?.textContent?.toLowerCase() || '';
+        row.style.display = !q || text.includes(q) ? '' : 'none';
+      });
+    }, 300);
   });
 }
 

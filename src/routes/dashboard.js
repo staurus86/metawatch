@@ -20,6 +20,9 @@ router.get('/', requireAuth, async (req, res) => {
     const page        = Math.max(1, parseInt(req.query.page || '1', 10));
     const offset      = (page - 1) * PER_PAGE;
     const isAdmin     = req.user.role === 'admin';
+    const importedCount = req.query.imported ? parseInt(req.query.imported, 10) : null;
+    const importSkipped = req.query.skipped ? parseInt(req.query.skipped, 10) : null;
+    const importTag = req.query.import_tag ? String(req.query.import_tag) : null;
 
     // Ownership filter
     const userParams = isAdmin ? [] : [req.user.id];
@@ -182,7 +185,9 @@ router.get('/', requireAuth, async (req, res) => {
       page,
       totalPages,
       totalCount,
-      importedCount: req.query.imported ? parseInt(req.query.imported, 10) : null,
+      importedCount,
+      importSkipped,
+      importTag,
       uptimeSummary
     });
   } catch (err) {

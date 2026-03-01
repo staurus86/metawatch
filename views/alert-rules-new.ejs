@@ -1,0 +1,59 @@
+<%
+const isEdit = !!rule;
+const formAction = isEdit ? '/alert-rules/' + rule.id + '/edit' : '/alert-rules';
+const formTitle = isEdit ? 'Edit Alert Rule' : 'New Alert Rule';
+const conditionsValue = isEdit && Array.isArray(rule.conditions)
+  ? JSON.stringify(rule.conditions, null, 2)
+  : JSON.stringify([{ field: 'title', operator: 'changed' }], null, 2);
+const actionsValue = isEdit && Array.isArray(rule.actions)
+  ? JSON.stringify(rule.actions, null, 2)
+  : JSON.stringify([{ type: 'send_email', value: locals.user ? locals.user.email : '' }], null, 2);
+%>
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title"><%= formTitle %></h1>
+    <div style="font-size:13px;color:var(--text-muted);margin-top:2px">Define condition(s) and action(s) in JSON format.</div>
+  </div>
+  <a href="/alert-rules" class="btn btn-ghost">← Back to Rules</a>
+</div>
+
+<% if (error) { %>
+  <div class="alert-banner alert-banner--error" style="margin-bottom:12px"><%= error %></div>
+<% } %>
+
+<div class="card" style="max-width:860px">
+  <form action="<%= formAction %>" method="POST" class="form" style="padding:20px">
+    <div class="form-group">
+      <label class="form-label" for="name">Rule Name</label>
+      <input id="name" name="name" class="form-input" type="text" required maxlength="120"
+             value="<%= isEdit ? rule.name : '' %>" placeholder="e.g. 404 to CTO">
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="conditions_json">Conditions JSON (AND logic)</label>
+      <textarea id="conditions_json" name="conditions_json" class="form-input" rows="8" style="font-family:monospace"><%= conditionsValue %></textarea>
+      <p class="form-hint">Example: <code>[{"field":"response_code","operator":"equals","value":"404"}]</code></p>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="actions_json">Actions JSON</label>
+      <textarea id="actions_json" name="actions_json" class="form-input" rows="8" style="font-family:monospace"><%= actionsValue %></textarea>
+      <p class="form-hint">Example: <code>[{"type":"send_email","value":"cto@example.com"},{"type":"send_webhook","value":"https://hook"}]</code></p>
+    </div>
+
+    <div class="card" style="padding:14px;background:var(--bg-secondary);margin-bottom:14px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px">Allowed values</div>
+      <div style="font-size:12px;color:var(--text-muted);line-height:1.7">
+        <div><strong>Fields:</strong> <%= fieldOptions.join(', ') %></div>
+        <div><strong>Operators:</strong> <%= operatorOptions.join(', ') %></div>
+        <div><strong>Actions:</strong> <%= actionOptions.join(', ') %></div>
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary"><%= isEdit ? 'Save Rule' : 'Create Rule' %></button>
+      <a href="/alert-rules" class="btn btn-ghost">Cancel</a>
+    </div>
+  </form>
+</div>

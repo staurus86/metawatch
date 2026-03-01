@@ -13,6 +13,45 @@ const { checkSemaphore, domainRateLimit } = require('../queue');
 const { scanEmitter, isScanRunning, setScanRunning } = require('../scan-events');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const MAX_BULK_IMPORT_URLS = 500;
+const BULK_PREVIEW_ROW_LIMIT = 1000;
+
+function normalizeImportUrl(value) {
+  const url = String(value || '').trim();
+  if (!/^https?:\/\//i.test(url)) return null;
+  return url;
+}
+
+function normalizeSitemapPriority(value) {
+  const n = parseFloat(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function collectBulkRecords({ source, urlsText, sitemapUrl, column, file }) {
+  if (source === 'text') {
+    return (urlsText || '').split('\n')
+      .map(u => normalizeImportUrl(u))
+      .filter(Boolean)
+      .map(url => ({ url, priority: null }));
+  }
+
+  if (source === 'file' && file) {
+    const workbook = XLSX.read(file.buffer, { type: 'buffer' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+    const colIdx = parseInt(column || '0', 10);
+    return rows
+      .map(row => normalizeImportUrl(row[colIdx]))
+      .filter(Boolean)
+      .map(url => ({ url, priority: null }));
+  }
+
+  if (source === 'sitemap' && sitemapUrl) {
+    return await parseSitemap(sitemapUrl);
+  }
+
+  return [];
+}
 
 // Return SQL + params to fetch a URL with ownership check
 function ownedUrlQuery(urlId, req) {
@@ -129,55 +168,58 @@ router.get('/bulk', requireAuth, (req, res) => {
 router.post('/bulk', requireAuth, upload.single('file'), async (req, res) => {
   const { source, urls_text, sitemap_url, column } = req.body;
 
-  let rawUrls = [];
-
   try {
-    if (source === 'text') {
-      rawUrls = (urls_text || '').split('\n')
-        .map(u => u.trim())
-        .filter(u => u.startsWith('http'));
-
-    } else if (source === 'file' && req.file) {
-      const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-      const colIdx = parseInt(column || '0', 10);
-      rawUrls = rows
-        .map(row => String(row[colIdx] || '').trim())
-        .filter(u => u.startsWith('http'));
-
-    } else if (source === 'sitemap' && sitemap_url) {
-      rawUrls = await parseSitemap(sitemap_url);
-    }
-
-    if (rawUrls.length === 0) {
-      return res.render('bulk-import', {
-        title: 'Bulk Import',
-        error: 'No valid URLs found.',
-        preview: null
-      });
-    }
-
-    // Dedup against existing URLs
-    const { rows: existing } = await pool.query('SELECT url FROM monitored_urls');
-    const existingSet = new Set(existing.map(r => r.url));
-    const newUrls = [...new Set(rawUrls)].filter(u => !existingSet.has(u));
-
     if (req.body.confirm === '1') {
-      // Actually import
       const interval = parseInt(req.body.check_interval_minutes || '60', 10);
+      if (isNaN(interval) || interval < 1) {
+        return res.render('bulk-import', {
+          title: 'Bulk Import',
+          error: 'Invalid check interval.',
+          preview: null
+        });
+      }
+
+      let importableUrls = [];
+      try {
+        importableUrls = JSON.parse(req.body.preview_importable_json || '[]');
+      } catch {
+        return res.render('bulk-import', {
+          title: 'Bulk Import',
+          error: 'Invalid import payload. Please generate preview again.',
+          preview: null
+        });
+      }
+
+      if (!Array.isArray(importableUrls)) importableUrls = [];
+      importableUrls = [...new Set(importableUrls.map(normalizeImportUrl).filter(Boolean))].slice(0, MAX_BULK_IMPORT_URLS);
+
+      const selectedRaw = req.body.selected_urls;
+      const selectedList = Array.isArray(selectedRaw) ? selectedRaw : (selectedRaw ? [selectedRaw] : []);
+      const selectedSet = new Set(selectedList.map(normalizeImportUrl).filter(Boolean));
+      const selectedUrls = importableUrls.filter(u => selectedSet.has(u));
+
+      if (selectedUrls.length === 0) {
+        return res.render('bulk-import', {
+          title: 'Bulk Import',
+          error: 'No URLs selected for import.',
+          preview: null
+        });
+      }
+
+      const importTag = `import-${new Date().toISOString().slice(0, 10)}`;
       let imported = 0;
-      for (const u of newUrls) {
+
+      for (const u of selectedUrls) {
         try {
           const { rows: [newRec] } = await pool.query(
             `INSERT INTO monitored_urls
-               (url, check_interval_minutes, user_id,
+               (url, check_interval_minutes, user_id, tags,
                 monitor_title, monitor_description, monitor_h1, monitor_body,
                 monitor_status_code, monitor_noindex, monitor_redirect,
                 monitor_canonical, monitor_robots)
-             VALUES ($1,$2,$3,true,true,true,true,true,true,true,true,true)
+             VALUES ($1,$2,$3,$4,true,true,true,true,true,true,true,true,true)
              RETURNING *`,
-            [u, interval, req.user.id]
+            [u, interval, req.user.id, importTag]
           );
           scheduleUrl(newRec);
           checkUrl(newRec.id).catch(() => {});
@@ -186,18 +228,92 @@ router.post('/bulk', requireAuth, upload.single('file'), async (req, res) => {
           console.error(`Bulk import error for ${u}: ${e.message}`);
         }
       }
-      return res.redirect(`/?imported=${imported}`);
+
+      const skipped = importableUrls.length - imported;
+      return res.redirect(`/?imported=${imported}&skipped=${skipped}&import_tag=${encodeURIComponent(importTag)}`);
     }
 
-    // Preview
+    const rawRecords = await collectBulkRecords({
+      source,
+      urlsText: urls_text,
+      sitemapUrl: sitemap_url,
+      column,
+      file: req.file
+    });
+
+    if (rawRecords.length === 0) {
+      return res.render('bulk-import', {
+        title: 'Bulk Import',
+        error: 'No valid URLs found.',
+        preview: null
+      });
+    }
+
+    const dedupMap = new Map();
+    for (const record of rawRecords) {
+      const url = normalizeImportUrl(record.url);
+      if (!url) continue;
+      const priority = normalizeSitemapPriority(record.priority);
+      const prev = dedupMap.get(url);
+      if (!prev) {
+        dedupMap.set(url, { url, priority });
+      } else {
+        const prevPriority = prev.priority ?? -1;
+        const newPriority = priority ?? -1;
+        if (newPriority > prevPriority) prev.priority = priority;
+      }
+    }
+
+    const uniqueRecords = [...dedupMap.values()];
+    const { rows: existingRows } = await pool.query(
+      'SELECT url FROM monitored_urls WHERE user_id = $1',
+      [req.user.id]
+    );
+    const existingSet = new Set(existingRows.map(r => r.url));
+
+    const previewRows = uniqueRecords.map(r => ({
+      url: r.url,
+      priority: r.priority,
+      isExisting: existingSet.has(r.url),
+      willImport: false,
+      overLimit: false
+    }));
+
+    previewRows.sort((a, b) => {
+      if (a.isExisting !== b.isExisting) return a.isExisting ? 1 : -1;
+      const pa = a.priority ?? -1;
+      const pb = b.priority ?? -1;
+      if (pa !== pb) return pb - pa;
+      return a.url.localeCompare(b.url);
+    });
+
+    let importableCount = 0;
+    for (const row of previewRows) {
+      if (row.isExisting) continue;
+      if (importableCount < MAX_BULK_IMPORT_URLS) {
+        row.willImport = true;
+        importableCount++;
+      } else {
+        row.overLimit = true;
+      }
+    }
+
+    const importableUrls = previewRows.filter(r => r.willImport).map(r => r.url);
+    const existingCount = previewRows.filter(r => r.isExisting).length;
+    const overLimitCount = previewRows.filter(r => r.overLimit).length;
+
     res.render('bulk-import', {
       title: 'Bulk Import',
       error: null,
       preview: {
-        all: rawUrls.length,
-        newCount: newUrls.length,
-        skipped: rawUrls.length - newUrls.length,
-        urls: newUrls.slice(0, 50),
+        all: rawRecords.length,
+        uniqueCount: uniqueRecords.length,
+        importableCount,
+        existingCount,
+        overLimitCount,
+        rows: previewRows.slice(0, BULK_PREVIEW_ROW_LIMIT),
+        rowsTruncated: previewRows.length > BULK_PREVIEW_ROW_LIMIT ? (previewRows.length - BULK_PREVIEW_ROW_LIMIT) : 0,
+        importableUrls,
         source,
         urls_text,
         sitemap_url
@@ -223,7 +339,7 @@ async function parseSitemap(url, depth = 0) {
   if (response.status !== 200) return [];
 
   const parsed = parser.parse(response.data);
-  const urls = [];
+  const records = [];
 
   // Sitemap index
   const sitemapIndex = parsed.sitemapindex;
@@ -234,10 +350,10 @@ async function parseSitemap(url, depth = 0) {
       const loc = sm.loc || sm['#text'];
       if (loc) {
         const nested = await parseSitemap(String(loc).trim(), depth + 1);
-        urls.push(...nested);
+        records.push(...nested);
       }
     }
-    return urls;
+    return records;
   }
 
   // Regular sitemap
@@ -246,11 +362,16 @@ async function parseSitemap(url, depth = 0) {
     const urlEntries = Array.isArray(urlSet.url) ? urlSet.url : [urlSet.url];
     for (const entry of urlEntries) {
       const loc = entry.loc || entry['#text'];
-      if (loc) urls.push(String(loc).trim());
+      if (loc) {
+        records.push({
+          url: String(loc).trim(),
+          priority: normalizeSitemapPriority(entry.priority)
+        });
+      }
     }
   }
 
-  return urls;
+  return records;
 }
 
 // POST /urls/scan-all

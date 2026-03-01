@@ -3,6 +3,7 @@
 const $ = id => document.getElementById(id);
 
 let settings = { url: '', key: '' };
+const cacheKey = domain => `mw-cache-${domain}`;
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 chrome.storage.local.get(['mwUrl', 'mwKey'], data => {
@@ -37,6 +38,12 @@ $('save-settings').addEventListener('click', () => {
   });
 });
 
+$('dashboard-btn').addEventListener('click', () => {
+  if (!settings.url) return;
+  chrome.tabs.create({ url: settings.url });
+  window.close();
+});
+
 // ─── Check current tab ────────────────────────────────────────────────────────
 function checkCurrentTab() {
   chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
@@ -58,6 +65,7 @@ function checkCurrentTab() {
     $('error-msg').style.display = 'none';
     $('status-section').style.display = 'none';
     $('not-monitored').style.display = 'none';
+    showCachedStatus(cleanDomain, tab.url);
 
     fetch(`${settings.url}/api/uptime/check-domain?domain=${encodeURIComponent(cleanDomain)}`, {
       headers: { 'X-API-Key': settings.key }
@@ -69,13 +77,15 @@ function checkCurrentTab() {
       .then(data => {
         $('loading').style.display = 'none';
         if (!data.monitored) {
+          chrome.storage.local.remove(cacheKey(cleanDomain));
           showNotMonitored(tab.url, cleanDomain);
         } else {
+          chrome.storage.local.set({ [cacheKey(cleanDomain)]: { data, savedAt: Date.now() } });
           showStatus(data, tab.url);
         }
       })
       .catch(err => {
-        showError('Could not reach MetaWatch: ' + err.message);
+        showError('MetaWatch is offline or URL incorrect.');
       });
   });
 }
@@ -92,6 +102,14 @@ function showError(msg) {
   $('error-msg').textContent = msg;
 }
 
+function showCachedStatus(domain, tabUrl) {
+  chrome.storage.local.get([cacheKey(domain)], data => {
+    const cached = data[cacheKey(domain)];
+    if (!cached || !cached.data || !cached.data.monitored) return;
+    showStatus(cached.data, tabUrl, true);
+  });
+}
+
 function showNotMonitored(tabUrl, domain) {
   $('not-monitored').style.display = '';
   $('status-section').style.display = 'none';
@@ -105,7 +123,7 @@ function showNotMonitored(tabUrl, domain) {
   };
 }
 
-function showStatus(data, tabUrl) {
+function showStatus(data, tabUrl, fromCache = false) {
   $('status-section').style.display = '';
   $('not-monitored').style.display = 'none';
 
@@ -128,9 +146,9 @@ function showStatus(data, tabUrl) {
   // Sub-text: last checked
   if (data.last_checked_at) {
     const ago = timeAgo(new Date(data.last_checked_at));
-    sub.textContent = 'Last check: ' + ago;
+    sub.textContent = (fromCache ? 'Cached · ' : '') + 'Last check: ' + ago;
   } else {
-    sub.textContent = 'Not yet checked';
+    sub.textContent = fromCache ? 'Cached data' : 'Not yet checked';
   }
 
   // Metrics

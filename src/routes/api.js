@@ -210,8 +210,12 @@ router.get('/tasks/:id/results', requireApiKey, async (req, res) => {
   if (isNaN(urlId)) return res.status(400).json({ error: 'Invalid task ID' });
 
   try {
+    const isAdmin = req.user?.role === 'admin';
     const { rows: [urlRecord] } = await pool.query(
-      'SELECT id, url FROM monitored_urls WHERE id = $1', [urlId]
+      isAdmin
+        ? 'SELECT id, url FROM monitored_urls WHERE id = $1'
+        : 'SELECT id, url FROM monitored_urls WHERE id = $1 AND user_id = $2',
+      isAdmin ? [urlId] : [urlId, req.user.id]
     );
     if (!urlRecord) return res.status(404).json({ error: 'Task not found' });
 
@@ -398,3 +402,4 @@ router.get('/competitor/:id/title-history', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
+

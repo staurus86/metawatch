@@ -1,0 +1,99 @@
+<%
+function summarizeCondition(c) {
+  if (!c || typeof c !== 'object') return 'invalid condition';
+  const field = c.field || 'field';
+  const op = c.operator || 'operator';
+  if (op === 'changed') return field + ' changed';
+  if (c.value == null || c.value === '') return field + ' ' + op;
+  return field + ' ' + op + ' "' + String(c.value) + '"';
+}
+
+function summarizeAction(a) {
+  if (!a || typeof a !== 'object') return 'invalid action';
+  const type = a.type || 'action';
+  if (type === 'send_email') return 'email → ' + (a.value || 'target not set');
+  if (type === 'send_webhook') return 'webhook → ' + (a.value || 'target not set');
+  if (type === 'send_telegram') return 'telegram → ' + (a.value || 'target not set');
+  if (type === 'suppress_alert') return 'suppress alert';
+  return type + (a.value ? ' → ' + a.value : '');
+}
+%>
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Alert Rules</h1>
+    <div style="font-size:13px;color:var(--text-muted);margin-top:2px">Route notifications based on field conditions.</div>
+  </div>
+  <a href="/alert-rules/new" class="btn btn-primary">+ New Rule</a>
+</div>
+
+<div class="card">
+  <% if (!rules || rules.length === 0) { %>
+    <div class="empty-state" style="padding:48px">
+      <div class="empty-icon">⚙️</div>
+      <p>No alert rules yet.</p>
+      <a href="/alert-rules/new" class="btn btn-primary" style="margin-top:12px">Create your first rule</a>
+    </div>
+  <% } else { %>
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>When</th>
+            <th>Then</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% rules.forEach(function(rule) { %>
+            <% const conditions = Array.isArray(rule.conditions) ? rule.conditions : []; %>
+            <% const actions = Array.isArray(rule.actions) ? rule.actions : []; %>
+            <tr>
+              <td>
+                <strong><%= rule.name %></strong>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px">ID: <%= rule.id %></div>
+              </td>
+              <td style="font-size:12px;max-width:320px">
+                <% if (conditions.length === 0) { %>
+                  <span class="text-muted">No conditions</span>
+                <% } else { %>
+                  <% conditions.forEach(function(c, idx) { %>
+                    <div><%= idx > 0 ? 'AND ' : '' %><%= summarizeCondition(c) %></div>
+                  <% }) %>
+                <% } %>
+              </td>
+              <td style="font-size:12px;max-width:320px">
+                <% if (actions.length === 0) { %>
+                  <span class="text-muted">No actions</span>
+                <% } else { %>
+                  <% actions.forEach(function(a) { %>
+                    <div><%= summarizeAction(a) %></div>
+                  <% }) %>
+                <% } %>
+              </td>
+              <td>
+                <span class="badge badge--<%= rule.is_active ? 'ok' : 'paused' %>">
+                  <%= rule.is_active ? 'Active' : 'Paused' %>
+                </span>
+              </td>
+              <td style="display:flex;gap:6px;flex-wrap:wrap">
+                <a href="/alert-rules/<%= rule.id %>/edit" class="btn btn-ghost" style="font-size:11px;padding:4px 10px">✎ Edit</a>
+                <form action="/alert-rules/<%= rule.id %>/toggle" method="POST" style="display:inline">
+                  <button type="submit" class="btn btn-ghost" style="font-size:11px;padding:4px 10px">
+                    <%= rule.is_active ? '⏸ Pause' : '▶ Activate' %>
+                  </button>
+                </form>
+                <form action="/alert-rules/<%= rule.id %>/delete" method="POST" style="display:inline"
+                      data-confirm="Delete rule '<%= rule.name %>'?">
+                  <button type="submit" class="btn btn-danger" style="font-size:11px;padding:4px 10px">✕ Delete</button>
+                </form>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>

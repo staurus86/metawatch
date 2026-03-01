@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "description": "Check uptime status and monitor URLs from your MetaWatch instance",
   "permissions": ["storage", "activeTab"],
+  "host_permissions": [],
   "action": {
     "default_popup": "popup.html",
     "default_title": "MetaWatch"

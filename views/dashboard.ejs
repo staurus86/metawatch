@@ -8,7 +8,16 @@
 
 <% if (importedCount != null) { %>
   <div class="alert-banner alert-banner--ok" style="margin-bottom:16px">
-    ✓ Successfully imported <%= importedCount %> URL<%= importedCount !== 1 ? 's' : '' %>. First checks are running in the background.
+    ✓ Imported <%= importedCount %> URL<%= importedCount !== 1 ? 's' : '' %>
+    <% if (importSkipped != null) { %>
+      and skipped <%= importSkipped %>.
+    <% } else { %>
+      successfully.
+    <% } %>
+    First checks are running in the background.
+    <% if (importTag) { %>
+      <a href="/?tab=all&tag=<%= encodeURIComponent(importTag) %>" style="margin-left:8px">View imported URLs →</a>
+    <% } %>
   </div>
 <% } %>
 
