@@ -11,8 +11,8 @@
   </div>
 </div>
 
-<% if (req.query.saved) { %><div class="alert-banner alert-banner--ok" style="margin-bottom:12px">Settings saved.</div><% } %>
-<% if (req.query.checked) { %><div class="alert-banner alert-banner--ok" style="margin-bottom:12px">Manual check completed.</div><% } %>
+<% if (savedMsg) { %><div class="alert-banner alert-banner--ok" style="margin-bottom:12px">Settings saved.</div><% } %>
+<% if (checkedMsg) { %><div class="alert-banner alert-banner--ok" style="margin-bottom:12px">Manual check completed.</div><% } %>
 
 <!-- Actions -->
 <div class="actions-bar">

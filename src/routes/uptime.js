@@ -237,7 +237,9 @@ router.get('/:id', requireAuth, async (req, res) => {
       activeTab,
       incidentPage,
       totalIncidentPages: Math.max(1, Math.ceil(parseInt(totalIncidents) / IPAGE)),
-      fmtDuration
+      fmtDuration,
+      savedMsg: !!req.query.saved,
+      checkedMsg: !!req.query.checked
     });
   } catch (err) {
     console.error(err);
