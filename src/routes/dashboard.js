@@ -164,7 +164,8 @@ router.get('/', requireAuth, async (req, res) => {
       allTags,
       page,
       totalPages,
-      totalCount
+      totalCount,
+      importedCount: req.query.imported ? parseInt(req.query.imported, 10) : null
     });
   } catch (err) {
     console.error(err);

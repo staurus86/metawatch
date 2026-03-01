@@ -305,6 +305,29 @@ function initResponseTimeChart() {
     .catch(() => {});
 }
 
+// ─── Test Notification button ─────────────────────────────────────────────
+const testNotifyBtn = document.getElementById('test-notify-btn');
+if (testNotifyBtn) {
+  testNotifyBtn.addEventListener('click', async function () {
+    const urlId = this.getAttribute('data-url-id');
+    const orig = this.textContent;
+    this.textContent = 'Sending…';
+    this.disabled = true;
+    try {
+      const r = await fetch('/urls/' + urlId + '/test-notify', { method: 'POST' });
+      const data = await r.json();
+      this.textContent = data.ok ? '✓ Sent!' : '⚠ ' + data.message;
+      setTimeout(() => {
+        this.textContent = orig;
+        this.disabled = false;
+      }, 4000);
+    } catch (e) {
+      this.textContent = '⚠ Error';
+      setTimeout(() => { this.textContent = orig; this.disabled = false; }, 3000);
+    }
+  });
+}
+
 // Wait for Chart.js CDN to load
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => { initCharts(); initResponseTimeChart(); });

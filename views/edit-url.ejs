@@ -4,6 +4,9 @@
 </div>
 
 <div class="card" style="max-width:740px">
+  <% if (locals.cloned) { %>
+    <div class="alert-banner alert-banner--ok">URL cloned successfully. Update the URL below and save.</div>
+  <% } %>
   <% if (error) { %>
     <div class="alert-banner alert-banner--error"><%= error %></div>
   <% } %>
@@ -72,13 +75,22 @@
       <p class="form-hint">Alert when this exact text appears or disappears from the page</p>
     </div>
 
-    <!-- Tags -->
-    <div class="form-group" style="margin-top:16px">
-      <label class="form-label" for="tags">Tags</label>
-      <input type="text" id="tags" name="tags" class="form-input"
-             placeholder="seo, landing, shop (comma-separated)"
-             value="<%= urlRecord.tags || '' %>">
-      <p class="form-hint">Categorize URLs for filtering on dashboard</p>
+    <!-- Tags + Notes -->
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="tags">Tags</label>
+        <input type="text" id="tags" name="tags" class="form-input"
+               placeholder="seo, landing, shop"
+               value="<%= urlRecord.tags || '' %>">
+        <p class="form-hint">Comma-separated, for dashboard filtering</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="notes">Notes</label>
+        <input type="text" id="notes" name="notes" class="form-input"
+               placeholder="Internal note…"
+               value="<%= urlRecord.notes || '' %>">
+        <p class="form-hint">For your reference only</p>
+      </div>
     </div>
 
     <!-- Maintenance Window -->

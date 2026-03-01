@@ -212,6 +212,12 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .alert-banner { padding: 12px 16px; border-radius: 6px; margin: 16px 0; font-size: 14px; }
 .alert-banner--error { background: var(--error-bg); color: #9b2c2c; border: 1px solid var(--error-border); }
 .alert-banner--info  { background: #ebf8ff; color: #2c5282; border: 1px solid #bee3f8; }
+.alert-banner--ok    { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
+
+/* Uptime timeline dots */
+.uptime-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; cursor: default; }
+.uptime-dot--ok  { background: #68d391; }
+.uptime-dot--err { background: #fc8181; }
 
 /* ─── Alerts List (Dashboard) ─── */
 .alert-row { padding: 14px 20px; border-bottom: 1px solid var(--border); font-size: 14px; }

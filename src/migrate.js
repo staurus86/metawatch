@@ -138,6 +138,12 @@ async function migrate() {
     ];
     for (const sql of muExtra) await client.query(sql);
 
+    // ALTER: monitored_urls Sprint 4 columns
+    const muSprint4 = [
+      "ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT ''"
+    ];
+    for (const sql of muSprint4) await client.query(sql);
+
     // ALTER: users digest column
     const userExtra = [
       "ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_frequency VARCHAR(10) DEFAULT NULL",

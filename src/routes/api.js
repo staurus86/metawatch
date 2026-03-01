@@ -70,12 +70,18 @@ router.get('/url/:id/response-times', requireAuth, async (req, res) => {
 // GET /api/stats — chart data (requires cookie auth)
 router.get('/stats', requireAuth, async (req, res) => {
   try {
-    // Latest snapshot per URL
+    const isAdmin = req.user?.role === 'admin';
+    const userWhere = isAdmin ? '' : 'AND mu.user_id = $1';
+    const params = isAdmin ? [] : [req.user.id];
+
+    // Latest snapshot per URL (scoped to user)
     const { rows: latest } = await pool.query(`
-      SELECT DISTINCT ON (url_id) url_id, status_code, noindex
-      FROM snapshots
-      ORDER BY url_id, checked_at DESC
-    `);
+      SELECT DISTINCT ON (s.url_id) s.url_id, s.status_code, s.noindex
+      FROM snapshots s
+      JOIN monitored_urls mu ON mu.id = s.url_id
+      WHERE true ${userWhere}
+      ORDER BY s.url_id, s.checked_at DESC
+    `, params);
 
     const statusCodes = {};
     let indexed = 0, noindex = 0;
@@ -86,24 +92,28 @@ router.get('/stats', requireAuth, async (req, res) => {
       if (r.noindex) noindex++; else indexed++;
     }
 
-    // Changed vs unchanged (24h alert activity)
-    const { rows: changed24h } = await pool.query(
-      `SELECT DISTINCT url_id FROM alerts WHERE detected_at > NOW() - INTERVAL '24 hours'`
-    );
+    // Changed vs unchanged (24h alert activity, scoped to user)
+    const { rows: changed24h } = await pool.query(`
+      SELECT DISTINCT a.url_id
+      FROM alerts a
+      JOIN monitored_urls mu ON mu.id = a.url_id
+      WHERE a.detected_at > NOW() - INTERVAL '24 hours' ${userWhere}
+    `, params);
     const changedSet = new Set(changed24h.map(r => r.url_id));
     const totalUrls = latest.length;
     const changedCount = changedSet.size;
     const unchangedCount = totalUrls - changedCount;
 
-    // Alerts per day for last 30 days
+    // Alerts per day for last 30 days (scoped to user)
     const { rows: alertsPerDay } = await pool.query(`
-      SELECT DATE(detected_at AT TIME ZONE 'UTC') AS date,
+      SELECT DATE(a.detected_at AT TIME ZONE 'UTC') AS date,
              COUNT(*) AS count
-      FROM alerts
-      WHERE detected_at > NOW() - INTERVAL '30 days'
-      GROUP BY DATE(detected_at AT TIME ZONE 'UTC')
+      FROM alerts a
+      JOIN monitored_urls mu ON mu.id = a.url_id
+      WHERE a.detected_at > NOW() - INTERVAL '30 days' ${userWhere}
+      GROUP BY DATE(a.detected_at AT TIME ZONE 'UTC')
       ORDER BY date ASC
-    `);
+    `, params);
 
     res.json({
       statusCodes,

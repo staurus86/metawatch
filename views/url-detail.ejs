@@ -3,10 +3,16 @@
     <div class="breadcrumb"><a href="/">Dashboard</a> / URL Detail</div>
     <h1 class="page-title url-title"><%= urlRecord.url %></h1>
   </div>
-  <div style="display:flex;gap:8px;flex-shrink:0">
+  <div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap">
     <a href="/urls/<%= urlRecord.id %>/edit" class="btn btn-ghost" style="font-size:12px">
       ✎ Edit
     </a>
+    <form action="/urls/<%= urlRecord.id %>/clone" method="POST" style="display:inline"
+          data-confirm="Clone this URL with all its settings?">
+      <button type="submit" class="btn btn-ghost" style="font-size:12px">⎘ Clone</button>
+    </form>
+    <button id="test-notify-btn" class="btn btn-ghost" style="font-size:12px"
+            data-url-id="<%= urlRecord.id %>">🔔 Test Alert</button>
     <a href="/export/url/<%= urlRecord.id %>.xlsx" class="btn btn-ghost" style="font-size:12px">
       ⬇ Export XLSX
     </a>
@@ -232,6 +238,34 @@
           <% } %>
         </div>
       </div>
+
+      <% if (urlRecord.notes) { %>
+      <div style="padding:0 20px 12px">
+        <div class="section-label" style="margin-bottom:6px">Notes</div>
+        <div style="font-size:13px;color:var(--text-muted);background:var(--bg-secondary);padding:10px 14px;border-radius:6px;border:1px solid var(--border)">
+          <%= urlRecord.notes %>
+        </div>
+      </div>
+      <% } %>
+
+      <!-- Uptime timeline (last 30 checks) -->
+      <% if (snapshots.length > 0) { %>
+      <div style="padding:0 20px 12px">
+        <div class="section-label" style="margin-bottom:8px">Recent checks (last <%= Math.min(snapshots.length, 30) %>)</div>
+        <div style="display:flex;gap:3px;flex-wrap:wrap">
+          <% snapshots.slice(0, 30).reverse().forEach(function(s) { %>
+            <% const ok = s.status_code > 0 && s.status_code < 400; %>
+            <div class="uptime-dot uptime-dot--<%= ok ? 'ok' : 'err' %>"
+                 title="<%= new Date(s.checked_at).toUTCString() %> — HTTP <%= s.status_code || 'ERR' %>"></div>
+          <% }) %>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;display:flex;gap:12px">
+          <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#68d391;margin-right:3px"></span>OK</span>
+          <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#fc8181;margin-right:3px"></span>Error</span>
+          <span style="color:var(--text-muted)">← older · newer →</span>
+        </div>
+      </div>
+      <% } %>
 
       <!-- Response time chart -->
       <div style="padding:4px 20px 20px">

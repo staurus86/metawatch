@@ -7,10 +7,14 @@ const { requireAuth } = require('../auth');
 // GET /export/report.xlsx — all URLs with latest snapshot
 router.get('/report.xlsx', requireAuth, async (req, res) => {
   try {
+    const isAdmin = req.user?.role === 'admin';
+    const userWhere = isAdmin ? '' : 'AND mu.user_id = $1';
+    const params = isAdmin ? [] : [req.user.id];
+
     const { rows: urls } = await pool.query(`
       SELECT
         mu.id, mu.url, mu.email, mu.check_interval_minutes, mu.is_active,
-        mu.created_at,
+        mu.created_at, mu.tags, mu.notes,
         ls.title, ls.description, ls.h1, ls.status_code, ls.noindex,
         ls.redirect_url, ls.canonical, ls.checked_at AS last_checked,
         ls.og_title, ls.og_description, ls.og_image, ls.hreflang,
@@ -28,8 +32,9 @@ router.get('/report.xlsx', requireAuth, async (req, res) => {
         FROM alerts
         WHERE url_id = mu.id AND detected_at > NOW() - INTERVAL '24 hours'
       ) ac ON true
+      WHERE true ${userWhere}
       ORDER BY mu.id
-    `);
+    `, params);
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'MetaWatch';
@@ -39,7 +44,7 @@ router.get('/report.xlsx', requireAuth, async (req, res) => {
 
     // Header row
     const headers = [
-      'ID', 'URL', 'Status Code', 'Title', 'Description', 'H1',
+      'ID', 'URL', 'Tags', 'Notes', 'Status Code', 'Title', 'Description', 'H1',
       'noindex', 'Canonical', 'Redirect', 'OG Title', 'OG Description',
       'hreflang', 'Last Checked', 'Alerts (24h)', 'Active', 'Email', 'Interval (min)'
     ];
@@ -70,6 +75,8 @@ router.get('/report.xlsx', requireAuth, async (req, res) => {
       const row = sheet.addRow([
         u.id,
         u.url,
+        u.tags || '',
+        u.notes || '',
         u.status_code || '',
         u.title || '',
         u.description || '',
@@ -210,17 +217,22 @@ router.get('/url/:id.xlsx', requireAuth, async (req, res) => {
   }
 });
 
-// GET /export/alerts.csv — all alerts as CSV
+// GET /export/alerts.csv — all alerts as CSV (scoped to user)
 router.get('/alerts.csv', requireAuth, async (req, res) => {
   try {
+    const isAdmin = req.user?.role === 'admin';
+    const userWhere = isAdmin ? '' : 'AND mu.user_id = $1';
+    const params = isAdmin ? [] : [req.user.id];
+
     const { rows: alerts } = await pool.query(`
       SELECT
         a.id, a.detected_at, a.field_changed, a.old_value, a.new_value,
         mu.url
       FROM alerts a
       JOIN monitored_urls mu ON mu.id = a.url_id
+      WHERE true ${userWhere}
       ORDER BY a.detected_at DESC
-    `);
+    `, params);
 
     const lines = [
       ['ID', 'Detected At', 'URL', 'Field', 'Old Value', 'New Value']

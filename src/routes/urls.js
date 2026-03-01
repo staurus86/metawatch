@@ -57,7 +57,7 @@ router.post('/add', requireAuth, async (req, res) => {
     monitor_ssl,
     user_agent, ignore_numbers, custom_text,
     telegram_bot_token, telegram_chat_id, webhook_url,
-    tags
+    tags, notes
   } = req.body;
 
   const renderError = (msg) => res.render('add-url', {
@@ -83,8 +83,8 @@ router.post('/add', requireAuth, async (req, res) => {
           monitor_status_code, monitor_noindex, monitor_redirect,
           monitor_canonical, monitor_robots, monitor_hreflang, monitor_og, monitor_ssl,
           user_agent, ignore_numbers, custom_text,
-          telegram_bot_token, telegram_chat_id, webhook_url, tags)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+          telegram_bot_token, telegram_chat_id, webhook_url, tags, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
        RETURNING *`,
       [
         trimmedUrl,
@@ -100,7 +100,8 @@ router.post('/add', requireAuth, async (req, res) => {
         telegram_bot_token?.trim() || null,
         telegram_chat_id?.trim() || null,
         webhook_url?.trim() || null,
-        normalizeTags(tags)
+        normalizeTags(tags),
+        notes?.trim() || ''
       ]
     );
 
@@ -298,7 +299,7 @@ router.get('/:id/edit', requireAuth, async (req, res) => {
     const { rows: [urlRecord] } = await pool.query(query, params);
     if (!urlRecord) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
 
-    res.render('edit-url', { title: 'Edit URL', error: null, urlRecord });
+    res.render('edit-url', { title: 'Edit URL', error: null, urlRecord, cloned: !!req.query.cloned });
   } catch (err) {
     console.error(err);
     res.status(500).render('error', { title: 'Error', error: err.message });
@@ -317,7 +318,7 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
     monitor_canonical, monitor_robots, monitor_hreflang, monitor_og, monitor_ssl,
     user_agent, ignore_numbers, custom_text,
     telegram_bot_token, telegram_chat_id, webhook_url,
-    silenced_until, tags
+    silenced_until, tags, notes
   } = req.body;
 
   const interval = parseInt(check_interval_minutes, 10);
@@ -337,8 +338,8 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
          monitor_ssl = $14,
          user_agent = $15, ignore_numbers = $16, custom_text = $17,
          telegram_bot_token = $18, telegram_chat_id = $19, webhook_url = $20,
-         silenced_until = $21, tags = $22
-       WHERE id = $23 ${req.user.role !== 'admin' ? 'AND user_id = $24' : ''}
+         silenced_until = $21, tags = $22, notes = $23
+       WHERE id = $24 ${req.user.role !== 'admin' ? 'AND user_id = $25' : ''}
        RETURNING *`,
       req.user.role !== 'admin'
         ? [
@@ -349,7 +350,8 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
             !!monitor_ssl, user_agent?.trim() || null, !!ignore_numbers,
             custom_text?.trim() || null, telegram_bot_token?.trim() || null,
             telegram_chat_id?.trim() || null, webhook_url?.trim() || null,
-            silenced_until?.trim() || null, normalizeTags(tags), urlId, req.user.id
+            silenced_until?.trim() || null, normalizeTags(tags), notes?.trim() || '',
+            urlId, req.user.id
           ]
         : [
             email?.trim() || null, interval,
@@ -359,7 +361,8 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
             !!monitor_ssl, user_agent?.trim() || null, !!ignore_numbers,
             custom_text?.trim() || null, telegram_bot_token?.trim() || null,
             telegram_chat_id?.trim() || null, webhook_url?.trim() || null,
-            silenced_until?.trim() || null, normalizeTags(tags), urlId
+            silenced_until?.trim() || null, normalizeTags(tags), notes?.trim() || '',
+            urlId
           ]
     );
 
@@ -571,6 +574,79 @@ router.post('/:id/delete', requireAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).render('error', { title: 'Error', error: err.message });
+  }
+});
+
+// POST /urls/:id/clone — duplicate a URL with all its settings
+router.post('/:id/clone', requireAuth, async (req, res) => {
+  const urlId = parseInt(req.params.id, 10);
+  if (isNaN(urlId)) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
+
+  try {
+    const { query, params } = ownedUrlQuery(urlId, req);
+    const { rows: [src] } = await pool.query(query, params);
+    if (!src) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
+
+    const { rows: [cloned] } = await pool.query(
+      `INSERT INTO monitored_urls
+         (url, email, check_interval_minutes, user_id,
+          monitor_title, monitor_description, monitor_h1, monitor_body,
+          monitor_status_code, monitor_noindex, monitor_redirect,
+          monitor_canonical, monitor_robots, monitor_hreflang, monitor_og, monitor_ssl,
+          user_agent, ignore_numbers, custom_text,
+          telegram_bot_token, telegram_chat_id, webhook_url, tags, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+       RETURNING *`,
+      [
+        src.url, src.email, src.check_interval_minutes, req.user.id,
+        src.monitor_title, src.monitor_description, src.monitor_h1, src.monitor_body,
+        src.monitor_status_code, src.monitor_noindex, src.monitor_redirect,
+        src.monitor_canonical, src.monitor_robots, src.monitor_hreflang, src.monitor_og, src.monitor_ssl,
+        src.user_agent, src.ignore_numbers, src.custom_text,
+        src.telegram_bot_token, src.telegram_chat_id, src.webhook_url,
+        src.tags, src.notes || ''
+      ]
+    );
+
+    scheduleUrl(cloned);
+    checkUrl(cloned.id).catch(() => {});
+    res.redirect(`/urls/${cloned.id}/edit?cloned=1`);
+  } catch (err) {
+    console.error(err);
+    res.status(500).render('error', { title: 'Error', error: err.message });
+  }
+});
+
+// POST /urls/:id/test-notify — send a test notification for this URL
+router.post('/:id/test-notify', requireAuth, async (req, res) => {
+  const urlId = parseInt(req.params.id, 10);
+  if (isNaN(urlId)) return res.status(404).json({ error: 'Not found' });
+
+  try {
+    const { query, params } = ownedUrlQuery(urlId, req);
+    const { rows: [urlRecord] } = await pool.query(query, params);
+    if (!urlRecord) return res.status(404).json({ error: 'Not found' });
+
+    const { notify } = require('../notifier');
+    const results = await notify({
+      urlRecord,
+      field: 'Test Notification',
+      oldValue: 'MetaWatch test',
+      newValue: 'This is a test alert — your notifications are working!',
+      timestamp: new Date()
+    });
+
+    const channels = Object.entries(results)
+      .filter(([, ok]) => ok)
+      .map(([ch]) => ch);
+
+    if (channels.length === 0) {
+      return res.json({ ok: false, message: 'No notification channels configured for this URL.' });
+    }
+    res.json({ ok: true, message: `Test sent via: ${channels.join(', ')}` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
   }
 });
 

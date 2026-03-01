@@ -6,6 +6,12 @@
   </div>
 </div>
 
+<% if (importedCount != null) { %>
+  <div class="alert-banner alert-banner--ok" style="margin-bottom:16px">
+    ✓ Successfully imported <%= importedCount %> URL<%= importedCount !== 1 ? 's' : '' %>. First checks are running in the background.
+  </div>
+<% } %>
+
 <!-- Stats row -->
 <div class="stats-row">
   <div class="stat-card">
