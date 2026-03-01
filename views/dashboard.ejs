@@ -111,6 +111,11 @@
             </div>
           </div>
           <div class="url-row-right">
+            <% if (u.uptime_pct != null) { %>
+              <span class="uptime-badge uptime-badge--<%= u.uptime_pct >= 99 ? 'great' : u.uptime_pct >= 95 ? 'ok' : 'warn' %>">
+                <%= u.uptime_pct %>%
+              </span>
+            <% } %>
             <% if (u.last_status_code) { %>
               <span class="badge <%= u.last_status_code === 200 ? 'badge--ok' : 'badge--error' %>">
                 <%= u.last_status_code === 0 ? 'ERR' : u.last_status_code %>
@@ -124,6 +129,19 @@
         </a>
       <% }) %>
     </div>
+
+    <!-- Pagination -->
+    <% if (totalPages > 1) { %>
+    <div class="pagination">
+      <% if (page > 1) { %>
+        <a href="/?tab=<%= tab %>&page=<%= page - 1 %>" class="btn btn-ghost btn-sm">← Prev</a>
+      <% } %>
+      <span class="pagination-info">Page <%= page %> of <%= totalPages %> &nbsp;·&nbsp; <%= totalCount %> URLs</span>
+      <% if (page < totalPages) { %>
+        <a href="/?tab=<%= tab %>&page=<%= page + 1 %>" class="btn btn-ghost btn-sm">Next →</a>
+      <% } %>
+    </div>
+    <% } %>
   <% } %>
 </div>
 

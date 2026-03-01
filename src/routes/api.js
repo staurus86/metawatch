@@ -14,8 +14,11 @@ router.get('/health', async (req, res) => {
   }
 });
 
-// GET /api/urls — list all monitored URLs (auth via cookie or API key)
+// GET /api/urls — list monitored URLs (scoped to user for non-admins)
 router.get('/urls', requireAuth, async (req, res) => {
+  const isAdmin = req.user?.role === 'admin';
+  const userWhere = isAdmin ? '' : 'WHERE mu.user_id = $1';
+  const params = isAdmin ? [] : [req.user.id];
   try {
     const { rows } = await pool.query(`
       SELECT mu.id, mu.url, mu.is_active, mu.check_interval_minutes,
@@ -25,9 +28,40 @@ router.get('/urls', requireAuth, async (req, res) => {
         SELECT status_code, checked_at FROM snapshots
         WHERE url_id = mu.id ORDER BY checked_at DESC LIMIT 1
       ) ls ON true
+      ${userWhere}
       ORDER BY mu.created_at DESC
-    `);
+    `, params);
     res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/url/:id/response-times — last 48 response_time_ms readings
+router.get('/url/:id/response-times', requireAuth, async (req, res) => {
+  const urlId = parseInt(req.params.id, 10);
+  if (isNaN(urlId)) return res.status(400).json({ error: 'Invalid ID' });
+
+  const isAdmin = req.user?.role === 'admin';
+  try {
+    // Ownership check
+    const { rows: [owned] } = await pool.query(
+      isAdmin
+        ? 'SELECT id FROM monitored_urls WHERE id = $1'
+        : 'SELECT id FROM monitored_urls WHERE id = $1 AND user_id = $2',
+      isAdmin ? [urlId] : [urlId, req.user.id]
+    );
+    if (!owned) return res.status(404).json({ error: 'Not found' });
+
+    const { rows } = await pool.query(`
+      SELECT checked_at, response_time_ms
+      FROM snapshots
+      WHERE url_id = $1 AND response_time_ms IS NOT NULL
+      ORDER BY checked_at DESC
+      LIMIT 48
+    `, [urlId]);
+
+    res.json(rows.reverse()); // oldest first for chart
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -128,8 +162,11 @@ router.get('/scan-stream', requireAuth, (req, res) => {
 
 // ─── API Key protected endpoints ─────────────────────────────────────────────
 
-// GET /api/tasks — list monitored URLs (external API)
+// GET /api/tasks — list monitored URLs (external API, scoped to API key owner)
 router.get('/tasks', requireApiKey, async (req, res) => {
+  const isAdmin = req.user?.role === 'admin';
+  const userWhere = isAdmin ? '' : 'WHERE mu.user_id = $1';
+  const params = isAdmin ? [] : [req.user.id];
   try {
     const { rows } = await pool.query(`
       SELECT mu.id, mu.url, mu.is_active, mu.check_interval_minutes,
@@ -148,8 +185,9 @@ router.get('/tasks', requireApiKey, async (req, res) => {
         SELECT COUNT(*) AS cnt FROM alerts
         WHERE url_id = mu.id AND detected_at > NOW() - INTERVAL '24 hours'
       ) ac ON true
+      ${userWhere}
       ORDER BY mu.id
-    `);
+    `, params);
     res.json({ tasks: rows });
   } catch (err) {
     res.status(500).json({ error: err.message });

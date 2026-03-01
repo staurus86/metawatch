@@ -98,6 +98,16 @@
     <div class="info-value"><%= snapshots[0].response_time_ms %> ms</div>
   </div>
   <% } %>
+  <% if (uptimePct != null) { %>
+  <div class="card info-card">
+    <div class="info-label">Uptime (30d)</div>
+    <div class="info-value">
+      <span class="uptime-badge uptime-badge--<%= uptimePct >= 99 ? 'great' : uptimePct >= 95 ? 'ok' : 'warn' %>">
+        <%= uptimePct %>%
+      </span>
+    </div>
+  </div>
+  <% } %>
   <% if (urlRecord.silenced_until && new Date(urlRecord.silenced_until) > new Date()) { %>
   <div class="card info-card">
     <div class="info-label">Silenced Until</div>
@@ -209,6 +219,15 @@
           <% } %>
         </div>
       </div>
+
+      <!-- Response time chart -->
+      <div style="padding:4px 20px 20px">
+        <div class="section-label" style="margin-bottom:10px">Response Time (last 48 checks)</div>
+        <div style="height:130px">
+          <canvas id="chart-response-time" data-url-id="<%= urlRecord.id %>"></canvas>
+        </div>
+      </div>
+
     <% } else { %>
       <div class="empty-state" style="padding:32px">
         <p class="text-muted">No snapshots yet. First check is running in the background.</p>

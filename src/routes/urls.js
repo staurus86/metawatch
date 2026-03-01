@@ -14,6 +14,17 @@ const { scanEmitter, isScanRunning, setScanRunning } = require('../scan-events')
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
+// Return SQL + params to fetch a URL with ownership check
+function ownedUrlQuery(urlId, req) {
+  const isAdmin = req.user?.role === 'admin';
+  return {
+    query: isAdmin
+      ? 'SELECT * FROM monitored_urls WHERE id = $1'
+      : 'SELECT * FROM monitored_urls WHERE id = $1 AND user_id = $2',
+    params: isAdmin ? [urlId] : [urlId, req.user.id]
+  };
+}
+
 // GET /urls/add
 router.get('/add', requireAuth, (req, res) => {
   res.render('add-url', {
@@ -241,8 +252,12 @@ router.post('/scan-all', requireAuth, async (req, res) => {
     return res.json({ ok: false, error: 'Scan already running' });
   }
 
+  const isAdmin = req.user.role === 'admin';
   const { rows } = await pool.query(
-    'SELECT id, url FROM monitored_urls WHERE is_active = true ORDER BY id'
+    isAdmin
+      ? 'SELECT id, url FROM monitored_urls WHERE is_active = true ORDER BY id'
+      : 'SELECT id, url FROM monitored_urls WHERE is_active = true AND user_id = $1 ORDER BY id',
+    isAdmin ? [] : [req.user.id]
   );
   const total = rows.length;
 
@@ -276,9 +291,8 @@ router.get('/:id/edit', requireAuth, async (req, res) => {
   if (isNaN(urlId)) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
 
   try {
-    const { rows: [urlRecord] } = await pool.query(
-      'SELECT * FROM monitored_urls WHERE id = $1', [urlId]
-    );
+    const { query, params } = ownedUrlQuery(urlId, req);
+    const { rows: [urlRecord] } = await pool.query(query, params);
     if (!urlRecord) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
 
     res.render('edit-url', { title: 'Edit URL', error: null, urlRecord });
@@ -305,7 +319,8 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
 
   const interval = parseInt(check_interval_minutes, 10);
   if (isNaN(interval) || interval < 1) {
-    const { rows: [urlRecord] } = await pool.query('SELECT * FROM monitored_urls WHERE id = $1', [urlId]);
+    const { query: q, params: p } = ownedUrlQuery(urlId, req);
+    const { rows: [urlRecord] } = await pool.query(q, p);
     return res.render('edit-url', { title: 'Edit URL', error: 'Invalid check interval.', urlRecord });
   }
 
@@ -346,7 +361,8 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
     res.redirect(`/urls/${urlId}`);
   } catch (err) {
     console.error(err);
-    const { rows: [urlRecord] } = await pool.query('SELECT * FROM monitored_urls WHERE id = $1', [urlId]);
+    const { query: q, params: p } = ownedUrlQuery(urlId, req);
+    const { rows: [urlRecord] } = await pool.query(q, p);
     res.render('edit-url', { title: 'Edit URL', error: err.message, urlRecord });
   }
 });
@@ -357,10 +373,8 @@ router.get('/:id', requireAuth, async (req, res) => {
   if (isNaN(urlId)) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
 
   try {
-    const { rows: [urlRecord] } = await pool.query(
-      'SELECT * FROM monitored_urls WHERE id = $1',
-      [urlId]
-    );
+    const { query: ownerQ, params: ownerP } = ownedUrlQuery(urlId, req);
+    const { rows: [urlRecord] } = await pool.query(ownerQ, ownerP);
     if (!urlRecord) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
 
     const { rows: snapshots } = await pool.query(
@@ -413,6 +427,17 @@ router.get('/:id', requireAuth, async (req, res) => {
       nextCheck = new Date(lastChecked.getTime() + urlRecord.check_interval_minutes * 60 * 1000);
     }
 
+    // Uptime % over last 30 days
+    const { rows: [uptimeRow] } = await pool.query(`
+      SELECT
+        CASE WHEN COUNT(*) = 0 THEN NULL
+          ELSE ROUND((COUNT(*) FILTER (WHERE status_code BETWEEN 200 AND 399)::float / COUNT(*) * 100)::numeric, 1)
+        END AS uptime_pct
+      FROM snapshots
+      WHERE url_id = $1 AND checked_at > NOW() - INTERVAL '30 days'
+    `, [urlId]);
+    const uptimePct = uptimeRow?.uptime_pct ?? null;
+
     res.render('url-detail', {
       title: urlRecord.url,
       urlRecord,
@@ -421,7 +446,8 @@ router.get('/:id', requireAuth, async (req, res) => {
       nextCheck,
       refSnapshot,
       robotsDiff,
-      activeTab: req.query.tab || 'overview'
+      activeTab: req.query.tab || 'overview',
+      uptimePct
     });
   } catch (err) {
     console.error(err);
@@ -432,10 +458,13 @@ router.get('/:id', requireAuth, async (req, res) => {
 // POST /urls/:id/toggle
 router.post('/:id/toggle', requireAuth, async (req, res) => {
   const urlId = parseInt(req.params.id, 10);
+  const isAdmin = req.user.role === 'admin';
   try {
     const { rows: [updated] } = await pool.query(
-      'UPDATE monitored_urls SET is_active = NOT is_active WHERE id = $1 RETURNING *',
-      [urlId]
+      isAdmin
+        ? 'UPDATE monitored_urls SET is_active = NOT is_active WHERE id = $1 RETURNING *'
+        : 'UPDATE monitored_urls SET is_active = NOT is_active WHERE id = $1 AND user_id = $2 RETURNING *',
+      isAdmin ? [urlId] : [urlId, req.user.id]
     );
     if (!updated) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
 
@@ -452,7 +481,16 @@ router.post('/:id/toggle', requireAuth, async (req, res) => {
 // POST /urls/:id/check-now
 router.post('/:id/check-now', requireAuth, async (req, res) => {
   const urlId = parseInt(req.params.id, 10);
+  const isAdmin = req.user.role === 'admin';
   try {
+    // Verify ownership before checking
+    const { rows: [owned] } = await pool.query(
+      isAdmin
+        ? 'SELECT id FROM monitored_urls WHERE id = $1'
+        : 'SELECT id FROM monitored_urls WHERE id = $1 AND user_id = $2',
+      isAdmin ? [urlId] : [urlId, req.user.id]
+    );
+    if (!owned) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
     await checkUrl(urlId);
     res.redirect(`/urls/${urlId}`);
   } catch (err) {
@@ -464,6 +502,7 @@ router.post('/:id/check-now', requireAuth, async (req, res) => {
 // POST /urls/:id/accept-changes — set reference_snapshot_id to latest
 router.post('/:id/accept-changes', requireAuth, async (req, res) => {
   const urlId = parseInt(req.params.id, 10);
+  const isAdmin = req.user.role === 'admin';
   try {
     const { rows } = await pool.query(
       'SELECT id FROM snapshots WHERE url_id = $1 ORDER BY checked_at DESC LIMIT 1',
@@ -471,8 +510,10 @@ router.post('/:id/accept-changes', requireAuth, async (req, res) => {
     );
     if (rows[0]) {
       await pool.query(
-        'UPDATE monitored_urls SET reference_snapshot_id = $1 WHERE id = $2',
-        [rows[0].id, urlId]
+        isAdmin
+          ? 'UPDATE monitored_urls SET reference_snapshot_id = $1 WHERE id = $2'
+          : 'UPDATE monitored_urls SET reference_snapshot_id = $1 WHERE id = $2 AND user_id = $3',
+        isAdmin ? [rows[0].id, urlId] : [rows[0].id, urlId, req.user.id]
       );
     }
     res.redirect(`/urls/${urlId}`);
@@ -484,6 +525,7 @@ router.post('/:id/accept-changes', requireAuth, async (req, res) => {
 
 // POST /urls/accept-all-changes — accept changes for all problem URLs
 router.post('/accept-all-changes', requireAuth, async (req, res) => {
+  const isAdmin = req.user.role === 'admin';
   try {
     await pool.query(`
       UPDATE monitored_urls mu
@@ -494,7 +536,8 @@ router.post('/accept-all-changes', requireAuth, async (req, res) => {
         ORDER BY url_id, checked_at DESC
       ) ls
       WHERE mu.id = ls.url_id
-    `);
+      ${isAdmin ? '' : 'AND mu.user_id = $1'}
+    `, isAdmin ? [] : [req.user.id]);
     res.redirect('/?tab=problems');
   } catch (err) {
     console.error(err);
@@ -505,9 +548,15 @@ router.post('/accept-all-changes', requireAuth, async (req, res) => {
 // POST /urls/:id/delete
 router.post('/:id/delete', requireAuth, async (req, res) => {
   const urlId = parseInt(req.params.id, 10);
+  const isAdmin = req.user.role === 'admin';
   try {
-    unscheduleUrl(urlId);
-    await pool.query('DELETE FROM monitored_urls WHERE id = $1', [urlId]);
+    const { rowCount } = await pool.query(
+      isAdmin
+        ? 'DELETE FROM monitored_urls WHERE id = $1'
+        : 'DELETE FROM monitored_urls WHERE id = $1 AND user_id = $2',
+      isAdmin ? [urlId] : [urlId, req.user.id]
+    );
+    if (rowCount > 0) unscheduleUrl(urlId);
     res.redirect('/');
   } catch (err) {
     console.error(err);

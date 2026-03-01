@@ -258,10 +258,56 @@ function initCharts() {
     .catch(err => console.warn('Chart data load failed:', err.message));
 }
 
+// ─── Response time chart (url-detail page) ───
+function initResponseTimeChart() {
+  const canvas = document.getElementById('chart-response-time');
+  if (!canvas || typeof Chart === 'undefined') return;
+
+  const urlId = canvas.getAttribute('data-url-id');
+  fetch('/api/url/' + urlId + '/response-times')
+    .then(r => r.json())
+    .then(data => {
+      if (!data.length) {
+        canvas.parentElement.style.display = 'none';
+        return;
+      }
+      const labels = data.map(d => {
+        const dt = new Date(d.checked_at);
+        return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      });
+      const values = data.map(d => d.response_time_ms);
+      new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'ms',
+            data: values,
+            borderColor: '#4299e1',
+            backgroundColor: 'rgba(66,153,225,.08)',
+            tension: 0.3,
+            fill: true,
+            pointRadius: 2,
+            pointHoverRadius: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: { ticks: { font: { size: 10 }, maxTicksLimit: 12 } },
+            y: { beginAtZero: true, ticks: { font: { size: 10 } } }
+          },
+          plugins: { legend: { display: false } }
+        }
+      });
+    })
+    .catch(() => {});
+}
+
 // Wait for Chart.js CDN to load
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initCharts);
+  document.addEventListener('DOMContentLoaded', () => { initCharts(); initResponseTimeChart(); });
 } else {
-  // Chart.js is loaded with defer, so wait for window.load
-  window.addEventListener('load', initCharts);
+  window.addEventListener('load', () => { initCharts(); initResponseTimeChart(); });
 }
