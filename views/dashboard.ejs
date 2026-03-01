@@ -126,7 +126,7 @@
       <button type="submit" name="action" value="resume" class="btn btn-ghost" style="font-size:12px;padding:3px 10px">▶ Resume</button>
       <button type="submit" name="action" value="accept" class="btn btn-ghost" style="font-size:12px;padding:3px 10px">✓ Accept</button>
       <button type="submit" name="action" value="delete" class="btn btn-danger" style="font-size:12px;padding:3px 10px"
-              onclick="return confirm('Delete selected URLs?')">✕ Delete</button>
+              data-confirm-message="Delete selected URLs?">✕ Delete</button>
     </form>
   </div>
   <% if (urls.length === 0) { %>
@@ -141,7 +141,7 @@
     <div class="url-list">
       <% urls.forEach(function(u) { %>
         <div class="url-row-wrap">
-          <input type="checkbox" class="url-row-cb" value="<%= u.id %>" style="margin:0 4px 0 12px;flex-shrink:0" onclick="event.stopPropagation()">
+          <input type="checkbox" class="url-row-cb" value="<%= u.id %>" style="margin:0 4px 0 12px;flex-shrink:0">
         <a href="/urls/<%= u.id %>" class="url-row">
           <div class="url-row-left">
             <span class="status-dot status-dot--<%= u.status.toLowerCase() %>"></span>
@@ -156,7 +156,7 @@
                 &nbsp;·&nbsp; Every <%= u.check_interval_minutes >= 60 ? (u.check_interval_minutes / 60) + 'h' : u.check_interval_minutes + 'min' %>
                 <% if (!u.is_active) { %>&nbsp;·&nbsp; <span class="badge badge--paused">Paused</span><% } %>
                 <% if (u.tags) { u.tags.split(',').filter(Boolean).forEach(function(t) { %>
-                  &nbsp;<a href="/?tab=<%= tab %>&tag=<%= encodeURIComponent(t.trim()) %>" class="tag-chip" onclick="event.stopPropagation()"><%= t.trim() %></a>
+                  &nbsp;<a href="/?tab=<%= tab %>&tag=<%= encodeURIComponent(t.trim()) %>" class="tag-chip" data-stop-row-nav="1"><%= t.trim() %></a>
                 <% }) } %>
               </div>
             </div>
@@ -207,7 +207,7 @@
     <% if (alertFields.length > 0) { %>
       <div style="display:flex;align-items:center;gap:8px">
         <label style="font-size:12px;color:var(--text-muted)">Filter:</label>
-        <select onchange="window.location='/?tab=<%= tab %>&field='+this.value"
+        <select data-nav-base="/?tab=<%= tab %>&field="
                 class="form-select" style="padding:4px 8px;font-size:12px;width:auto">
           <option value="">All fields</option>
           <% alertFields.forEach(function(f) { %>

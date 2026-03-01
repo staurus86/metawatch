@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title><%= typeof title !== 'undefined' ? title + ' — MetaWatch' : 'MetaWatch' %></title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="stylesheet" href="/style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
   <script>
@@ -108,7 +109,7 @@
           <div class="onboarding-icon">👁</div>
           <h2 class="onboarding-title">Welcome to MetaWatch!</h2>
           <p class="onboarding-desc">MetaWatch monitors your website's metadata, uptime, and content changes — and notifies you the moment something changes.</p>
-          <button class="btn btn-primary" onclick="obNext(2)">Next →</button>
+          <button type="button" class="btn btn-primary" data-ob-next="2">Next →</button>
         </div>
         <!-- Step 2 -->
         <div class="onboarding-step" id="ob-step-2" style="display:none">
@@ -116,8 +117,8 @@
           <h2 class="onboarding-title">Add your first URL</h2>
           <p class="onboarding-desc">Go to <strong>Add URL</strong> to start monitoring a page. Choose which fields to track: title, meta description, H1, canonical, and more.</p>
           <div style="display:flex;gap:10px;justify-content:center;margin-top:4px">
-            <button class="btn btn-ghost" onclick="obNext(1)">← Back</button>
-            <button class="btn btn-primary" onclick="obNext(3)">Next →</button>
+            <button type="button" class="btn btn-ghost" data-ob-next="1">← Back</button>
+            <button type="button" class="btn btn-primary" data-ob-next="3">Next →</button>
           </div>
         </div>
         <!-- Step 3 -->
@@ -126,8 +127,8 @@
           <h2 class="onboarding-title">Set up alerts</h2>
           <p class="onboarding-desc">Configure email, Telegram, or webhook notifications per URL. You can also set maintenance windows to silence alerts temporarily.</p>
           <div style="display:flex;gap:10px;justify-content:center;margin-top:4px">
-            <button class="btn btn-ghost" onclick="obNext(2)">← Back</button>
-            <button class="btn btn-primary" onclick="obFinish()">Get Started ✓</button>
+            <button type="button" class="btn btn-ghost" data-ob-next="2">← Back</button>
+            <button type="button" class="btn btn-primary" data-ob-finish="1">Get Started ✓</button>
           </div>
         </div>
       </div>
@@ -136,7 +137,7 @@
         <span class="ob-dot" id="ob-dot-2"></span>
         <span class="ob-dot" id="ob-dot-3"></span>
       </div>
-      <button class="onboarding-skip" onclick="obFinish()">Skip</button>
+      <button type="button" class="onboarding-skip" data-ob-finish="1">Skip</button>
     </div>
   </div>
   <% } %>

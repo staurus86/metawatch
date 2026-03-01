@@ -45,6 +45,14 @@ document.querySelectorAll('form[data-confirm]').forEach(form => {
   });
 });
 
+// Confirm dialog for specific submit buttons
+document.querySelectorAll('button[data-confirm-message]').forEach(btn => {
+  btn.addEventListener('click', function (e) {
+    const msg = this.getAttribute('data-confirm-message');
+    if (msg && !confirm(msg)) e.preventDefault();
+  });
+});
+
 // ─── URL search / filter ───
 const urlSearch = document.getElementById('url-search');
 if (urlSearch) {
@@ -59,7 +67,11 @@ if (urlSearch) {
 
 // ─── Check-now loading state ───
 document.querySelectorAll('form').forEach(form => {
-  if (form.action && form.action.includes('check-now')) {
+  const actionAttr = form.getAttribute('action');
+  const action = typeof actionAttr === 'string'
+    ? actionAttr
+    : (typeof form.action === 'string' ? form.action : '');
+  if (action.includes('check-now')) {
     form.addEventListener('submit', function () {
       const btn = this.querySelector('button[type=submit]');
       if (btn) { btn.textContent = '⏳ Checking...'; btn.disabled = true; }
@@ -409,6 +421,10 @@ if (darkBtn) {
 }
 
 // ─── Bulk select on dashboard ─────────────────────────────────────────────────
+document.querySelectorAll('.url-row-cb, [data-stop-row-nav]').forEach(el => {
+  el.addEventListener('click', e => e.stopPropagation());
+});
+
 const selectAllCb = document.getElementById('select-all-urls');
 if (selectAllCb) {
   selectAllCb.addEventListener('change', function () {
@@ -440,7 +456,16 @@ function updateBulkBar() {
 }
 
 // ─── Onboarding Wizard ───────────────────────────────────────────────────────
-// Must be window-attached so onclick="" attributes can reach them
+document.querySelectorAll('[data-ob-next]').forEach(btn => {
+  btn.addEventListener('click', function () {
+    window.obNext(Number(this.getAttribute('data-ob-next')));
+  });
+});
+
+document.querySelectorAll('[data-ob-finish]').forEach(btn => {
+  btn.addEventListener('click', () => window.obFinish());
+});
+
 window.obNext = function(step) {
   [1, 2, 3].forEach(n => {
     const s = document.getElementById('ob-step-' + n);
@@ -518,6 +543,37 @@ document.querySelectorAll('.color-radio').forEach(radio => {
     document.querySelectorAll('.color-swatch').forEach(sw => sw.classList.remove('color-swatch--selected'));
     const swatch = this.parentElement.querySelector('.color-swatch');
     if (swatch) swatch.classList.add('color-swatch--selected');
+  });
+});
+
+document.querySelectorAll('input[data-submit-on-change]').forEach(input => {
+  input.addEventListener('change', function () {
+    if (this.form) this.form.submit();
+  });
+});
+
+document.querySelectorAll('select[data-nav-base]').forEach(select => {
+  select.addEventListener('change', function () {
+    const base = this.getAttribute('data-nav-base') || '';
+    window.location = base + encodeURIComponent(this.value || '');
+  });
+});
+
+document.querySelectorAll('button[data-copy-text]').forEach(btn => {
+  btn.addEventListener('click', async function (e) {
+    e.preventDefault();
+    const value = this.getAttribute('data-copy-text');
+    if (!value) return;
+    const original = this.textContent;
+    try {
+      await navigator.clipboard.writeText(value);
+      this.textContent = this.getAttribute('data-copy-success') || 'Copied!';
+    } catch {
+      this.textContent = 'Copy failed';
+    }
+    setTimeout(() => {
+      this.textContent = original;
+    }, 1800);
   });
 });
 

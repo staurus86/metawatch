@@ -60,7 +60,7 @@
                 <form action="/tags/<%= tag.id %>/update" method="POST" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
                   <% palette.forEach(function(c) { %>
                     <label style="cursor:pointer">
-                      <input type="radio" name="color" value="<%= c %>" <%= tag.color === c ? 'checked' : '' %> style="display:none" class="color-radio" onchange="this.form.submit()">
+                      <input type="radio" name="color" value="<%= c %>" <%= tag.color === c ? 'checked' : '' %> style="display:none" class="color-radio" data-submit-on-change="1">
                       <span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:<%= c %>;border:<%= tag.color === c ? '2px solid #2d3748' : '2px solid transparent' %>" class="color-swatch-sm"></span>
                     </label>
                   <% }) %>
