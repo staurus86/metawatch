@@ -1,8 +1,27 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const pool = require('../db');
 const { requireAuth, requireApiKey } = require('../auth');
 const { scanEmitter, isScanRunning } = require('../scan-events');
+
+// 100 req/min per API key (or IP for cookie/no-key requests)
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const apiKey = req.headers['x-api-key'];
+    return apiKey ? `api:${apiKey}` : `ip:${req.ip}`;
+  },
+  message: { error: 'Too many requests. Limit: 100/min per API key or IP.' }
+});
+router.use(apiLimiter);
+
+// Simple in-memory cache for chart/stats payload
+const statsCache = new Map();
+const STATS_CACHE_TTL_MS = 60 * 1000;
 
 // GET /api/health — Railway health check
 router.get('/health', async (req, res) => {
@@ -70,6 +89,12 @@ router.get('/url/:id/response-times', requireAuth, async (req, res) => {
 // GET /api/stats — chart data (requires cookie auth)
 router.get('/stats', requireAuth, async (req, res) => {
   try {
+    const cacheKey = req.user?.role === 'admin' ? 'admin:all' : `user:${req.user.id}`;
+    const cached = statsCache.get(cacheKey);
+    if (cached && (Date.now() - cached.ts) < STATS_CACHE_TTL_MS) {
+      return res.json(cached.data);
+    }
+
     const isAdmin = req.user?.role === 'admin';
     const userWhere = isAdmin ? '' : 'AND mu.user_id = $1';
     const params = isAdmin ? [] : [req.user.id];
@@ -100,9 +125,19 @@ router.get('/stats', requireAuth, async (req, res) => {
       WHERE a.detected_at > NOW() - INTERVAL '24 hours' ${userWhere}
     `, params);
     const changedSet = new Set(changed24h.map(r => r.url_id));
-    const totalUrls = latest.length;
+    const totalFromLatest = latest.length;
     const changedCount = changedSet.size;
-    const unchangedCount = totalUrls - changedCount;
+    const unchangedCount = totalFromLatest - changedCount;
+
+    // Summary counters for dashboard stat cards
+    const { rows: [{ total_urls }] } = await pool.query(
+      `SELECT COUNT(*)::int AS total_urls FROM monitored_urls mu WHERE true ${userWhere}`,
+      params
+    );
+    const totalUrls = total_urls || 0;
+    const errorCount = latest.filter(r => r.status_code === 0 || r.status_code >= 400).length;
+    const pendingCount = Math.max(0, totalUrls - totalFromLatest);
+    const okCount = Math.max(0, totalUrls - errorCount - changedCount - pendingCount);
 
     // Alerts per day for last 30 days (scoped to user)
     const { rows: alertsPerDay } = await pool.query(`
@@ -115,15 +150,25 @@ router.get('/stats', requireAuth, async (req, res) => {
       ORDER BY date ASC
     `, params);
 
-    res.json({
+    const payload = {
       statusCodes,
+      summary: {
+        total: totalUrls,
+        ok: okCount,
+        changed: changedCount,
+        error: errorCount,
+        pending: pendingCount
+      },
       indexability: { indexed, noindex },
       changeStatus: { changed: changedCount, unchanged: unchangedCount },
       alertsPerDay: alertsPerDay.map(r => ({
         date: r.date,
         count: parseInt(r.count, 10)
       }))
-    });
+    };
+
+    statsCache.set(cacheKey, { ts: Date.now(), data: payload });
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -362,6 +407,76 @@ router.get('/uptime/check-domain', async (req, res) => {
   }
 });
 
+// GET /api/docs — public API documentation page
+router.get('/docs', (req, res) => {
+  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MetaWatch API Docs</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 900px; margin: 0 auto; padding: 40px 20px; color: #2d3748; background: #f7fafc; }
+    h1 { font-size: 28px; color: #1a202c; margin-bottom: 4px; }
+    h2 { font-size: 18px; margin-top: 36px; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
+    h3 { font-size: 15px; margin-top: 20px; color: #4a5568; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 700; }
+    .get { background: #ebf8ff; color: #2b6cb0; }
+    code, pre { background: #1a202c; color: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+    pre { padding: 14px 18px; overflow-x: auto; margin: 8px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #e2e8f0; }
+    th { background: #f0f4f8; font-weight: 700; }
+    .note { background: #fffaf0; border: 1px solid #fbd38d; border-radius: 6px; padding: 12px 16px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>MetaWatch API</h1>
+  <p style="color:#718096">REST API for external access to monitored URLs and uptime data.</p>
+
+  <h2>Authentication</h2>
+  <p>Pass your API key in the <code>X-API-Key</code> header on every request.</p>
+  <p>Find your API key at <a href="${baseUrl}/profile">${baseUrl}/profile</a>.</p>
+  <pre>curl -H "X-API-Key: YOUR_KEY" ${baseUrl}/api/tasks</pre>
+
+  <h2>Rate Limits</h2>
+  <div class="note">100 requests per minute per API key (or per IP if no API key). Exceeding returns <code>429</code>.</div>
+
+  <h2>Endpoints</h2>
+  <table>
+    <thead><tr><th>Method</th><th>Path</th><th>Auth</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/health</code></td><td>—</td><td>Health check</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/tasks</code></td><td>API Key</td><td>List all monitored URLs</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/tasks/:id/results</code></td><td>API Key</td><td>Latest snapshot + recent alerts for a URL</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/uptime/check-domain?domain=</code></td><td>API Key</td><td>Check if domain is monitored (used by browser extension)</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/stats</code></td><td>Cookie</td><td>Dashboard chart data</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/url/:id/response-times</code></td><td>Cookie</td><td>Response time history for Chart.js</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/uptime/:id/rt</code></td><td>Cookie</td><td>Uptime monitor RT history</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/competitor/:id/title-history</code></td><td>Cookie</td><td>Competitor title length chart data</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Response Examples</h2>
+
+  <h3>GET /api/tasks</h3>
+  <pre>{ "tasks": [{ "id": 1, "url": "https://example.com", "is_active": true, "status_code": 200, "last_checked": "2025-06-01T12:00:00Z", "alert_count_24h": 0 }] }</pre>
+
+  <h3>GET /api/uptime/check-domain?domain=example.com</h3>
+  <pre>{ "monitored": true, "domain": "example.com", "monitor_id": 3, "name": "Main Site", "status": "up", "response_time_ms": 142, "uptime_30d": 99.9 }</pre>
+
+  <h3>Error responses</h3>
+  <pre>{ "error": "Unauthorized" }  // 401
+{ "error": "Not found" }       // 404
+ { "error": "Too many requests. Limit: 100/min per API key or IP." }  // 429</pre>
+
+  <p style="margin-top:40px;color:#a0aec0;font-size:13px">MetaWatch API v2 · <a href="${baseUrl}">Back to dashboard</a></p>
+</body>
+</html>`);
+});
+
 // GET /api/competitor/:id/title-history — Chart.js data for competitor comparison
 router.get('/competitor/:id/title-history', requireAuth, async (req, res) => {
   const competitorId = parseInt(req.params.id, 10);
@@ -402,4 +517,3 @@ router.get('/competitor/:id/title-history', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
-

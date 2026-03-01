@@ -106,6 +106,24 @@
           <p class="form-hint">Alert when response time exceeds this value. Leave blank to disable.</p>
         </div>
 
+        <div class="form-section-title" style="margin-top:8px">Maintenance Schedule (UTC)</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="maintenance_cron">Cron expression</label>
+            <input type="text" id="maintenance_cron" name="maintenance_cron" class="form-input"
+                   placeholder="0 2 * * 0"
+                   value="<%= values.maintenance_cron || '' %>">
+            <p class="form-hint">Example: every Sunday at 02:00 (UTC) use <code>0 2 * * 0</code></p>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="maintenance_duration_minutes">Duration (minutes)</label>
+            <input type="number" id="maintenance_duration_minutes" name="maintenance_duration_minutes"
+                   class="form-input" min="1" max="1440" placeholder="120"
+                   value="<%= values.maintenance_duration_minutes || '' %>">
+            <p class="form-hint">Alerts are muted during this window.</p>
+          </div>
+        </div>
+
         <div class="form-section-title" style="margin-top:8px">Telegram Alerts</div>
         <div class="form-row">
           <div class="form-group">

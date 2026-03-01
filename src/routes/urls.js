@@ -70,6 +70,10 @@ router.get('/add', requireAuth, (req, res) => {
     title: 'Add URL',
     error: null,
     values: {
+      email: req.user.default_alert_email || '',
+      telegram_bot_token: req.user.default_telegram_token || '',
+      telegram_chat_id: req.user.default_telegram_chat_id || '',
+      webhook_url: req.user.default_webhook_url || '',
       check_interval_minutes: '60',
       monitor_title: true,
       monitor_description: true,
@@ -96,7 +100,8 @@ router.post('/add', requireAuth, async (req, res) => {
     monitor_ssl,
     user_agent, ignore_numbers, custom_text,
     telegram_bot_token, telegram_chat_id, webhook_url,
-    tags, notes, response_time_threshold_ms
+    tags, notes, response_time_threshold_ms,
+    maintenance_cron, maintenance_duration_minutes
   } = req.body;
 
   const renderError = (msg) => res.render('add-url', {
@@ -114,6 +119,10 @@ router.post('/add', requireAuth, async (req, res) => {
   const interval = parseInt(check_interval_minutes, 10);
   if (isNaN(interval) || interval < 1) return renderError('Invalid check interval.');
   const rtThreshold = parseInt(response_time_threshold_ms, 10) || null;
+  const maintenanceDuration = parseInt(maintenance_duration_minutes, 10);
+  const safeMaintenanceDuration = Number.isFinite(maintenanceDuration) && maintenanceDuration > 0
+    ? maintenanceDuration
+    : null;
 
   try {
     const { rows: [newUrl] } = await pool.query(
@@ -124,12 +133,12 @@ router.post('/add', requireAuth, async (req, res) => {
           monitor_canonical, monitor_robots, monitor_hreflang, monitor_og, monitor_ssl,
           user_agent, ignore_numbers, custom_text,
           telegram_bot_token, telegram_chat_id, webhook_url, tags, notes,
-          response_time_threshold_ms)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+          response_time_threshold_ms, maintenance_cron, maintenance_duration_minutes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
        RETURNING *`,
       [
         trimmedUrl,
-        email?.trim() || null,
+        email?.trim() || req.user.default_alert_email || null,
         interval || 60,
         req.user.id,
         !!monitor_title, !!monitor_description, !!monitor_h1, !!monitor_body,
@@ -138,12 +147,14 @@ router.post('/add', requireAuth, async (req, res) => {
         user_agent?.trim() || null,
         !!ignore_numbers,
         custom_text?.trim() || null,
-        telegram_bot_token?.trim() || null,
-        telegram_chat_id?.trim() || null,
-        webhook_url?.trim() || null,
+        telegram_bot_token?.trim() || req.user.default_telegram_token || null,
+        telegram_chat_id?.trim() || req.user.default_telegram_chat_id || null,
+        webhook_url?.trim() || req.user.default_webhook_url || null,
         normalizeTags(tags),
         notes?.trim() || '',
-        rtThreshold
+        rtThreshold,
+        maintenance_cron?.trim() || null,
+        safeMaintenanceDuration
       ]
     );
 
@@ -442,7 +453,8 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
     monitor_canonical, monitor_robots, monitor_hreflang, monitor_og, monitor_ssl,
     user_agent, ignore_numbers, custom_text,
     telegram_bot_token, telegram_chat_id, webhook_url,
-    silenced_until, tags, notes
+    silenced_until, tags, notes,
+    maintenance_cron, maintenance_duration_minutes
   } = req.body;
 
   const interval = parseInt(check_interval_minutes, 10);
@@ -451,6 +463,11 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
     const { rows: [urlRecord] } = await pool.query(q, p);
     return res.render('edit-url', { title: 'Edit URL', error: 'Invalid check interval.', urlRecord });
   }
+
+  const maintenanceDuration = parseInt(maintenance_duration_minutes, 10);
+  const safeMaintenanceDuration = Number.isFinite(maintenanceDuration) && maintenanceDuration > 0
+    ? maintenanceDuration
+    : null;
 
   try {
     const { rows: [updated] } = await pool.query(
@@ -462,8 +479,9 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
          monitor_ssl = $14,
          user_agent = $15, ignore_numbers = $16, custom_text = $17,
          telegram_bot_token = $18, telegram_chat_id = $19, webhook_url = $20,
-         silenced_until = $21, tags = $22, notes = $23
-       WHERE id = $24 ${req.user.role !== 'admin' ? 'AND user_id = $25' : ''}
+         silenced_until = $21, tags = $22, notes = $23,
+         maintenance_cron = $24, maintenance_duration_minutes = $25
+       WHERE id = $26 ${req.user.role !== 'admin' ? 'AND user_id = $27' : ''}
        RETURNING *`,
       req.user.role !== 'admin'
         ? [
@@ -475,6 +493,7 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
             custom_text?.trim() || null, telegram_bot_token?.trim() || null,
             telegram_chat_id?.trim() || null, webhook_url?.trim() || null,
             silenced_until?.trim() || null, normalizeTags(tags), notes?.trim() || '',
+            maintenance_cron?.trim() || null, safeMaintenanceDuration,
             urlId, req.user.id
           ]
         : [
@@ -486,6 +505,7 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
             custom_text?.trim() || null, telegram_bot_token?.trim() || null,
             telegram_chat_id?.trim() || null, webhook_url?.trim() || null,
             silenced_until?.trim() || null, normalizeTags(tags), notes?.trim() || '',
+            maintenance_cron?.trim() || null, safeMaintenanceDuration,
             urlId
           ]
     );

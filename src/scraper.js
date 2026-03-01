@@ -43,6 +43,7 @@ async function scrapeUrl(url, options = {}) {
     og_image: null,
     custom_text_found: null,
     response_time_ms: null,
+    js_rendered: false,
     error: null
   };
 
@@ -113,10 +114,33 @@ async function scrapeUrl(url, options = {}) {
     result.og_description = $('meta[property="og:description"]').attr('content')?.trim() || null;
     result.og_image = $('meta[property="og:image"]').attr('content')?.trim() || null;
 
+    // ── Follow meta-refresh redirect ──────────────────────────────────────────
+    const metaRefresh = $('meta[http-equiv="refresh"]').attr('content') || '';
+    const metaRefreshMatch = metaRefresh.match(/url\s*=\s*['"]?([^'";\s]+)/i);
+    if (metaRefreshMatch && metaRefreshMatch[1] && !lastRedirectUrl) {
+      result.redirect_url = metaRefreshMatch[1];
+    }
+
+    // ── Remove cookie consent overlays before body hashing ───────────────────
+    const consentSelectors = [
+      '#cookie-banner', '.cookie-banner', '#cookie-notice', '.cookie-notice',
+      '#gdpr-overlay', '.gdpr-overlay', '#gdpr-banner', '.gdpr-banner',
+      '#onetrust-banner-sdk', '.cc-window', '#cookiebanner', '.cookiebanner',
+      '[id*="cookie"][id*="consent"]', '[class*="cookie-consent"]'
+    ];
+    consentSelectors.forEach(sel => {
+      try { $(sel).remove(); } catch { /* ignore bad selectors */ }
+    });
+
     // ── Body hash (remove head/scripts first so only visible body text remains) ─
     $('script, style, noscript, head').remove();
     const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
     result.body_text_hash = sha256(bodyText);
+
+    // JS-rendered detection: very little text and no title = likely client-rendered
+    if (bodyText.length < 500 && !result.title) {
+      result.js_rendered = true;
+    }
 
     // Custom text search (body only)
     const fullBodyText = $('body').text();

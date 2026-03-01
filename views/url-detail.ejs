@@ -152,6 +152,11 @@
   <% if (activeTab === 'overview') { %>
     <% const latest = snapshots[0]; %>
     <% if (latest) { %>
+      <% if (latest.js_rendered) { %>
+      <div class="alert-banner alert-banner--info" style="margin:16px 20px 0">
+        ⚠️ Page may be JavaScript-rendered. Consider headless rendering for higher accuracy.
+      </div>
+      <% } %>
       <div style="padding:20px">
         <div class="snapshot-grid">
           <div class="snap-field">

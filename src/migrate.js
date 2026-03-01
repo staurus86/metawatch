@@ -394,6 +394,63 @@ async function migrate() {
       `CREATE INDEX IF NOT EXISTS idx_competitor_snapshots_cid ON competitor_snapshots(competitor_url_id, checked_at DESC)`
     );
 
+    // ─── Sprint 7 additions ───────────────────────────────────────────────────
+
+    // monitored_urls: maintenance cron schedule
+    const muSprint7 = [
+      'ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS maintenance_cron TEXT',
+      'ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS maintenance_duration_minutes INTEGER'
+    ];
+    for (const sql of muSprint7) await client.query(sql);
+
+    // uptime_monitors: maintenance cron schedule
+    const umSprint7 = [
+      'ALTER TABLE uptime_monitors ADD COLUMN IF NOT EXISTS maintenance_cron TEXT',
+      'ALTER TABLE uptime_monitors ADD COLUMN IF NOT EXISTS maintenance_duration_minutes INTEGER'
+    ];
+    for (const sql of umSprint7) await client.query(sql);
+
+    // snapshots: js_rendered flag
+    await client.query(
+      'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS js_rendered BOOLEAN NOT NULL DEFAULT false'
+    );
+
+    // performance indexes (dashboard + latest snapshot/alerts queries)
+    await client.query(
+      'CREATE INDEX IF NOT EXISTS idx_snapshots_url_id_checked_at ON snapshots(url_id, checked_at DESC)'
+    );
+    await client.query(
+      'CREATE INDEX IF NOT EXISTS idx_alerts_url_id_detected_at ON alerts(url_id, detected_at DESC)'
+    );
+
+    // users: notification defaults + display preferences
+    const userSprint7 = [
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS default_alert_email VARCHAR(255)',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS default_telegram_token TEXT',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS default_telegram_chat_id TEXT',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS default_webhook_url TEXT',
+      "ALTER TABLE users ADD COLUMN IF NOT EXISTS pref_dashboard_view VARCHAR(20) NOT NULL DEFAULT 'list'",
+      "ALTER TABLE users ADD COLUMN IF NOT EXISTS pref_timezone VARCHAR(64) NOT NULL DEFAULT 'UTC'",
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS pref_rows_per_page INTEGER NOT NULL DEFAULT 25'
+    ];
+    for (const sql of userSprint7) await client.query(sql);
+
+    // ─── alert_rules ──────────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS alert_rules (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        conditions JSONB NOT NULL DEFAULT '[]',
+        actions JSONB NOT NULL DEFAULT '[]',
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_alert_rules_user ON alert_rules(user_id) WHERE is_active = true`
+    );
+
     await client.query('COMMIT');
     console.log('✓ Database migrations completed');
   } catch (err) {

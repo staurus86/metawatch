@@ -116,7 +116,16 @@ router.get('/', requireAuth, async (req, res) => {
 
 // ─── GET /uptime/add ─────────────────────────────────────────────────────────
 router.get('/add', requireAuth, (req, res) => {
-  res.render('uptime-add', { title: 'Add Monitor', error: null, values: {} });
+  res.render('uptime-add', {
+    title: 'Add Monitor',
+    error: null,
+    values: {
+      alert_email: req.user.default_alert_email || '',
+      telegram_token: req.user.default_telegram_token || '',
+      telegram_chat_id: req.user.default_telegram_chat_id || '',
+      webhook_url: req.user.default_webhook_url || ''
+    }
+  });
 });
 
 // ─── POST /uptime/add ────────────────────────────────────────────────────────
@@ -124,7 +133,7 @@ router.post('/add', requireAuth, async (req, res) => {
   const {
     name, url, interval_minutes, threshold_ms,
     alert_email, telegram_token, telegram_chat_id, webhook_url,
-    is_public
+    is_public, maintenance_cron, maintenance_duration_minutes
   } = req.body;
 
   if (!name?.trim()) return res.render('uptime-add', { title: 'Add Monitor', error: 'Name is required.', values: req.body });
@@ -133,22 +142,30 @@ router.post('/add', requireAuth, async (req, res) => {
   }
 
   try {
+    const maintenanceDuration = parseInt(maintenance_duration_minutes, 10);
+    const safeMaintenanceDuration = Number.isFinite(maintenanceDuration) && maintenanceDuration > 0
+      ? maintenanceDuration
+      : null;
+
     const slug = generateSlug();
     const { rows: [monitor] } = await pool.query(
       `INSERT INTO uptime_monitors
          (user_id, name, url, slug, interval_minutes, threshold_ms,
-          alert_email, telegram_token, telegram_chat_id, webhook_url, is_public)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+          alert_email, telegram_token, telegram_chat_id, webhook_url, is_public,
+          maintenance_cron, maintenance_duration_minutes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        RETURNING *`,
       [
         req.user.id, name.trim(), url.trim(), slug,
         parseInt(interval_minutes || '5', 10),
         parseInt(threshold_ms || '3000', 10),
-        alert_email?.trim() || null,
-        telegram_token?.trim() || null,
-        telegram_chat_id?.trim() || null,
-        webhook_url?.trim() || null,
-        !!is_public
+        alert_email?.trim() || req.user.default_alert_email || null,
+        telegram_token?.trim() || req.user.default_telegram_token || null,
+        telegram_chat_id?.trim() || req.user.default_telegram_chat_id || null,
+        webhook_url?.trim() || req.user.default_webhook_url || null,
+        !!is_public,
+        maintenance_cron?.trim() || null,
+        safeMaintenanceDuration
       ]
     );
 
@@ -266,28 +283,36 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
   const {
     name, url, interval_minutes, threshold_ms,
     alert_email, telegram_token, telegram_chat_id, webhook_url,
-    is_public, silenced_until
+    is_public, silenced_until, maintenance_cron, maintenance_duration_minutes
   } = req.body;
 
   try {
+    const maintenanceDuration = parseInt(maintenance_duration_minutes, 10);
+    const safeMaintenanceDuration = Number.isFinite(maintenanceDuration) && maintenanceDuration > 0
+      ? maintenanceDuration
+      : null;
+
     const isAdmin = req.user.role === 'admin';
     const { rows: [updated] } = await pool.query(
       `UPDATE uptime_monitors SET
          name = $1, url = $2, interval_minutes = $3, threshold_ms = $4,
          alert_email = $5, telegram_token = $6, telegram_chat_id = $7,
-         webhook_url = $8, is_public = $9, silenced_until = $10
-       WHERE id = $11 ${!isAdmin ? 'AND user_id = $12' : ''}
+         webhook_url = $8, is_public = $9, silenced_until = $10,
+         maintenance_cron = $11, maintenance_duration_minutes = $12
+       WHERE id = $13 ${!isAdmin ? 'AND user_id = $14' : ''}
        RETURNING *`,
       !isAdmin
         ? [name?.trim(), url?.trim(), parseInt(interval_minutes || '5', 10),
            parseInt(threshold_ms || '3000', 10), alert_email?.trim() || null,
            telegram_token?.trim() || null, telegram_chat_id?.trim() || null,
            webhook_url?.trim() || null, !!is_public, silenced_until?.trim() || null,
+           maintenance_cron?.trim() || null, safeMaintenanceDuration,
            monitorId, req.user.id]
         : [name?.trim(), url?.trim(), parseInt(interval_minutes || '5', 10),
            parseInt(threshold_ms || '3000', 10), alert_email?.trim() || null,
            telegram_token?.trim() || null, telegram_chat_id?.trim() || null,
            webhook_url?.trim() || null, !!is_public, silenced_until?.trim() || null,
+           maintenance_cron?.trim() || null, safeMaintenanceDuration,
            monitorId]
     );
     if (!updated) return res.status(404).render('error', { title: 'Not Found', error: 'Monitor not found' });

@@ -4,45 +4,61 @@ const $ = id => document.getElementById(id);
 
 let settings = { url: '', key: '' };
 const cacheKey = domain => `mw-cache-${domain}`;
+const SETTINGS_KEYS = ['mwUrl', 'mwKey'];
 
-// ─── Init ────────────────────────────────────────────────────────────────────
-chrome.storage.local.get(['mwUrl', 'mwKey'], data => {
-  settings.url = (data.mwUrl || '').replace(/\/$/, '');
-  settings.key = data.mwKey || '';
+document.addEventListener('DOMContentLoaded', init);
 
-  if (!settings.url || !settings.key) {
-    showSettings(true);
-    return;
+function storageGet(area, keys) {
+  return new Promise(resolve => area.get(keys, resolve));
+}
+
+function storageSet(area, value) {
+  return new Promise(resolve => area.set(value, resolve));
+}
+
+async function loadSettings() {
+  const syncData = await storageGet(chrome.storage.sync, SETTINGS_KEYS);
+  let url = (syncData.mwUrl || '').trim().replace(/\/$/, '');
+  let key = (syncData.mwKey || '').trim();
+
+  if (!url || !key) {
+    // Backward compatibility: migrate old local settings once.
+    const localData = await storageGet(chrome.storage.local, SETTINGS_KEYS);
+    const legacyUrl = (localData.mwUrl || '').trim().replace(/\/$/, '');
+    const legacyKey = (localData.mwKey || '').trim();
+    if (legacyUrl && legacyKey) {
+      await storageSet(chrome.storage.sync, { mwUrl: legacyUrl, mwKey: legacyKey });
+      url = legacyUrl;
+      key = legacyKey;
+    }
   }
 
-  $('mw-url').value = settings.url;
-  $('mw-key').value = settings.key;
-  checkCurrentTab();
-});
+  settings = { url, key };
+}
 
-// ─── Settings panel toggle ────────────────────────────────────────────────────
-$('settings-btn').addEventListener('click', () => {
-  const panel = $('settings-panel');
-  panel.style.display = panel.style.display === 'none' ? '' : 'none';
-});
-
-$('save-settings').addEventListener('click', () => {
-  const url = $('mw-url').value.trim().replace(/\/$/, '');
-  const key = $('mw-key').value.trim();
-  if (!url || !key) { alert('Please fill in both fields.'); return; }
-  chrome.storage.local.set({ mwUrl: url, mwKey: key }, () => {
-    settings.url = url;
-    settings.key = key;
-    showSettings(false);
-    checkCurrentTab();
+async function init() {
+  $('settings-btn').addEventListener('click', openSettingsPage);
+  $('open-settings-btn').addEventListener('click', openSettingsPage);
+  $('dashboard-btn').addEventListener('click', () => {
+    if (settings.url) {
+      chrome.tabs.create({ url: settings.url });
+      window.close();
+      return;
+    }
+    openSettingsPage();
   });
-});
 
-$('dashboard-btn').addEventListener('click', () => {
-  if (!settings.url) return;
-  chrome.tabs.create({ url: settings.url });
-  window.close();
-});
+  await loadSettings();
+  if (!settings.url || !settings.key) {
+    showNotConfigured();
+    return;
+  }
+  checkCurrentTab();
+}
+
+function openSettingsPage() {
+  chrome.runtime.openOptionsPage();
+}
 
 // ─── Check current tab ────────────────────────────────────────────────────────
 function checkCurrentTab() {
@@ -61,11 +77,9 @@ function checkCurrentTab() {
     // Strip www.
     const cleanDomain = domain.replace(/^www\./, '');
     $('domain-info').textContent = cleanDomain;
+    resetTransientState();
     $('loading').style.display = '';
-    $('error-msg').style.display = 'none';
-    $('status-section').style.display = 'none';
-    $('not-monitored').style.display = 'none';
-    showCachedStatus(cleanDomain, tab.url);
+    showCachedStatus(cleanDomain);
 
     fetch(`${settings.url}/api/uptime/check-domain?domain=${encodeURIComponent(cleanDomain)}`, {
       headers: { 'X-API-Key': settings.key }
@@ -78,10 +92,10 @@ function checkCurrentTab() {
         $('loading').style.display = 'none';
         if (!data.monitored) {
           chrome.storage.local.remove(cacheKey(cleanDomain));
-          showNotMonitored(tab.url, cleanDomain);
+          showNotMonitored(tab.url);
         } else {
           chrome.storage.local.set({ [cacheKey(cleanDomain)]: { data, savedAt: Date.now() } });
-          showStatus(data, tab.url);
+          showStatus(data);
         }
       })
       .catch(err => {
@@ -91,27 +105,41 @@ function checkCurrentTab() {
 }
 
 // ─── UI helpers ───────────────────────────────────────────────────────────────
-function showSettings(open) {
-  $('settings-panel').style.display = open ? '' : 'none';
-  $('main-panel').style.display = open ? 'none' : '';
+function resetTransientState() {
+  $('loading').style.display = 'none';
+  $('error-msg').style.display = 'none';
+  $('status-section').style.display = 'none';
+  $('not-monitored').style.display = 'none';
+  $('not-configured').style.display = 'none';
+  $('actions').style.display = 'none';
+  $('add-btn').style.display = 'none';
+  $('view-btn').style.display = 'none';
+}
+
+function showNotConfigured() {
+  $('domain-info').textContent = 'Connection not configured';
+  resetTransientState();
+  $('not-configured').style.display = '';
 }
 
 function showError(msg) {
-  $('loading').style.display = 'none';
+  resetTransientState();
   $('error-msg').style.display = '';
   $('error-msg').textContent = msg;
 }
 
-function showCachedStatus(domain, tabUrl) {
+function showCachedStatus(domain) {
   chrome.storage.local.get([cacheKey(domain)], data => {
     const cached = data[cacheKey(domain)];
     if (!cached || !cached.data || !cached.data.monitored) return;
-    showStatus(cached.data, tabUrl, true);
+    showStatus(cached.data, true);
   });
 }
 
-function showNotMonitored(tabUrl, domain) {
+function showNotMonitored(tabUrl) {
+  resetTransientState();
   $('not-monitored').style.display = '';
+  $('actions').style.display = 'flex';
   $('status-section').style.display = 'none';
   $('add-btn').style.display = '';
   $('view-btn').style.display = 'none';
@@ -123,9 +151,17 @@ function showNotMonitored(tabUrl, domain) {
   };
 }
 
-function showStatus(data, tabUrl, fromCache = false) {
+function showStatus(data, fromCache = false) {
+  if (!fromCache) {
+    resetTransientState();
+  } else {
+    $('error-msg').style.display = 'none';
+    $('not-configured').style.display = 'none';
+    $('not-monitored').style.display = 'none';
+  }
   $('status-section').style.display = '';
   $('not-monitored').style.display = 'none';
+  $('actions').style.display = 'flex';
 
   const dot  = $('status-dot');
   const text = $('status-text');

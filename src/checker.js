@@ -1,6 +1,31 @@
 const pool = require('./db');
+const cron = require('node-cron');
 const { scrapeUrl, fetchRobotsTxt, checkSsl } = require('./scraper');
 const { notify } = require('./notifier');
+
+// Check if current time falls inside a maintenance window defined by a cron expression
+function isInMaintenanceWindow(maintenanceCron, durationMinutes) {
+  if (!maintenanceCron || !durationMinutes || durationMinutes <= 0) return false;
+  try {
+    if (!cron.validate(maintenanceCron)) return false;
+    const now = new Date();
+    const [minute, hour, dom, month, dow] = maintenanceCron.split(' ');
+    // Walk back up to durationMinutes minutes to find if a cron window started and is still active
+    for (let i = 0; i <= durationMinutes; i++) {
+      const t = new Date(now.getTime() - i * 60000);
+      const minuteMatch = minute === '*' || minute === String(t.getUTCMinutes()) ||
+        (minute.startsWith('*/') && t.getUTCMinutes() % parseInt(minute.slice(2), 10) === 0);
+      const hourMatch  = hour  === '*' || hour  === String(t.getUTCHours());
+      const domMatch   = dom   === '*' || dom   === String(t.getUTCDate());
+      const monthMatch = month === '*' || month === String(t.getUTCMonth() + 1);
+      const dowMatch   = dow   === '*' || dow   === String(t.getUTCDay());
+      if (minuteMatch && hourMatch && domMatch && monthMatch && dowMatch) return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
 
 const SSL_WARN_DAYS = parseInt(process.env.SSL_WARN_DAYS || '30', 10);
 
@@ -126,8 +151,8 @@ async function checkUrl(urlId) {
        (url_id, title, description, h1, body_text_hash, status_code, noindex,
         redirect_url, canonical, robots_txt_hash, raw_robots_txt,
         hreflang, og_title, og_description, og_image, custom_text_found,
-        response_time_ms, ssl_expires_at, text_rules_json)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+        response_time_ms, ssl_expires_at, text_rules_json, js_rendered)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
      RETURNING *`,
     [
       urlId,
@@ -148,7 +173,8 @@ async function checkUrl(urlId) {
       scraped.custom_text_found,
       scraped.response_time_ms ?? null,
       sslExpiresAt ?? null,
-      textRulesJson
+      textRulesJson,
+      !!scraped.js_rendered
     ]
   );
 
@@ -164,6 +190,51 @@ async function checkUrl(urlId) {
 
   const alertsGenerated = [];
   const ignoreNums = urlRecord.ignore_numbers;
+
+  // Load user's alert rules (for this URL's owner)
+  let alertRules = [];
+  if (urlRecord.user_id) {
+    const { rows: rules } = await pool.query(
+      'SELECT * FROM alert_rules WHERE user_id = $1 AND is_active = true',
+      [urlRecord.user_id]
+    );
+    alertRules = rules;
+  }
+
+  // Helper: evaluate conditions (AND logic)
+  function evalConditions(conditions, field, oldVal, newVal) {
+    if (!conditions || conditions.length === 0) return true;
+    return conditions.every(cond => {
+      const fieldMatch = !cond.field || cond.field === field ||
+        (cond.field === 'response_code' && field === 'Response Code');
+      if (!fieldMatch) return false;
+      const op = cond.operator;
+      const v  = cond.value;
+      const newStr = String(newVal ?? '').toLowerCase();
+      const oldStr = String(oldVal ?? '').toLowerCase();
+      if (op === 'changed')      return oldStr !== newStr;
+      if (op === 'equals')       return newStr === String(v ?? '').toLowerCase();
+      if (op === 'contains')     return newStr.includes(String(v ?? '').toLowerCase());
+      if (op === 'not_contains') return !newStr.includes(String(v ?? '').toLowerCase());
+      if (op === 'gt')           return parseFloat(newVal) > parseFloat(v);
+      if (op === 'lt')           return parseFloat(newVal) < parseFloat(v);
+      return true;
+    });
+  }
+
+  // Helper: find matching rule for a field change
+  function findMatchingRule(fieldKey, oldVal, newVal) {
+    for (const rule of alertRules) {
+      const conditions = Array.isArray(rule.conditions) ? rule.conditions : [];
+      if (evalConditions(conditions, fieldKey, oldVal, newVal)) return rule;
+    }
+    return null;
+  }
+
+  // Maintenance window check (computed once per checkUrl call)
+  const manualSilenced = urlRecord.silenced_until && new Date(urlRecord.silenced_until) > new Date();
+  const cronSilenced = isInMaintenanceWindow(urlRecord.maintenance_cron, urlRecord.maintenance_duration_minutes);
+  const silenced = manualSilenced || cronSilenced;
 
   for (const field of MONITORED_FIELDS) {
     // Special handling: custom text monitored only when custom_text is set
@@ -199,9 +270,14 @@ async function checkUrl(urlId) {
 
     alertsGenerated.push(field.label);
 
-    // Skip notifications if URL is in maintenance window
-    const silenced = urlRecord.silenced_until && new Date(urlRecord.silenced_until) > new Date();
-    if (!silenced) {
+    // Check alert rules: find matching rule to override notification behaviour
+    const matchingRule = findMatchingRule(field.key, rawOld, rawNew);
+    const ruleActions = matchingRule
+      ? (Array.isArray(matchingRule.actions) ? matchingRule.actions : [])
+      : [];
+    const suppress = ruleActions.some(a => a.type === 'suppress_alert');
+
+    if (!suppress && !silenced) {
       try {
         await notify({
           urlRecord,
@@ -209,12 +285,15 @@ async function checkUrl(urlId) {
           oldValue: displayOld,
           newValue: displayNew,
           severity,
-          timestamp: new Date()
+          timestamp: new Date(),
+          ruleActions: ruleActions.length > 0 ? ruleActions : undefined
         });
         await logNotification({ urlId, channel: 'email', fieldChanged: field.label, severity, status: 'sent' });
       } catch (notifyErr) {
         await logNotification({ urlId, channel: 'email', fieldChanged: field.label, severity, status: 'failed', errorMessage: notifyErr.message });
       }
+    } else if (suppress) {
+      await logNotification({ urlId, channel: 'suppressed', fieldChanged: field.label, severity, status: 'suppressed' });
     }
   }
 
@@ -239,8 +318,7 @@ async function checkUrl(urlId) {
         );
         alertsGenerated.push(`Text: ${label}`);
 
-        const silenced2 = urlRecord.silenced_until && new Date(urlRecord.silenced_until) > new Date();
-        if (!silenced2) {
+        if (!silenced) {
           try {
             await notify({
               urlRecord,
@@ -274,7 +352,6 @@ async function checkUrl(urlId) {
           [urlId, `${daysLeft} days remaining`, sslExpiresAt.toISOString()]
         );
         alertsGenerated.push(`SSL Expiry Warning (${daysLeft}d)`);
-        const silenced = urlRecord.silenced_until && new Date(urlRecord.silenced_until) > new Date();
         if (!silenced) {
           try {
             await notify({
@@ -298,7 +375,7 @@ async function checkUrl(urlId) {
   if (urlRecord.response_time_threshold_ms && scraped.response_time_ms != null) {
     const threshold = urlRecord.response_time_threshold_ms;
     if (scraped.response_time_ms > threshold) {
-      const silencedRT = urlRecord.silenced_until && new Date(urlRecord.silenced_until) > new Date();
+      const silencedRT = silenced;
       // Only alert if last check was OK (avoid spam on persistent slow)
       const { rows: [prevSnap] } = await pool.query(
         'SELECT response_time_ms FROM snapshots WHERE url_id = $1 AND id != $2 ORDER BY checked_at DESC LIMIT 1',

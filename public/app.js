@@ -174,6 +174,33 @@ if (scanModal) {
 }
 
 // ─── Chart.js — Dashboard charts ───
+let dashboardStatsPromise = null;
+
+function getDashboardStats() {
+  if (!dashboardStatsPromise) {
+    dashboardStatsPromise = fetch('/api/stats').then(r => r.json());
+  }
+  return dashboardStatsPromise;
+}
+
+function hydrateDashboardStats() {
+  const totalEl = document.getElementById('stat-total');
+  const okEl = document.getElementById('stat-ok');
+  const changedEl = document.getElementById('stat-changed');
+  const errorEl = document.getElementById('stat-error');
+  if (!totalEl || !okEl || !changedEl || !errorEl) return;
+
+  getDashboardStats()
+    .then(stats => {
+      if (!stats || !stats.summary) return;
+      totalEl.textContent = stats.summary.total ?? totalEl.textContent;
+      okEl.textContent = stats.summary.ok ?? okEl.textContent;
+      changedEl.textContent = stats.summary.changed ?? changedEl.textContent;
+      errorEl.textContent = stats.summary.error ?? errorEl.textContent;
+    })
+    .catch(() => {});
+}
+
 function initCharts() {
   const chartStatus   = document.getElementById('chart-status');
   const chartIndex    = document.getElementById('chart-index');
@@ -183,9 +210,9 @@ function initCharts() {
   if (!chartStatus && !chartIndex && !chartChanges && !chartTrend) return;
   if (typeof Chart === 'undefined') return;
 
-  fetch('/api/stats')
-    .then(r => r.json())
+  getDashboardStats()
     .then(stats => {
+      if (!stats || stats.error) return;
 
       // Shared donut options
       const donutOpts = {
@@ -585,7 +612,7 @@ document.querySelectorAll('button[data-copy-text]').forEach(btn => {
 
 // ─── Wait for Chart.js CDN to load ───────────────────────────────────────────
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => { initCharts(); initResponseTimeChart(); initUptimeChart(); initCompetitorChart(); });
+  document.addEventListener('DOMContentLoaded', () => { hydrateDashboardStats(); initCharts(); initResponseTimeChart(); initUptimeChart(); initCompetitorChart(); });
 } else {
-  window.addEventListener('load', () => { initCharts(); initResponseTimeChart(); initUptimeChart(); initCompetitorChart(); });
+  window.addEventListener('load', () => { hydrateDashboardStats(); initCharts(); initResponseTimeChart(); initUptimeChart(); initCompetitorChart(); });
 }

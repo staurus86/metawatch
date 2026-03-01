@@ -12,23 +12,8 @@
     <button id="settings-btn" class="settings-btn" title="Settings">⚙</button>
   </div>
 
-  <!-- Settings panel -->
-  <div id="settings-panel" class="panel" style="display:none">
-    <div class="panel-title">Settings</div>
-    <div class="field-group">
-      <label>MetaWatch URL</label>
-      <input type="url" id="mw-url" placeholder="https://your-metawatch.com">
-    </div>
-    <div class="field-group">
-      <label>API Key</label>
-      <input type="text" id="mw-key" placeholder="your-api-key-here">
-    </div>
-    <button id="save-settings" class="btn btn-primary">Save</button>
-  </div>
-
-  <!-- Main panel -->
   <div id="main-panel" class="panel">
-    <div id="domain-info" class="domain-info"></div>
+    <div id="domain-info" class="domain-info">Loading active tab...</div>
 
     <div id="status-section" class="status-section" style="display:none">
       <div class="status-row">
@@ -50,6 +35,11 @@
       </div>
     </div>
 
+    <div id="not-configured" style="display:none" class="not-configured">
+      <div class="not-configured-text">MetaWatch URL and API key are not configured.</div>
+      <button id="open-settings-btn" class="btn btn-primary">Open Settings</button>
+    </div>
+
     <div id="not-monitored" style="display:none" class="not-monitored">
       <div style="font-size:13px;color:#718096;text-align:center;padding:8px 0">Not monitored in MetaWatch</div>
     </div>
@@ -57,8 +47,8 @@
     <div id="loading" class="loading"><span class="loading-spinner"></span>Checking...</div>
     <div id="error-msg" class="error-msg" style="display:none"></div>
 
-    <div class="actions">
-      <button id="add-btn" class="btn btn-primary">+ Add to Monitor</button>
+    <div id="actions" class="actions">
+      <button id="add-btn" class="btn btn-primary" style="display:none">+ Add to Monitor</button>
       <button id="view-btn" class="btn btn-ghost" style="display:none">View Details</button>
     </div>
     <button id="dashboard-btn" class="dashboard-link-btn">Open Dashboard</button>

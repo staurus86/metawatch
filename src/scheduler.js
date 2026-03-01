@@ -30,16 +30,20 @@ function scheduleUrl(urlRecord) {
 
   const cronExpr = intervalToCron(check_interval_minutes);
 
-  const job = cron.schedule(cronExpr, async () => {
-    console.log(`[Scheduler] Running check: ${url}`);
-    try {
-      await checkSemaphore.wrap(async () => {
-        await domainRateLimit(url);
-        await checkUrl(id);
-      });
-    } catch (err) {
-      console.error(`[Scheduler] Error checking URL #${id} (${url}): ${err.message}`);
-    }
+  const job = cron.schedule(cronExpr, () => {
+    // Random jitter: up to 60s so URLs with same interval don't fire simultaneously
+    const jitterMs = Math.floor(Math.random() * 60 * 1000);
+    setTimeout(async () => {
+      console.log(`[Scheduler] Running check: ${url}`);
+      try {
+        await checkSemaphore.wrap(async () => {
+          await domainRateLimit(url);
+          await checkUrl(id);
+        });
+      } catch (err) {
+        console.error(`[Scheduler] Error checking URL #${id} (${url}): ${err.message}`);
+      }
+    }, jitterMs);
   });
 
   activeJobs.set(id, job);
@@ -59,11 +63,14 @@ async function startScheduler() {
     'SELECT id, url, check_interval_minutes FROM monitored_urls WHERE is_active = true'
   );
 
-  for (const row of rows) {
-    scheduleUrl(row);
+  // Stagger startup: distribute over max 5 minutes so DB is not hammered at once
+  const staggerMs = rows.length > 1 ? Math.min(5 * 60 * 1000, 300 * 1000) / rows.length : 0;
+  for (let i = 0; i < rows.length; i++) {
+    const delay = Math.round(i * staggerMs + Math.random() * 5000);
+    setTimeout(() => scheduleUrl(rows[i]), delay);
   }
 
-  console.log(`[Scheduler] Started with ${rows.length} active URL(s)`);
+  console.log(`[Scheduler] Started with ${rows.length} active URL(s) (stagger: ${Math.round(staggerMs)}ms each)`);
 
   // Load and schedule uptime monitors
   const { rows: monitors } = await pool.query(
@@ -260,16 +267,19 @@ function scheduleMonitor(monitor) {
 
   const cronExpr = intervalToCron(interval_minutes);
 
-  const job = cron.schedule(cronExpr, async () => {
-    console.log(`[Uptime] Checking monitor: ${url}`);
-    try {
-      await checkSemaphore.wrap(async () => {
-        await domainRateLimit(url);
-        await checkMonitor(id);
-      });
-    } catch (err) {
-      console.error(`[Uptime] Error checking monitor #${id} (${url}): ${err.message}`);
-    }
+  const job = cron.schedule(cronExpr, () => {
+    const jitterMs = Math.floor(Math.random() * 30 * 1000); // up to 30s jitter for uptime
+    setTimeout(async () => {
+      console.log(`[Uptime] Checking monitor: ${url}`);
+      try {
+        await checkSemaphore.wrap(async () => {
+          await domainRateLimit(url);
+          await checkMonitor(id);
+        });
+      } catch (err) {
+        console.error(`[Uptime] Error checking monitor #${id} (${url}): ${err.message}`);
+      }
+    }, jitterMs);
   });
 
   uptimeJobs.set(id, job);

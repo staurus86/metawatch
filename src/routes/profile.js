@@ -1,7 +1,23 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
-const { requireAuth, generateApiKey, hashPassword, comparePassword } = require('../auth');
+const { requireAuth, generateApiKey, hashPassword, comparePassword, clearAuthCookie } = require('../auth');
+
+function sanitizeRowsPerPage(val) {
+  const n = parseInt(val, 10);
+  return [10, 25, 50].includes(n) ? n : 25;
+}
+
+function sanitizeTimezone(tz) {
+  const value = String(tz || '').trim();
+  if (!value) return 'UTC';
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date());
+    return value;
+  } catch {
+    return 'UTC';
+  }
+}
 
 // GET /profile
 router.get('/', requireAuth, async (req, res) => {
@@ -78,6 +94,80 @@ router.post('/digest/test', requireAuth, async (req, res) => {
     res.redirect('/profile?msg=Test+digest+sent+to+' + encodeURIComponent(to));
   } catch (err) {
     res.redirect('/profile?msg=Error:+' + encodeURIComponent(err.message));
+  }
+});
+
+// POST /profile/preferences — notification defaults + display preferences
+router.post('/preferences', requireAuth, async (req, res) => {
+  const {
+    default_alert_email,
+    default_telegram_token,
+    default_telegram_chat_id,
+    default_webhook_url,
+    pref_dashboard_view,
+    pref_timezone,
+    pref_rows_per_page
+  } = req.body;
+
+  const dashboardView = pref_dashboard_view === 'grouped' ? 'grouped' : 'list';
+  const timezone = sanitizeTimezone(pref_timezone);
+  const rowsPerPage = sanitizeRowsPerPage(pref_rows_per_page);
+
+  try {
+    await pool.query(
+      `UPDATE users SET
+         default_alert_email = $1,
+         default_telegram_token = $2,
+         default_telegram_chat_id = $3,
+         default_webhook_url = $4,
+         pref_dashboard_view = $5,
+         pref_timezone = $6,
+         pref_rows_per_page = $7
+       WHERE id = $8`,
+      [
+        default_alert_email?.trim() || null,
+        default_telegram_token?.trim() || null,
+        default_telegram_chat_id?.trim() || null,
+        default_webhook_url?.trim() || null,
+        dashboardView,
+        timezone,
+        rowsPerPage,
+        req.user.id
+      ]
+    );
+    res.redirect('/profile?msg=Preferences+saved');
+  } catch (err) {
+    console.error(err);
+    res.redirect('/profile?msg=Error:+failed+to+save+preferences');
+  }
+});
+
+// POST /profile/delete-urls — danger zone
+router.post('/delete-urls', requireAuth, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM monitored_urls WHERE user_id = $1', [req.user.id]);
+    res.redirect('/profile?msg=All+URLs+deleted');
+  } catch (err) {
+    console.error(err);
+    res.redirect('/profile?msg=Error:+failed+to+delete+URLs');
+  }
+});
+
+// POST /profile/delete-account — danger zone
+router.post('/delete-account', requireAuth, async (req, res) => {
+  const confirmEmail = String(req.body.confirm_email || '').trim().toLowerCase();
+  const userEmail = String(req.user.email || '').trim().toLowerCase();
+  if (!confirmEmail || confirmEmail !== userEmail) {
+    return res.redirect('/profile?msg=Error:+confirmation+email+does+not+match');
+  }
+
+  try {
+    await pool.query('DELETE FROM users WHERE id = $1', [req.user.id]);
+    clearAuthCookie(res);
+    res.redirect('/register');
+  } catch (err) {
+    console.error(err);
+    res.redirect('/profile?msg=Error:+failed+to+delete+account');
   }
 });
 

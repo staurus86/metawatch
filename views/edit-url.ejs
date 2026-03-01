@@ -101,6 +101,21 @@
              value="<%= urlRecord.silenced_until ? new Date(urlRecord.silenced_until).toISOString().slice(0,16) : '' %>">
       <p class="form-hint">Checks will continue but no notifications will be sent until this time</p>
     </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="maintenance_cron">Recurring maintenance cron (UTC)</label>
+        <input type="text" id="maintenance_cron" name="maintenance_cron" class="form-input"
+               placeholder="0 2 * * 0"
+               value="<%= urlRecord.maintenance_cron || '' %>">
+        <p class="form-hint">Example: <code>0 2 * * 0</code> = every Sunday 02:00 UTC</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="maintenance_duration_minutes">Duration (minutes)</label>
+        <input type="number" id="maintenance_duration_minutes" name="maintenance_duration_minutes"
+               class="form-input" min="1" max="1440" placeholder="120"
+               value="<%= urlRecord.maintenance_duration_minutes || '' %>">
+      </div>
+    </div>
 
     <!-- Advanced options -->
     <details class="form-details" <%= (urlRecord.user_agent || urlRecord.ignore_numbers || urlRecord.telegram_chat_id || urlRecord.webhook_url) ? 'open' : '' %>>

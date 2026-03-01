@@ -35,19 +35,19 @@
 <!-- Stats row -->
 <div class="stats-row">
   <div class="stat-card">
-    <div class="stat-value"><%= stats.total %></div>
+    <div id="stat-total" class="stat-value"><%= stats.total %></div>
     <div class="stat-label">Total URLs</div>
   </div>
   <div class="stat-card stat-card--ok">
-    <div class="stat-value"><%= stats.ok %></div>
+    <div id="stat-ok" class="stat-value"><%= stats.ok %></div>
     <div class="stat-label">OK</div>
   </div>
   <div class="stat-card stat-card--changed">
-    <div class="stat-value"><%= stats.changed %></div>
+    <div id="stat-changed" class="stat-value"><%= stats.changed %></div>
     <div class="stat-label">Changed</div>
   </div>
   <div class="stat-card stat-card--error">
-    <div class="stat-value"><%= stats.error %></div>
+    <div id="stat-error" class="stat-value"><%= stats.error %></div>
     <div class="stat-label">Error</div>
   </div>
 </div>
@@ -83,9 +83,9 @@
 <!-- Tabs + Tag filter -->
 <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap">
   <div class="tabs" style="margin-bottom:0;flex:1">
-    <a href="/?tab=all<%= tagFilter ? '&tag=' + encodeURIComponent(tagFilter) : '' %>"
+    <a href="/?tab=all<%= tagFilter ? '&tag=' + encodeURIComponent(tagFilter) : '' %>&per_page=<%= perPage %>"
        class="tab-link <%= tab === 'all' ? 'tab-link--active' : '' %>">All URLs</a>
-    <a href="/?tab=problems<%= tagFilter ? '&tag=' + encodeURIComponent(tagFilter) : '' %>"
+    <a href="/?tab=problems<%= tagFilter ? '&tag=' + encodeURIComponent(tagFilter) : '' %>&per_page=<%= perPage %>"
        class="tab-link <%= tab === 'problems' ? 'tab-link--active' : '' %>">
       Problems
       <% if (stats.changed + stats.error > 0) { %>
@@ -96,9 +96,9 @@
   <% if (allTags.length > 0) { %>
   <div style="display:flex;align-items:center;gap:6px;padding:0 8px">
     <span style="font-size:12px;color:var(--text-muted)">Tag:</span>
-    <a href="/?tab=<%= tab %>" class="tag-chip <%= !tagFilter ? 'tag-chip--active' : '' %>">All</a>
+    <a href="/?tab=<%= tab %>&per_page=<%= perPage %>" class="tag-chip <%= !tagFilter ? 'tag-chip--active' : '' %>">All</a>
     <% allTags.forEach(function(t) { %>
-      <a href="/?tab=<%= tab %>&tag=<%= encodeURIComponent(t) %>"
+      <a href="/?tab=<%= tab %>&tag=<%= encodeURIComponent(t) %>&per_page=<%= perPage %>"
          class="tag-chip <%= tagFilter === t ? 'tag-chip--active' : '' %>"><%= t %></a>
     <% }) %>
   </div>
@@ -165,7 +165,7 @@
                 &nbsp;·&nbsp; Every <%= u.check_interval_minutes >= 60 ? (u.check_interval_minutes / 60) + 'h' : u.check_interval_minutes + 'min' %>
                 <% if (!u.is_active) { %>&nbsp;·&nbsp; <span class="badge badge--paused">Paused</span><% } %>
                 <% if (u.tags) { u.tags.split(',').filter(Boolean).forEach(function(t) { %>
-                  &nbsp;<a href="/?tab=<%= tab %>&tag=<%= encodeURIComponent(t.trim()) %>" class="tag-chip" data-stop-row-nav="1"><%= t.trim() %></a>
+                  &nbsp;<a href="/?tab=<%= tab %>&tag=<%= encodeURIComponent(t.trim()) %>&per_page=<%= perPage %>" class="tag-chip" data-stop-row-nav="1"><%= t.trim() %></a>
                 <% }) } %>
               </div>
             </div>
@@ -195,11 +195,11 @@
     <% if (totalPages > 1) { %>
     <div class="pagination">
       <% if (page > 1) { %>
-        <a href="/?tab=<%= tab %>&page=<%= page - 1 %>" class="btn btn-ghost btn-sm">← Prev</a>
+        <a href="/?tab=<%= tab %>&page=<%= page - 1 %>&per_page=<%= perPage %>" class="btn btn-ghost btn-sm">← Prev</a>
       <% } %>
-      <span class="pagination-info">Page <%= page %> of <%= totalPages %> &nbsp;·&nbsp; <%= totalCount %> URLs</span>
+      <span class="pagination-info">Page <%= page %> of <%= totalPages %> &nbsp;·&nbsp; <%= totalCount %> URLs &nbsp;·&nbsp; <%= perPage %> / page</span>
       <% if (page < totalPages) { %>
-        <a href="/?tab=<%= tab %>&page=<%= page + 1 %>" class="btn btn-ghost btn-sm">Next →</a>
+        <a href="/?tab=<%= tab %>&page=<%= page + 1 %>&per_page=<%= perPage %>" class="btn btn-ghost btn-sm">Next →</a>
       <% } %>
     </div>
     <% } %>
@@ -216,7 +216,7 @@
     <% if (alertFields.length > 0) { %>
       <div style="display:flex;align-items:center;gap:8px">
         <label style="font-size:12px;color:var(--text-muted)">Filter:</label>
-        <select data-nav-base="/?tab=<%= tab %>&field="
+        <select data-nav-base="/?tab=<%= tab %>&per_page=<%= perPage %>&field="
                 class="form-select" style="padding:4px 8px;font-size:12px;width:auto">
           <option value="">All fields</option>
           <% alertFields.forEach(function(f) { %>

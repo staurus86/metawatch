@@ -1,12 +1,9 @@
 /* MetaWatch Browser Extension — Background Service Worker */
 
-// On install: open the popup (via action) so user can configure settings
+// On install: open settings page so user can configure API URL/key
 chrome.runtime.onInstalled.addListener(details => {
   if (details.reason === 'install') {
-    // Open extension options/popup on first install
-    chrome.action.openPopup().catch(() => {
-      // openPopup may fail if not triggered by user gesture — that's fine
-    });
+    chrome.runtime.openOptionsPage().catch(() => {});
   }
 });
 

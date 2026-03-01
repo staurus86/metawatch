@@ -1,4 +1,5 @@
 const axios = require('axios');
+const cron = require('node-cron');
 const pool = require('./db');
 const { checkSsl } = require('./scraper');
 const { sendTelegram, sendWebhook } = require('./notifier');
@@ -23,6 +24,28 @@ function getCause(err, statusCode) {
   if (msg.includes('ssl') || msg.includes('certificate')) return 'ssl_error';
   if (msg.includes('enotfound') || msg.includes('getaddrinfo')) return 'dns_error';
   return 'connection_error';
+}
+
+function isInMaintenanceWindow(maintenanceCron, durationMinutes) {
+  if (!maintenanceCron || !durationMinutes || durationMinutes <= 0) return false;
+  try {
+    if (!cron.validate(maintenanceCron)) return false;
+    const now = new Date();
+    const [minute, hour, dom, month, dow] = maintenanceCron.split(' ');
+    for (let i = 0; i <= durationMinutes; i++) {
+      const t = new Date(now.getTime() - i * 60000);
+      const minuteMatch = minute === '*' || minute === String(t.getUTCMinutes()) ||
+        (minute.startsWith('*/') && t.getUTCMinutes() % parseInt(minute.slice(2), 10) === 0);
+      const hourMatch  = hour  === '*' || hour  === String(t.getUTCHours());
+      const domMatch   = dom   === '*' || dom   === String(t.getUTCDate());
+      const monthMatch = month === '*' || month === String(t.getUTCMonth() + 1);
+      const dowMatch   = dow   === '*' || dow   === String(t.getUTCDay());
+      if (minuteMatch && hourMatch && domMatch && monthMatch && dowMatch) return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
 }
 
 async function sendUptimeNotification({ monitor, subject, body }) {
@@ -121,7 +144,9 @@ async function checkMonitor(monitorId) {
   );
 
   // --- Incident management ---
-  const silenced = monitor.silenced_until && new Date(monitor.silenced_until) > new Date();
+  const manualSilenced = monitor.silenced_until && new Date(monitor.silenced_until) > new Date();
+  const cronSilenced = isInMaintenanceWindow(monitor.maintenance_cron, monitor.maintenance_duration_minutes);
+  const silenced = manualSilenced || cronSilenced;
 
   // Find open incident
   const { rows: openIncident } = await pool.query(

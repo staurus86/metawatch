@@ -3,7 +3,7 @@ const router = express.Router();
 const pool = require('../db');
 const { requireAuth } = require('../auth');
 
-const PER_PAGE = 25;
+const DEFAULT_PER_PAGE = 25;
 
 function computeStatus(u) {
   if (!u.last_status_code && u.last_status_code !== 0) return 'PENDING';
@@ -17,8 +17,13 @@ router.get('/', requireAuth, async (req, res) => {
     const tab         = req.query.tab   || 'all';
     const fieldFilter = req.query.field || null;
     const tagFilter   = req.query.tag   || null;
+    const prefPerPage = [10, 25, 50].includes(parseInt(req.user.pref_rows_per_page, 10))
+      ? parseInt(req.user.pref_rows_per_page, 10)
+      : DEFAULT_PER_PAGE;
+    const reqPerPage = parseInt(req.query.per_page || '', 10);
+    const perPage = [10, 25, 50].includes(reqPerPage) ? reqPerPage : prefPerPage;
     const page        = Math.max(1, parseInt(req.query.page || '1', 10));
-    const offset      = (page - 1) * PER_PAGE;
+    const offset      = (page - 1) * perPage;
     const isAdmin     = req.user.role === 'admin';
     const importedCount = req.query.imported ? parseInt(req.query.imported, 10) : null;
     const importSkipped = req.query.skipped ? parseInt(req.query.skipped, 10) : null;
@@ -49,11 +54,22 @@ router.get('/', requireAuth, async (req, res) => {
     `, userParams);
     const allTags = tagRows.map(r => r.tag).filter(Boolean);
 
-    // ── Stats: light query over ALL user's URLs (no pagination) ──────────────
-    const { rows: allForStats } = await pool.query(`
+    // ── Stats: aggregate in SQL (faster than loading all rows in JS) ─────────
+    const { rows: [statsRow] } = await pool.query(`
       SELECT
-        ls.status_code AS last_status_code,
-        COALESCE(ac.alert_count, 0)::int AS recent_alert_count
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (
+          WHERE ls.status_code IS NULL
+        )::int AS pending,
+        COUNT(*) FILTER (
+          WHERE ls.status_code = 0 OR ls.status_code >= 400
+        )::int AS error,
+        COUNT(*) FILTER (
+          WHERE ls.status_code BETWEEN 1 AND 399 AND COALESCE(ac.alert_count, 0) > 0
+        )::int AS changed,
+        COUNT(*) FILTER (
+          WHERE ls.status_code BETWEEN 1 AND 399 AND COALESCE(ac.alert_count, 0) = 0
+        )::int AS ok
       FROM monitored_urls mu
       LEFT JOIN LATERAL (
         SELECT status_code FROM snapshots
@@ -67,11 +83,11 @@ router.get('/', requireAuth, async (req, res) => {
     `, userParams);
 
     const stats = {
-      total:   allForStats.length,
-      ok:      allForStats.filter(u => computeStatus(u) === 'OK').length,
-      changed: allForStats.filter(u => computeStatus(u) === 'CHANGED').length,
-      error:   allForStats.filter(u => computeStatus(u) === 'ERROR').length,
-      pending: allForStats.filter(u => computeStatus(u) === 'PENDING').length
+      total: statsRow?.total || 0,
+      ok: statsRow?.ok || 0,
+      changed: statsRow?.changed || 0,
+      error: statsRow?.error || 0,
+      pending: statsRow?.pending || 0
     };
 
     // ── Count for pagination ─────────────────────────────────────────────────
@@ -91,7 +107,7 @@ router.get('/', requireAuth, async (req, res) => {
     `, tagParams);
 
     const totalCount = parseInt(cnt, 10);
-    const totalPages = Math.max(1, Math.ceil(totalCount / PER_PAGE));
+    const totalPages = Math.max(1, Math.ceil(totalCount / perPage));
 
     // ── Paginated URL list with uptime ────────────────────────────────────────
     const limitIdx  = tagParams.length + 1;
@@ -125,7 +141,7 @@ router.get('/', requireAuth, async (req, res) => {
       WHERE 1=1 ${userWhere} ${tagWhere} ${problemFilter}
       ORDER BY mu.created_at DESC
       LIMIT $${limitIdx} OFFSET $${offsetIdx}
-    `, [...tagParams, PER_PAGE, offset]);
+    `, [...tagParams, perPage, offset]);
 
     const urlsWithStatus = urls.map(u => ({ ...u, status: computeStatus(u) }));
 
@@ -185,6 +201,7 @@ router.get('/', requireAuth, async (req, res) => {
       page,
       totalPages,
       totalCount,
+      perPage,
       importedCount,
       importSkipped,
       importTag,
