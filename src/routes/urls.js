@@ -270,6 +270,87 @@ router.post('/scan-all', requireAuth, async (req, res) => {
   })();
 });
 
+// GET /urls/:id/edit
+router.get('/:id/edit', requireAuth, async (req, res) => {
+  const urlId = parseInt(req.params.id, 10);
+  if (isNaN(urlId)) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
+
+  try {
+    const { rows: [urlRecord] } = await pool.query(
+      'SELECT * FROM monitored_urls WHERE id = $1', [urlId]
+    );
+    if (!urlRecord) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
+
+    res.render('edit-url', { title: 'Edit URL', error: null, urlRecord });
+  } catch (err) {
+    console.error(err);
+    res.status(500).render('error', { title: 'Error', error: err.message });
+  }
+});
+
+// POST /urls/:id/edit
+router.post('/:id/edit', requireAuth, async (req, res) => {
+  const urlId = parseInt(req.params.id, 10);
+  if (isNaN(urlId)) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
+
+  const {
+    email, check_interval_minutes,
+    monitor_title, monitor_description, monitor_h1, monitor_body,
+    monitor_status_code, monitor_noindex, monitor_redirect,
+    monitor_canonical, monitor_robots, monitor_hreflang, monitor_og,
+    user_agent, ignore_numbers, custom_text,
+    telegram_bot_token, telegram_chat_id, webhook_url,
+    silenced_until
+  } = req.body;
+
+  const interval = parseInt(check_interval_minutes, 10);
+  if (isNaN(interval) || interval < 1) {
+    const { rows: [urlRecord] } = await pool.query('SELECT * FROM monitored_urls WHERE id = $1', [urlId]);
+    return res.render('edit-url', { title: 'Edit URL', error: 'Invalid check interval.', urlRecord });
+  }
+
+  try {
+    const { rows: [updated] } = await pool.query(
+      `UPDATE monitored_urls SET
+         email = $1, check_interval_minutes = $2,
+         monitor_title = $3, monitor_description = $4, monitor_h1 = $5, monitor_body = $6,
+         monitor_status_code = $7, monitor_noindex = $8, monitor_redirect = $9,
+         monitor_canonical = $10, monitor_robots = $11, monitor_hreflang = $12, monitor_og = $13,
+         user_agent = $14, ignore_numbers = $15, custom_text = $16,
+         telegram_bot_token = $17, telegram_chat_id = $18, webhook_url = $19,
+         silenced_until = $20
+       WHERE id = $21
+       RETURNING *`,
+      [
+        email?.trim() || null,
+        interval,
+        !!monitor_title, !!monitor_description, !!monitor_h1, !!monitor_body,
+        !!monitor_status_code, !!monitor_noindex, !!monitor_redirect,
+        !!monitor_canonical, !!monitor_robots, !!monitor_hreflang, !!monitor_og,
+        user_agent?.trim() || null,
+        !!ignore_numbers,
+        custom_text?.trim() || null,
+        telegram_bot_token?.trim() || null,
+        telegram_chat_id?.trim() || null,
+        webhook_url?.trim() || null,
+        silenced_until?.trim() || null,
+        urlId
+      ]
+    );
+
+    if (!updated) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
+
+    // Reschedule if interval changed
+    scheduleUrl(updated);
+
+    res.redirect(`/urls/${urlId}`);
+  } catch (err) {
+    console.error(err);
+    const { rows: [urlRecord] } = await pool.query('SELECT * FROM monitored_urls WHERE id = $1', [urlId]);
+    res.render('edit-url', { title: 'Edit URL', error: err.message, urlRecord });
+  }
+});
+
 // GET /urls/:id
 router.get('/:id', requireAuth, async (req, res) => {
   const urlId = parseInt(req.params.id, 10);

@@ -41,12 +41,14 @@ async function scrapeUrl(url, options = {}) {
     og_description: null,
     og_image: null,
     custom_text_found: null,
+    response_time_ms: null,
     error: null
   };
 
   let lastRedirectUrl = null;
 
   try {
+    const t0 = Date.now();
     const response = await scrapeWithRetry(() => axios.get(url, {
       timeout: 15000,
       maxRedirects: 5,
@@ -64,6 +66,7 @@ async function scrapeUrl(url, options = {}) {
     }));
 
     result.status_code = response.status;
+    result.response_time_ms = Date.now() - t0;
     if (lastRedirectUrl) result.redirect_url = lastRedirectUrl;
 
     const contentType = response.headers['content-type'] || '';

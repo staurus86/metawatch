@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const ejsLayouts = require('express-ejs-layouts');
 const cookieParser = require('cookie-parser');
+const helmet = require('helmet');
 const path = require('path');
 const migrate = require('./migrate');
 const { startScheduler } = require('./scheduler');
@@ -15,6 +16,20 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, '..', 'views'));
 app.use(ejsLayouts);
 app.set('layout', 'layout');
+
+// Security headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", 'cdn.jsdelivr.net', "'unsafe-inline'"],
+      styleSrc:  ["'self'", "'unsafe-inline'"],
+      imgSrc:    ["'self'", 'data:', 'https:'],
+      connectSrc: ["'self'"],
+      fontSrc:   ["'self'", 'data:']
+    }
+  }
+}));
 
 // Middleware
 app.use(express.urlencoded({ extended: true }));

@@ -45,6 +45,18 @@ document.querySelectorAll('form[data-confirm]').forEach(form => {
   });
 });
 
+// ─── URL search / filter ───
+const urlSearch = document.getElementById('url-search');
+if (urlSearch) {
+  urlSearch.addEventListener('input', function () {
+    const q = this.value.trim().toLowerCase();
+    document.querySelectorAll('.url-row').forEach(row => {
+      const text = row.querySelector('.url-text')?.textContent?.toLowerCase() || '';
+      row.style.display = !q || text.includes(q) ? '' : 'none';
+    });
+  });
+}
+
 // ─── Check-now loading state ───
 document.querySelectorAll('form').forEach(form => {
   if (form.action && form.action.includes('check-now')) {

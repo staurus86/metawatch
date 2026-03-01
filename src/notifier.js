@@ -45,8 +45,9 @@ async function notify({ urlRecord, field, oldValue, newValue, timestamp }) {
     });
   }
 
-  // Telegram
-  if (urlRecord.telegram_bot_token && urlRecord.telegram_chat_id) {
+  // Telegram — per-URL token or global env fallback
+  const tgToken = urlRecord.telegram_bot_token || process.env.TELEGRAM_BOT_TOKEN || null;
+  if (tgToken && urlRecord.telegram_chat_id) {
     const oldShort = String(oldValue || '').substring(0, 300);
     const newShort = String(newValue || '').substring(0, 300);
     const message = [
@@ -63,7 +64,7 @@ async function notify({ urlRecord, field, oldValue, newValue, timestamp }) {
     ].join('\n');
 
     results.telegram = await sendTelegram({
-      botToken: urlRecord.telegram_bot_token,
+      botToken: tgToken,
       chatId: urlRecord.telegram_chat_id,
       message
     });

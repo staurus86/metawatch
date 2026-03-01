@@ -4,6 +4,9 @@
     <h1 class="page-title url-title"><%= urlRecord.url %></h1>
   </div>
   <div style="display:flex;gap:8px;flex-shrink:0">
+    <a href="/urls/<%= urlRecord.id %>/edit" class="btn btn-ghost" style="font-size:12px">
+      ✎ Edit
+    </a>
     <a href="/export/url/<%= urlRecord.id %>.xlsx" class="btn btn-ghost" style="font-size:12px">
       ⬇ Export XLSX
     </a>
@@ -87,6 +90,21 @@
   <div class="card info-card">
     <div class="info-label">Ignore Numbers</div>
     <div class="info-value"><span class="badge badge--paused">Enabled</span></div>
+  </div>
+  <% } %>
+  <% if (snapshots.length && snapshots[0].response_time_ms != null) { %>
+  <div class="card info-card">
+    <div class="info-label">Response Time</div>
+    <div class="info-value"><%= snapshots[0].response_time_ms %> ms</div>
+  </div>
+  <% } %>
+  <% if (urlRecord.silenced_until && new Date(urlRecord.silenced_until) > new Date()) { %>
+  <div class="card info-card">
+    <div class="info-label">Silenced Until</div>
+    <div class="info-value" style="font-size:12px">
+      <span class="badge badge--paused">Muted</span>
+      <span class="time-ago" data-ts="<%= new Date(urlRecord.silenced_until).toISOString() %>" data-mode="future"></span>
+    </div>
   </div>
   <% } %>
 </div>

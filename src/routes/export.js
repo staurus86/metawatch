@@ -210,6 +210,53 @@ router.get('/url/:id.xlsx', requireAuth, async (req, res) => {
   }
 });
 
+// GET /export/alerts.csv — all alerts as CSV
+router.get('/alerts.csv', requireAuth, async (req, res) => {
+  try {
+    const { rows: alerts } = await pool.query(`
+      SELECT
+        a.id, a.detected_at, a.field_changed, a.old_value, a.new_value,
+        mu.url
+      FROM alerts a
+      JOIN monitored_urls mu ON mu.id = a.url_id
+      ORDER BY a.detected_at DESC
+    `);
+
+    const lines = [
+      ['ID', 'Detected At', 'URL', 'Field', 'Old Value', 'New Value']
+        .map(csvCell).join(',')
+    ];
+
+    for (const a of alerts) {
+      lines.push([
+        a.id,
+        new Date(a.detected_at).toISOString(),
+        a.url,
+        a.field_changed,
+        a.old_value || '',
+        a.new_value || ''
+      ].map(csvCell).join(','));
+    }
+
+    const csv = lines.join('\r\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="metawatch-alerts-${formatDate(new Date())}.csv"`);
+    res.send('\uFEFF' + csv); // BOM for Excel UTF-8
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Export failed: ' + err.message);
+  }
+});
+
+function csvCell(val) {
+  const str = String(val ?? '');
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return '"' + str.replace(/"/g, '""') + '"';
+  }
+  return str;
+}
+
 function formatDate(d) {
   return d.toISOString().split('T')[0];
 }

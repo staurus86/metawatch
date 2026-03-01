@@ -7,6 +7,22 @@ const {
   hashPassword, comparePassword, generateApiKey
 } = require('../auth');
 
+// Simple in-memory rate limiter for login: max 10 attempts per 15 min per IP
+const loginAttempts = new Map();
+const RATE_LIMIT_MAX = 10;
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+
+function isRateLimited(ip) {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry || now > entry.resetAt) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return false;
+  }
+  entry.count++;
+  return entry.count > RATE_LIMIT_MAX;
+}
+
 // GET /login
 router.get('/login', (req, res) => {
   if (res.locals.user) return res.redirect('/');
@@ -15,6 +31,15 @@ router.get('/login', (req, res) => {
 
 // POST /login
 router.post('/login', async (req, res) => {
+  const ip = req.ip || req.connection.remoteAddress || 'unknown';
+  if (isRateLimited(ip)) {
+    return res.status(429).render('login', {
+      title: 'Login',
+      error: 'Too many login attempts. Please wait 15 minutes.',
+      layout: 'layout-auth'
+    });
+  }
+
   const { email, password } = req.body;
   if (!email || !password) {
     return res.render('login', { title: 'Login', error: 'Email and password are required.', layout: 'layout-auth' });

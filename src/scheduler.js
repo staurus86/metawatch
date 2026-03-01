@@ -59,6 +59,30 @@ async function startScheduler() {
   }
 
   console.log(`[Scheduler] Started with ${rows.length} active URL(s)`);
+
+  // Snapshot retention — runs daily at 03:00
+  const retentionDays = parseInt(process.env.SNAPSHOT_RETENTION_DAYS || '90', 10);
+  if (retentionDays > 0) {
+    cron.schedule('0 3 * * *', async () => {
+      try {
+        const result = await pool.query(
+          `DELETE FROM snapshots
+           WHERE checked_at < NOW() - INTERVAL '${retentionDays} days'
+             AND id NOT IN (
+               SELECT DISTINCT reference_snapshot_id
+               FROM monitored_urls
+               WHERE reference_snapshot_id IS NOT NULL
+             )`
+        );
+        if (result.rowCount > 0) {
+          console.log(`[Retention] Deleted ${result.rowCount} snapshots older than ${retentionDays} days`);
+        }
+      } catch (err) {
+        console.error('[Retention] Error:', err.message);
+      }
+    });
+    console.log(`[Scheduler] Snapshot retention enabled (${retentionDays} days)`);
+  }
 }
 
 module.exports = { startScheduler, scheduleUrl, unscheduleUrl, intervalToCron };

@@ -71,13 +71,17 @@
     <h2 class="card-title">
       <% if (tab === 'problems') { %>Problem URLs<% } else { %>Monitored URLs<% } %>
     </h2>
-    <% if (tab === 'problems' && urls.length > 0) { %>
-      <form action="/urls/accept-all-changes" method="POST">
-        <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:4px 10px">
-          ✓ Accept All Changes
-        </button>
-      </form>
-    <% } %>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="url-search" type="search" class="form-input" style="width:220px;padding:5px 10px;font-size:13px"
+             placeholder="Filter URLs…" autocomplete="off">
+      <% if (tab === 'problems' && urls.length > 0) { %>
+        <form action="/urls/accept-all-changes" method="POST">
+          <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:4px 10px">
+            ✓ Accept All Changes
+          </button>
+        </form>
+      <% } %>
+    </div>
   </div>
   <% if (urls.length === 0) { %>
     <div class="empty-state">

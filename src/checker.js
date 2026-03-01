@@ -67,8 +67,8 @@ async function checkUrl(urlId) {
     `INSERT INTO snapshots
        (url_id, title, description, h1, body_text_hash, status_code, noindex,
         redirect_url, canonical, robots_txt_hash, raw_robots_txt,
-        hreflang, og_title, og_description, og_image, custom_text_found)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+        hreflang, og_title, og_description, og_image, custom_text_found, response_time_ms)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
      RETURNING *`,
     [
       urlId,
@@ -86,7 +86,8 @@ async function checkUrl(urlId) {
       scraped.og_title,
       scraped.og_description,
       scraped.og_image,
-      scraped.custom_text_found
+      scraped.custom_text_found,
+      scraped.response_time_ms ?? null
     ]
   );
 
@@ -135,13 +136,17 @@ async function checkUrl(urlId) {
 
     alertsGenerated.push(field.label);
 
-    await notify({
-      urlRecord,
-      field: field.label,
-      oldValue: displayOld,
-      newValue: displayNew,
-      timestamp: new Date()
-    });
+    // Skip notifications if URL is in maintenance window
+    const silenced = urlRecord.silenced_until && new Date(urlRecord.silenced_until) > new Date();
+    if (!silenced) {
+      await notify({
+        urlRecord,
+        field: field.label,
+        oldValue: displayOld,
+        newValue: displayNew,
+        timestamp: new Date()
+      });
+    }
   }
 
   if (alertsGenerated.length > 0) {
