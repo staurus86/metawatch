@@ -95,4 +95,75 @@ async function sendAlert({ to, url, field, oldValue, newValue, timestamp }) {
   }
 }
 
-module.exports = { sendAlert, isEmailConfigured };
+async function sendDigest({ to, frequency, alerts, periodLabel }) {
+  if (!isEmailConfigured()) return false;
+  if (!alerts || alerts.length === 0) return false;
+
+  const dashboardUrl = process.env.BASE_URL || '#';
+  const subject = `[MetaWatch] ${frequency === 'weekly' ? 'Weekly' : 'Daily'} digest — ${alerts.length} change${alerts.length !== 1 ? 's' : ''} detected`;
+
+  // Group alerts by URL
+  const byUrl = {};
+  for (const a of alerts) {
+    if (!byUrl[a.url]) byUrl[a.url] = { urlId: a.url_id, items: [] };
+    byUrl[a.url].items.push(a);
+  }
+
+  let urlsHtml = '';
+  for (const [url, { urlId, items }] of Object.entries(byUrl)) {
+    const rows = items.map(a => `
+      <tr style="border-bottom:1px solid #f0f4f8">
+        <td style="padding:8px 12px;font-size:13px;color:#4a5568">${escapeHtml(a.field_changed)}</td>
+        <td style="padding:8px 12px;font-size:12px;color:#718096;max-width:200px;word-break:break-all">${escapeHtml(String(a.old_value || '').substring(0, 80))}</td>
+        <td style="padding:8px 12px;font-size:12px;color:#2d3748;max-width:200px;word-break:break-all">${escapeHtml(String(a.new_value || '').substring(0, 80))}</td>
+      </tr>`).join('');
+
+    urlsHtml += `
+      <div style="margin-bottom:20px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden">
+        <div style="background:#f7fafc;padding:10px 14px;border-bottom:1px solid #e2e8f0">
+          <a href="${escapeHtml(dashboardUrl)}/urls/${urlId}" style="color:#4299e1;font-size:14px;font-weight:600;text-decoration:none;word-break:break-all">${escapeHtml(url)}</a>
+          <span style="margin-left:8px;font-size:12px;color:#718096">${items.length} change${items.length !== 1 ? 's' : ''}</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse">
+          <tr style="background:#f7fafc;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#718096">
+            <th style="padding:6px 12px;text-align:left">Field</th>
+            <th style="padding:6px 12px;text-align:left">Before</th>
+            <th style="padding:6px 12px;text-align:left">After</th>
+          </tr>
+          ${rows}
+        </table>
+      </div>`;
+  }
+
+  const html = `<!DOCTYPE html>
+<html><body style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;padding:20px;color:#2d3748;background:#f7fafc">
+  <div style="background:#1a202c;color:white;padding:16px 24px;border-radius:8px 8px 0 0">
+    <h2 style="margin:0;font-size:18px;font-weight:600">👁 MetaWatch — ${frequency === 'weekly' ? 'Weekly' : 'Daily'} Digest</h2>
+    <p style="margin:4px 0 0;font-size:13px;color:#a0aec0">${periodLabel} · ${alerts.length} change${alerts.length !== 1 ? 's' : ''} across ${Object.keys(byUrl).length} URL${Object.keys(byUrl).length !== 1 ? 's' : ''}</p>
+  </div>
+  <div style="background:white;border:1px solid #e2e8f0;border-top:none;padding:20px;border-radius:0 0 8px 8px">
+    ${urlsHtml}
+    <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+    <p style="color:#718096;font-size:12px;margin:0">
+      <a href="${escapeHtml(dashboardUrl)}" style="color:#4299e1">Open MetaWatch Dashboard</a>
+      &nbsp;·&nbsp; Unsubscribe in Profile settings
+    </p>
+  </div>
+</body></html>`;
+
+  try {
+    await createTransporter().sendMail({
+      from: process.env.SMTP_FROM || 'MetaWatch <alerts@metawatch.app>',
+      to,
+      subject,
+      html
+    });
+    console.log(`[Digest sent] ${frequency} digest → ${to} (${alerts.length} alerts)`);
+    return true;
+  } catch (err) {
+    console.error(`[Digest failed] ${err.message}`);
+    return false;
+  }
+}
+
+module.exports = { sendAlert, sendDigest, isEmailConfigured };

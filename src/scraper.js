@@ -1,6 +1,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const crypto = require('crypto');
+const https = require('https');
 
 function sha256(text) {
   return crypto.createHash('sha256').update(String(text || '')).digest('hex');
@@ -85,10 +86,7 @@ async function scrapeUrl(url, options = {}) {
 
     result.h1 = $('h1').first().text().replace(/\s+/g, ' ').trim() || null;
 
-    // Body hash
-    $('script, style, noscript, head').remove();
-    const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
-    result.body_text_hash = sha256(bodyText);
+    // ── Extract all <head>-based data BEFORE removing head ────────────────────
 
     // noindex
     const robotsMeta = (
@@ -115,10 +113,15 @@ async function scrapeUrl(url, options = {}) {
     result.og_description = $('meta[property="og:description"]').attr('content')?.trim() || null;
     result.og_image = $('meta[property="og:image"]').attr('content')?.trim() || null;
 
-    // Custom text search
+    // ── Body hash (remove head/scripts first so only visible body text remains) ─
+    $('script, style, noscript, head').remove();
+    const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
+    result.body_text_hash = sha256(bodyText);
+
+    // Custom text search (body only)
     if (customText) {
-      const fullText = $('body').text();
-      result.custom_text_found = fullText.includes(customText);
+      const fullBodyText = $('body').text();
+      result.custom_text_found = fullBodyText.includes(customText);
     }
 
   } catch (err) {
@@ -152,4 +155,27 @@ async function fetchRobotsTxt(url, userAgent) {
   return { hash: null, raw: null };
 }
 
-module.exports = { scrapeUrl, fetchRobotsTxt, sha256 };
+// Check SSL certificate expiry date (returns Date or null)
+async function checkSsl(url) {
+  if (!url.startsWith('https://')) return null;
+  try {
+    const { hostname } = new URL(url);
+    return await new Promise((resolve) => {
+      const req = https.request(
+        { host: hostname, port: 443, method: 'HEAD', path: '/', rejectUnauthorized: false, agent: false },
+        (res) => {
+          const cert = res.socket.getPeerCertificate();
+          res.resume();
+          resolve(cert && cert.valid_to ? new Date(cert.valid_to) : null);
+        }
+      );
+      req.on('error', () => resolve(null));
+      req.setTimeout(10000, () => { req.destroy(); resolve(null); });
+      req.end();
+    });
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { scrapeUrl, fetchRobotsTxt, sha256, checkSsl };

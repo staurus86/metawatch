@@ -125,15 +125,25 @@ async function migrate() {
       'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS og_description TEXT',
       'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS og_image TEXT',
       'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS custom_text_found BOOLEAN',
-      'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS response_time_ms INTEGER'
+      'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS response_time_ms INTEGER',
+      'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS ssl_expires_at TIMESTAMPTZ'
     ];
     for (const sql of snapCols) await client.query(sql);
 
-    // ALTER: monitored_urls maintenance columns
+    // ALTER: monitored_urls maintenance + SSL + tags columns
     const muExtra = [
-      'ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS silenced_until TIMESTAMPTZ'
+      'ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS silenced_until TIMESTAMPTZ',
+      'ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS monitor_ssl BOOLEAN NOT NULL DEFAULT false',
+      "ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS tags TEXT NOT NULL DEFAULT ''"
     ];
     for (const sql of muExtra) await client.query(sql);
+
+    // ALTER: users digest column
+    const userExtra = [
+      "ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_frequency VARCHAR(10) DEFAULT NULL",
+      "ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_email VARCHAR(255) DEFAULT NULL"
+    ];
+    for (const sql of userExtra) await client.query(sql);
 
     // ─── users self-ref FK (invited_by_id) ────────────────────────────────────
     // Add FK only if it doesn't already exist

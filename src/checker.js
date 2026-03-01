@@ -1,6 +1,8 @@
 const pool = require('./db');
-const { scrapeUrl, fetchRobotsTxt } = require('./scraper');
+const { scrapeUrl, fetchRobotsTxt, checkSsl } = require('./scraper');
 const { notify } = require('./notifier');
+
+const SSL_WARN_DAYS = parseInt(process.env.SSL_WARN_DAYS || '30', 10);
 
 const MONITORED_FIELDS = [
   { key: 'title',            monitorKey: 'monitor_title',       label: 'Title' },
@@ -16,7 +18,8 @@ const MONITORED_FIELDS = [
   { key: 'og_title',         monitorKey: 'monitor_og',          label: 'OG Title' },
   { key: 'og_description',   monitorKey: 'monitor_og',          label: 'OG Description' },
   { key: 'og_image',         monitorKey: 'monitor_og',          label: 'OG Image' },
-  { key: 'custom_text_found',monitorKey: '_custom_text', label: 'Custom Text' }
+  { key: 'custom_text_found',monitorKey: '_custom_text',  label: 'Custom Text' },
+  { key: 'ssl_expires_at',   monitorKey: 'monitor_ssl',   label: 'SSL Certificate' }
 ];
 
 // Strip digits from a value when ignore_numbers is enabled
@@ -62,13 +65,18 @@ async function checkUrl(urlId) {
     ? await fetchRobotsTxt(urlRecord.url, urlRecord.user_agent)
     : { hash: null, raw: null };
 
+  const sslExpiresAt = urlRecord.monitor_ssl
+    ? await checkSsl(urlRecord.url)
+    : null;
+
   // Save new snapshot
   const { rows: [snap] } = await pool.query(
     `INSERT INTO snapshots
        (url_id, title, description, h1, body_text_hash, status_code, noindex,
         redirect_url, canonical, robots_txt_hash, raw_robots_txt,
-        hreflang, og_title, og_description, og_image, custom_text_found, response_time_ms)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        hreflang, og_title, og_description, og_image, custom_text_found,
+        response_time_ms, ssl_expires_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
      RETURNING *`,
     [
       urlId,
@@ -87,7 +95,8 @@ async function checkUrl(urlId) {
       scraped.og_description,
       scraped.og_image,
       scraped.custom_text_found,
-      scraped.response_time_ms ?? null
+      scraped.response_time_ms ?? null,
+      sslExpiresAt ?? null
     ]
   );
 
@@ -146,6 +155,38 @@ async function checkUrl(urlId) {
         newValue: displayNew,
         timestamp: new Date()
       });
+    }
+  }
+
+  // SSL expiry proactive warning (separate from change detection)
+  if (urlRecord.monitor_ssl && sslExpiresAt) {
+    const daysLeft = Math.ceil((sslExpiresAt - new Date()) / (1000 * 60 * 60 * 24));
+    if (daysLeft <= SSL_WARN_DAYS && daysLeft > 0) {
+      // Check if we already sent this warning recently (within 7 days)
+      const { rows: recentWarn } = await pool.query(
+        `SELECT id FROM alerts
+         WHERE url_id = $1 AND field_changed = 'SSL Expiry Warning'
+           AND detected_at > NOW() - INTERVAL '7 days'`,
+        [urlId]
+      );
+      if (recentWarn.length === 0) {
+        await pool.query(
+          `INSERT INTO alerts (url_id, field_changed, old_value, new_value)
+           VALUES ($1, 'SSL Expiry Warning', $2, $3)`,
+          [urlId, `${daysLeft} days remaining`, sslExpiresAt.toISOString()]
+        );
+        alertsGenerated.push(`SSL Expiry Warning (${daysLeft}d)`);
+        const silenced = urlRecord.silenced_until && new Date(urlRecord.silenced_until) > new Date();
+        if (!silenced) {
+          await notify({
+            urlRecord,
+            field: 'SSL Expiry Warning',
+            oldValue: `${daysLeft} days remaining`,
+            newValue: `Certificate expires: ${sslExpiresAt.toUTCString()}`,
+            timestamp: new Date()
+          });
+        }
+      }
     }
   }
 

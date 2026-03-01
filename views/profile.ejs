@@ -64,6 +64,34 @@
     </div>
   </div>
 
+  <!-- Email Digest -->
+  <div class="card" style="grid-column:1/-1;max-width:480px">
+    <div class="card-header"><h2 class="card-title">Email Digest</h2></div>
+    <form action="/profile/digest" method="POST" class="form" style="padding:20px">
+      <p class="text-muted" style="font-size:13px;margin-bottom:16px">
+        Receive a summary of all detected changes instead of (or in addition to) per-change alerts.
+      </p>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="digest_frequency">Frequency</label>
+          <select id="digest_frequency" name="digest_frequency" class="form-select">
+            <option value="" <%= !locals.user.digest_frequency ? 'selected' : '' %>>Disabled</option>
+            <option value="daily" <%= locals.user.digest_frequency === 'daily' ? 'selected' : '' %>>Daily (08:00)</option>
+            <option value="weekly" <%= locals.user.digest_frequency === 'weekly' ? 'selected' : '' %>>Weekly (Mon 08:00)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="digest_email">Send to</label>
+          <input type="email" id="digest_email" name="digest_email" class="form-input"
+                 placeholder="<%= locals.user.email %>"
+                 value="<%= locals.user.digest_email || '' %>">
+          <p class="form-hint">Leave blank to use your account email</p>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">Save Digest Settings</button>
+    </form>
+  </div>
+
   <!-- Change password -->
   <div class="card" style="grid-column:1/-1;max-width:480px">
     <div class="card-header"><h2 class="card-title">Change Password</h2></div>

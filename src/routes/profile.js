@@ -24,6 +24,22 @@ router.post('/regenerate-key', requireAuth, async (req, res) => {
   }
 });
 
+// POST /profile/digest
+router.post('/digest', requireAuth, async (req, res) => {
+  const { digest_frequency, digest_email } = req.body;
+  const freq = ['daily', 'weekly'].includes(digest_frequency) ? digest_frequency : null;
+  try {
+    await pool.query(
+      'UPDATE users SET digest_frequency = $1, digest_email = $2 WHERE id = $3',
+      [freq, digest_email?.trim() || null, req.user.id]
+    );
+    res.redirect('/profile?msg=Digest+settings+saved');
+  } catch (err) {
+    console.error(err);
+    res.redirect('/profile?msg=Error:+' + encodeURIComponent(err.message));
+  }
+});
+
 // POST /profile/change-password
 router.post('/change-password', requireAuth, async (req, res) => {
   const { current_password, new_password, new_password2 } = req.body;

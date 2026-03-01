@@ -207,6 +207,19 @@
             </div>
           </div>
           <% } %>
+          <% if (urlRecord.monitor_ssl && latest.ssl_expires_at) { %>
+          <% const sslExpiry = new Date(latest.ssl_expires_at); %>
+          <% const sslDaysLeft = Math.ceil((sslExpiry - new Date()) / 86400000); %>
+          <div class="snap-field">
+            <div class="snap-label">SSL Expires</div>
+            <div class="snap-val">
+              <span class="badge badge--<%= sslDaysLeft > 30 ? 'ok' : sslDaysLeft > 7 ? 'changed' : 'error' %>">
+                <%= sslDaysLeft > 0 ? sslDaysLeft + ' days left' : 'EXPIRED' %>
+              </span>
+              <span style="font-size:12px;color:var(--text-muted);margin-left:6px"><%= sslExpiry.toLocaleDateString() %></span>
+            </div>
+          </div>
+          <% } %>
           <% if (urlRecord.custom_text) { %>
           <div class="snap-field">
             <div class="snap-label">Custom Text "<%= urlRecord.custom_text %>"</div>

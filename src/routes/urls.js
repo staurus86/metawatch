@@ -54,8 +54,10 @@ router.post('/add', requireAuth, async (req, res) => {
     monitor_title, monitor_description, monitor_h1, monitor_body,
     monitor_status_code, monitor_noindex, monitor_redirect,
     monitor_canonical, monitor_robots, monitor_hreflang, monitor_og,
+    monitor_ssl,
     user_agent, ignore_numbers, custom_text,
-    telegram_bot_token, telegram_chat_id, webhook_url
+    telegram_bot_token, telegram_chat_id, webhook_url,
+    tags
   } = req.body;
 
   const renderError = (msg) => res.render('add-url', {
@@ -79,10 +81,10 @@ router.post('/add', requireAuth, async (req, res) => {
          (url, email, check_interval_minutes, user_id,
           monitor_title, monitor_description, monitor_h1, monitor_body,
           monitor_status_code, monitor_noindex, monitor_redirect,
-          monitor_canonical, monitor_robots, monitor_hreflang, monitor_og,
+          monitor_canonical, monitor_robots, monitor_hreflang, monitor_og, monitor_ssl,
           user_agent, ignore_numbers, custom_text,
-          telegram_bot_token, telegram_chat_id, webhook_url)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+          telegram_bot_token, telegram_chat_id, webhook_url, tags)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
        RETURNING *`,
       [
         trimmedUrl,
@@ -91,13 +93,14 @@ router.post('/add', requireAuth, async (req, res) => {
         req.user.id,
         !!monitor_title, !!monitor_description, !!monitor_h1, !!monitor_body,
         !!monitor_status_code, !!monitor_noindex, !!monitor_redirect,
-        !!monitor_canonical, !!monitor_robots, !!monitor_hreflang, !!monitor_og,
+        !!monitor_canonical, !!monitor_robots, !!monitor_hreflang, !!monitor_og, !!monitor_ssl,
         user_agent?.trim() || null,
         !!ignore_numbers,
         custom_text?.trim() || null,
         telegram_bot_token?.trim() || null,
         telegram_chat_id?.trim() || null,
-        webhook_url?.trim() || null
+        webhook_url?.trim() || null,
+        normalizeTags(tags)
       ]
     );
 
@@ -311,10 +314,10 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
     email, check_interval_minutes,
     monitor_title, monitor_description, monitor_h1, monitor_body,
     monitor_status_code, monitor_noindex, monitor_redirect,
-    monitor_canonical, monitor_robots, monitor_hreflang, monitor_og,
+    monitor_canonical, monitor_robots, monitor_hreflang, monitor_og, monitor_ssl,
     user_agent, ignore_numbers, custom_text,
     telegram_bot_token, telegram_chat_id, webhook_url,
-    silenced_until
+    silenced_until, tags
   } = req.body;
 
   const interval = parseInt(check_interval_minutes, 10);
@@ -331,26 +334,33 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
          monitor_title = $3, monitor_description = $4, monitor_h1 = $5, monitor_body = $6,
          monitor_status_code = $7, monitor_noindex = $8, monitor_redirect = $9,
          monitor_canonical = $10, monitor_robots = $11, monitor_hreflang = $12, monitor_og = $13,
-         user_agent = $14, ignore_numbers = $15, custom_text = $16,
-         telegram_bot_token = $17, telegram_chat_id = $18, webhook_url = $19,
-         silenced_until = $20
-       WHERE id = $21
+         monitor_ssl = $14,
+         user_agent = $15, ignore_numbers = $16, custom_text = $17,
+         telegram_bot_token = $18, telegram_chat_id = $19, webhook_url = $20,
+         silenced_until = $21, tags = $22
+       WHERE id = $23 ${req.user.role !== 'admin' ? 'AND user_id = $24' : ''}
        RETURNING *`,
-      [
-        email?.trim() || null,
-        interval,
-        !!monitor_title, !!monitor_description, !!monitor_h1, !!monitor_body,
-        !!monitor_status_code, !!monitor_noindex, !!monitor_redirect,
-        !!monitor_canonical, !!monitor_robots, !!monitor_hreflang, !!monitor_og,
-        user_agent?.trim() || null,
-        !!ignore_numbers,
-        custom_text?.trim() || null,
-        telegram_bot_token?.trim() || null,
-        telegram_chat_id?.trim() || null,
-        webhook_url?.trim() || null,
-        silenced_until?.trim() || null,
-        urlId
-      ]
+      req.user.role !== 'admin'
+        ? [
+            email?.trim() || null, interval,
+            !!monitor_title, !!monitor_description, !!monitor_h1, !!monitor_body,
+            !!monitor_status_code, !!monitor_noindex, !!monitor_redirect,
+            !!monitor_canonical, !!monitor_robots, !!monitor_hreflang, !!monitor_og,
+            !!monitor_ssl, user_agent?.trim() || null, !!ignore_numbers,
+            custom_text?.trim() || null, telegram_bot_token?.trim() || null,
+            telegram_chat_id?.trim() || null, webhook_url?.trim() || null,
+            silenced_until?.trim() || null, normalizeTags(tags), urlId, req.user.id
+          ]
+        : [
+            email?.trim() || null, interval,
+            !!monitor_title, !!monitor_description, !!monitor_h1, !!monitor_body,
+            !!monitor_status_code, !!monitor_noindex, !!monitor_redirect,
+            !!monitor_canonical, !!monitor_robots, !!monitor_hreflang, !!monitor_og,
+            !!monitor_ssl, user_agent?.trim() || null, !!ignore_numbers,
+            custom_text?.trim() || null, telegram_bot_token?.trim() || null,
+            telegram_chat_id?.trim() || null, webhook_url?.trim() || null,
+            silenced_until?.trim() || null, normalizeTags(tags), urlId
+          ]
     );
 
     if (!updated) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
@@ -563,6 +573,14 @@ router.post('/:id/delete', requireAuth, async (req, res) => {
     res.status(500).render('error', { title: 'Error', error: err.message });
   }
 });
+
+// Normalize tag string: lowercase, trim, deduplicate, comma-join
+function normalizeTags(raw) {
+  if (!raw) return '';
+  return [...new Set(
+    String(raw).split(',').map(t => t.trim().toLowerCase()).filter(Boolean)
+  )].join(',');
+}
 
 function escapeHtml(str) {
   return String(str || '')

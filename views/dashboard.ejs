@@ -54,15 +54,29 @@
   </div>
 </div>
 
-<!-- Tabs -->
-<div class="tabs" style="margin-bottom:0">
-  <a href="/" class="tab-link <%= tab === 'all' ? 'tab-link--active' : '' %>">All URLs</a>
-  <a href="/?tab=problems" class="tab-link <%= tab === 'problems' ? 'tab-link--active' : '' %>">
-    Problems
-    <% if (stats.changed + stats.error > 0) { %>
-      <span class="tab-badge"><%= stats.changed + stats.error %></span>
-    <% } %>
-  </a>
+<!-- Tabs + Tag filter -->
+<div style="display:flex;align-items:center;gap:0;flex-wrap:wrap">
+  <div class="tabs" style="margin-bottom:0;flex:1">
+    <a href="/?tab=all<%= tagFilter ? '&tag=' + encodeURIComponent(tagFilter) : '' %>"
+       class="tab-link <%= tab === 'all' ? 'tab-link--active' : '' %>">All URLs</a>
+    <a href="/?tab=problems<%= tagFilter ? '&tag=' + encodeURIComponent(tagFilter) : '' %>"
+       class="tab-link <%= tab === 'problems' ? 'tab-link--active' : '' %>">
+      Problems
+      <% if (stats.changed + stats.error > 0) { %>
+        <span class="tab-badge"><%= stats.changed + stats.error %></span>
+      <% } %>
+    </a>
+  </div>
+  <% if (allTags.length > 0) { %>
+  <div style="display:flex;align-items:center;gap:6px;padding:0 8px">
+    <span style="font-size:12px;color:var(--text-muted)">Tag:</span>
+    <a href="/?tab=<%= tab %>" class="tag-chip <%= !tagFilter ? 'tag-chip--active' : '' %>">All</a>
+    <% allTags.forEach(function(t) { %>
+      <a href="/?tab=<%= tab %>&tag=<%= encodeURIComponent(t) %>"
+         class="tag-chip <%= tagFilter === t ? 'tag-chip--active' : '' %>"><%= t %></a>
+    <% }) %>
+  </div>
+  <% } %>
 </div>
 
 <!-- URL list -->
@@ -107,6 +121,9 @@
                 <% } %>
                 &nbsp;·&nbsp; Every <%= u.check_interval_minutes >= 60 ? (u.check_interval_minutes / 60) + 'h' : u.check_interval_minutes + 'min' %>
                 <% if (!u.is_active) { %>&nbsp;·&nbsp; <span class="badge badge--paused">Paused</span><% } %>
+                <% if (u.tags) { u.tags.split(',').filter(Boolean).forEach(function(t) { %>
+                  &nbsp;<a href="/?tab=<%= tab %>&tag=<%= encodeURIComponent(t.trim()) %>" class="tag-chip" onclick="event.stopPropagation()"><%= t.trim() %></a>
+                <% }) } %>
               </div>
             </div>
           </div>

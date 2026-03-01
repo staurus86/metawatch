@@ -16,6 +16,7 @@ router.get('/', requireAuth, async (req, res) => {
   try {
     const tab         = req.query.tab   || 'all';
     const fieldFilter = req.query.field || null;
+    const tagFilter   = req.query.tag   || null;
     const page        = Math.max(1, parseInt(req.query.page || '1', 10));
     const offset      = (page - 1) * PER_PAGE;
     const isAdmin     = req.user.role === 'admin';
@@ -24,11 +25,26 @@ router.get('/', requireAuth, async (req, res) => {
     const userParams = isAdmin ? [] : [req.user.id];
     const userWhere  = isAdmin ? '' : 'AND mu.user_id = $1';
 
+    // Tag filter
+    const tagParams = tagFilter ? [...userParams, tagFilter] : userParams;
+    const tagWhere  = tagFilter
+      ? `AND $${tagParams.length} = ANY(string_to_array(mu.tags, ','))`
+      : '';
+
     // Problem-tab filter (applied in SQL so pagination works correctly)
     const problemFilter = tab === 'problems'
       ? `AND ls.status_code IS NOT NULL
          AND (ls.status_code = 0 OR ls.status_code >= 400 OR COALESCE(ac.alert_count,0) > 0)`
       : '';
+
+    // ── Collect all tags used by this user (for tag filter UI) ───────────────
+    const { rows: tagRows } = await pool.query(`
+      SELECT DISTINCT unnest(string_to_array(tags, ',')) AS tag
+      FROM monitored_urls
+      WHERE tags != '' ${userWhere.replace('mu.', '')}
+      ORDER BY tag
+    `, userParams);
+    const allTags = tagRows.map(r => r.tag).filter(Boolean);
 
     // ── Stats: light query over ALL user's URLs (no pagination) ──────────────
     const { rows: allForStats } = await pool.query(`
@@ -67,16 +83,16 @@ router.get('/', requireAuth, async (req, res) => {
           SELECT COUNT(*) AS alert_count FROM alerts
           WHERE url_id = mu.id AND detected_at > NOW() - INTERVAL '24 hours'
         ) ac ON true
-        WHERE 1=1 ${userWhere} ${problemFilter}
+        WHERE 1=1 ${userWhere} ${tagWhere} ${problemFilter}
       ) sub
-    `, userParams);
+    `, tagParams);
 
     const totalCount = parseInt(cnt, 10);
     const totalPages = Math.max(1, Math.ceil(totalCount / PER_PAGE));
 
     // ── Paginated URL list with uptime ────────────────────────────────────────
-    const limitIdx  = userParams.length + 1;
-    const offsetIdx = userParams.length + 2;
+    const limitIdx  = tagParams.length + 1;
+    const offsetIdx = tagParams.length + 2;
 
     const { rows: urls } = await pool.query(`
       SELECT
@@ -103,10 +119,10 @@ router.get('/', requireAuth, async (req, res) => {
         FROM snapshots
         WHERE url_id = mu.id AND checked_at > NOW() - INTERVAL '30 days'
       ) up ON true
-      WHERE 1=1 ${userWhere} ${problemFilter}
+      WHERE 1=1 ${userWhere} ${tagWhere} ${problemFilter}
       ORDER BY mu.created_at DESC
       LIMIT $${limitIdx} OFFSET $${offsetIdx}
-    `, [...userParams, PER_PAGE, offset]);
+    `, [...tagParams, PER_PAGE, offset]);
 
     const urlsWithStatus = urls.map(u => ({ ...u, status: computeStatus(u) }));
 
@@ -144,6 +160,8 @@ router.get('/', requireAuth, async (req, res) => {
       tab,
       fieldFilter,
       alertFields,
+      tagFilter,
+      allTags,
       page,
       totalPages,
       totalCount

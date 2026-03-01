@@ -53,7 +53,8 @@
         { name: 'monitor_canonical',   label: 'Canonical' },
         { name: 'monitor_robots',      label: 'robots.txt' },
         { name: 'monitor_hreflang',    label: 'hreflang' },
-        { name: 'monitor_og',          label: 'OG Tags' }
+        { name: 'monitor_og',          label: 'OG Tags' },
+        { name: 'monitor_ssl',         label: 'SSL Certificate' }
       ]; %>
       <% fields.forEach(function(f) { %>
         <label class="checkbox-label">
@@ -122,6 +123,15 @@
         </div>
       </div>
     </details>
+
+    <!-- Tags -->
+    <div class="form-group" style="margin-top:16px">
+      <label class="form-label" for="tags">Tags</label>
+      <input type="text" id="tags" name="tags" class="form-input"
+             placeholder="seo, landing, shop (comma-separated)"
+             value="<%= values.tags || '' %>">
+      <p class="form-hint">Categorize URLs for filtering on dashboard</p>
+    </div>
 
     <div class="form-actions">
       <button type="submit" class="btn btn-primary">Start Monitoring</button>
