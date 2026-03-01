@@ -1,0 +1,51 @@
+<div class="page-header">
+  <div>
+    <div class="breadcrumb"><a href="/status-pages">Status Pages</a> / Edit</div>
+    <h1 class="page-title"><%= page.title %></h1>
+  </div>
+  <% if (page.is_public) { %>
+    <a href="/status/page/<%= page.slug %>" target="_blank" class="btn btn-ghost" style="font-size:12px">↗ View Public Page</a>
+  <% } %>
+</div>
+
+<div class="card" style="max-width:600px">
+  <form action="/status-pages/<%= page.id %>/edit" method="POST" class="form">
+    <div class="form-group">
+      <label class="form-label">Title</label>
+      <input type="text" name="title" class="form-input" value="<%= page.title %>" required>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Description</label>
+      <input type="text" name="description" class="form-input" value="<%= page.description || '' %>">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Include Monitors</label>
+      <div class="checkbox-grid">
+        <% monitors.forEach(function(m) { %>
+          <label class="checkbox-label">
+            <input type="checkbox" name="monitor_ids" value="<%= m.id %>"
+                   <%= page.monitor_ids && page.monitor_ids.includes(m.id) ? 'checked' : '' %>>
+            <%= m.name || m.url %>
+          </label>
+        <% }) %>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" name="is_public" value="on" <%= page.is_public ? 'checked' : '' %>> Public page
+      </label>
+    </div>
+    <div style="margin-top:8px;padding:12px;background:var(--bg-secondary);border-radius:6px;font-size:12px">
+      <strong>Public URL:</strong>
+      <code><%= process.env.BASE_URL || '' %>/status/page/<%= page.slug %></code>
+    </div>
+    <div class="form-actions" style="margin-top:16px">
+      <button type="submit" class="btn btn-primary">Save</button>
+      <a href="/status-pages" class="btn btn-ghost">Cancel</a>
+      <form action="/status-pages/<%= page.id %>/delete" method="POST" style="display:inline"
+            data-confirm="Delete this status page?">
+        <button type="submit" class="btn btn-danger">Delete</button>
+      </form>
+    </div>
+  </form>
+</div>

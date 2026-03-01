@@ -294,6 +294,35 @@ async function checkUrl(urlId) {
     }
   }
 
+  // ── Response time threshold alert ──────────────────────────────────────────
+  if (urlRecord.response_time_threshold_ms && scraped.response_time_ms != null) {
+    const threshold = urlRecord.response_time_threshold_ms;
+    if (scraped.response_time_ms > threshold) {
+      const silencedRT = urlRecord.silenced_until && new Date(urlRecord.silenced_until) > new Date();
+      // Only alert if last check was OK (avoid spam on persistent slow)
+      const { rows: [prevSnap] } = await pool.query(
+        'SELECT response_time_ms FROM snapshots WHERE url_id = $1 AND id != $2 ORDER BY checked_at DESC LIMIT 1',
+        [urlId, snap.id]
+      );
+      if (!prevSnap || prevSnap.response_time_ms == null || prevSnap.response_time_ms <= threshold) {
+        await pool.query(
+          `INSERT INTO alerts (url_id, field_changed, old_value, new_value, severity)
+           VALUES ($1, 'Response Time', $2, $3, 'warning')`,
+          [urlId, `${threshold}ms threshold`, `${scraped.response_time_ms}ms`]
+        );
+        alertsGenerated.push(`Slow response (${scraped.response_time_ms}ms)`);
+        if (!silencedRT) {
+          try {
+            await notify({ urlRecord, field: 'Response Time', oldValue: `Threshold: ${threshold}ms`, newValue: `Actual: ${scraped.response_time_ms}ms`, severity: 'warning', timestamp: new Date() });
+            await logNotification({ urlId, channel: 'email', fieldChanged: 'Response Time', severity: 'warning', status: 'sent' });
+          } catch (e) {
+            await logNotification({ urlId, channel: 'email', fieldChanged: 'Response Time', severity: 'warning', status: 'failed', errorMessage: e.message });
+          }
+        }
+      }
+    }
+  }
+
   if (alertsGenerated.length > 0) {
     console.log(`[Check] URL #${urlId}: ${alertsGenerated.length} change(s) — ${alertsGenerated.join(', ')}`);
   } else {

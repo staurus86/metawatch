@@ -1,0 +1,44 @@
+<div class="page-header">
+  <div>
+    <div class="breadcrumb"><a href="/status-pages">Status Pages</a> / New</div>
+    <h1 class="page-title">New Status Page</h1>
+  </div>
+</div>
+
+<div class="card" style="max-width:600px">
+  <% if (error) { %>
+    <div class="alert-banner alert-banner--error"><%= error %></div>
+  <% } %>
+  <form action="/status-pages" method="POST" class="form">
+    <div class="form-group">
+      <label class="form-label">Title <span class="required">*</span></label>
+      <input type="text" name="title" class="form-input" value="<%= values.title || '' %>" required placeholder="e.g. My Service Status">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Description</label>
+      <input type="text" name="description" class="form-input" value="<%= values.description || '' %>" placeholder="Optional subtitle">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Include Monitors</label>
+      <div class="checkbox-grid">
+        <% monitors.forEach(function(m) { %>
+          <label class="checkbox-label">
+            <input type="checkbox" name="monitor_ids" value="<%= m.id %>"> <%= m.name || m.url %>
+          </label>
+        <% }) %>
+      </div>
+      <% if (monitors.length === 0) { %>
+        <p class="form-hint">No active uptime monitors found. <a href="/uptime/add">Add a monitor</a> first.</p>
+      <% } %>
+    </div>
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" name="is_public" value="on" checked> Make this page public
+      </label>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Create Status Page</button>
+      <a href="/status-pages" class="btn btn-ghost">Cancel</a>
+    </div>
+  </form>
+</div>

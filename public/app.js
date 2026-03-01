@@ -440,24 +440,90 @@ function updateBulkBar() {
 }
 
 // ─── Onboarding Wizard ───────────────────────────────────────────────────────
-function obNext(step) {
+// Must be window-attached so onclick="" attributes can reach them
+window.obNext = function(step) {
   [1, 2, 3].forEach(n => {
     const s = document.getElementById('ob-step-' + n);
     const d = document.getElementById('ob-dot-' + n);
     if (s) s.style.display = n === step ? '' : 'none';
     if (d) d.classList.toggle('ob-dot--active', n === step);
   });
-}
+};
 
-function obFinish() {
+window.obFinish = function() {
   const modal = document.getElementById('onboarding-modal');
   if (modal) modal.style.display = 'none';
   fetch('/urls/onboarding-complete', { method: 'POST' }).catch(() => {});
+};
+
+// ─── Competitor title-length chart ───────────────────────────────────────────
+function initCompetitorChart() {
+  const canvas = document.getElementById('chart-competitor');
+  if (!canvas || typeof Chart === 'undefined') return;
+
+  const competitorId = canvas.getAttribute('data-competitor-id');
+  fetch('/api/competitor/' + competitorId + '/title-history')
+    .then(r => r.json())
+    .then(data => {
+      if (!data || !data.labels) { canvas.parentElement.style.display = 'none'; return; }
+      new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels: data.labels,
+          datasets: [
+            {
+              label: 'Your title length',
+              data: data.yours,
+              borderColor: '#4299e1',
+              backgroundColor: 'rgba(66,153,225,.08)',
+              tension: 0.3, fill: false, pointRadius: 3
+            },
+            {
+              label: 'Competitor title length',
+              data: data.theirs,
+              borderColor: '#ed8936',
+              backgroundColor: 'rgba(237,137,54,.08)',
+              tension: 0.3, fill: false, pointRadius: 3
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: { ticks: { font: { size: 10 }, maxTicksLimit: 10 } },
+            y: { beginAtZero: false, ticks: { font: { size: 10 } } }
+          },
+          plugins: { legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } } }
+        }
+      });
+    })
+    .catch(() => {});
 }
+
+// ─── Digest day-of-week visibility toggle ────────────────────────────────────
+const digestFreqSelect = document.getElementById('digest-frequency');
+const dowGroup = document.getElementById('dow-group');
+if (digestFreqSelect && dowGroup) {
+  function toggleDow() {
+    dowGroup.style.display = digestFreqSelect.value === 'weekly' ? '' : 'none';
+  }
+  toggleDow();
+  digestFreqSelect.addEventListener('change', toggleDow);
+}
+
+// ─── Tag color radio visual feedback ─────────────────────────────────────────
+document.querySelectorAll('.color-radio').forEach(radio => {
+  radio.addEventListener('change', function () {
+    document.querySelectorAll('.color-swatch').forEach(sw => sw.classList.remove('color-swatch--selected'));
+    const swatch = this.parentElement.querySelector('.color-swatch');
+    if (swatch) swatch.classList.add('color-swatch--selected');
+  });
+});
 
 // ─── Wait for Chart.js CDN to load ───────────────────────────────────────────
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => { initCharts(); initResponseTimeChart(); initUptimeChart(); });
+  document.addEventListener('DOMContentLoaded', () => { initCharts(); initResponseTimeChart(); initUptimeChart(); initCompetitorChart(); });
 } else {
-  window.addEventListener('load', () => { initCharts(); initResponseTimeChart(); initUptimeChart(); });
+  window.addEventListener('load', () => { initCharts(); initResponseTimeChart(); initUptimeChart(); initCompetitorChart(); });
 }

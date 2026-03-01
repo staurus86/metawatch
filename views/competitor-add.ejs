@@ -1,0 +1,34 @@
+<div class="page-header">
+  <div>
+    <div class="breadcrumb"><a href="/competitors">Competitors</a> / Add</div>
+    <h1 class="page-title">Add Competitor</h1>
+  </div>
+</div>
+
+<div class="card" style="max-width:600px">
+  <% if (error) { %><div class="alert-banner alert-banner--error"><%= error %></div><% } %>
+  <form action="/competitors" method="POST" class="form">
+    <div class="form-group">
+      <label class="form-label">Competitor Name <span class="required">*</span></label>
+      <input type="text" name="name" class="form-input" value="<%= values.name || '' %>" required placeholder="e.g. Competitor Inc">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Competitor URL <span class="required">*</span></label>
+      <input type="url" name="competitor_url" class="form-input" value="<%= values.competitor_url || '' %>" required placeholder="https://competitor.com/page">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Compare with my URL (optional)</label>
+      <select name="your_url_id" class="form-select">
+        <option value="">— None —</option>
+        <% myUrls.forEach(function(u) { %>
+          <option value="<%= u.id %>" <%= values.your_url_id == u.id ? 'selected' : '' %>><%= u.url %></option>
+        <% }) %>
+      </select>
+      <p class="form-hint">Link to one of your monitored URLs for direct side-by-side comparison</p>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Add Competitor</button>
+      <a href="/competitors" class="btn btn-ghost">Cancel</a>
+    </div>
+  </form>
+</div>

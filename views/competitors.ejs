@@ -1,0 +1,46 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Competitor Monitoring</h1>
+    <div style="font-size:13px;color:var(--text-muted);margin-top:2px">Side-by-side comparison of your pages vs competitors</div>
+  </div>
+  <a href="/competitors/add" class="btn btn-primary">+ Add Competitor</a>
+</div>
+
+<% if (message) { %><div class="alert-banner alert-banner--ok" style="margin-bottom:12px"><%= message %></div><% } %>
+
+<% if (competitors.length === 0) { %>
+  <div class="card">
+    <div class="empty-state" style="padding:48px">
+      <div class="empty-icon">🔍</div>
+      <p>No competitor URLs tracked yet.</p>
+      <a href="/competitors/add" class="btn btn-primary" style="margin-top:12px">Add your first competitor</a>
+    </div>
+  </div>
+<% } else { %>
+  <div class="card">
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr><th>Name</th><th>Competitor URL</th><th>Your URL</th><th>Last Checked</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          <% competitors.forEach(function(c) { %>
+            <tr>
+              <td><strong><%= c.name %></strong></td>
+              <td style="font-size:12px;word-break:break-all"><%= c.competitor_url %></td>
+              <td style="font-size:12px;word-break:break-all"><%= c.your_url || '—' %></td>
+              <td style="font-size:12px;color:var(--text-muted)"><%= c.last_checked_at ? new Date(c.last_checked_at).toUTCString().replace(' GMT','') : 'Never' %></td>
+              <td style="display:flex;gap:6px">
+                <a href="/competitors/<%= c.id %>" class="btn btn-ghost" style="font-size:11px;padding:4px 10px">View</a>
+                <form action="/competitors/<%= c.id %>/delete" method="POST" style="display:inline"
+                      data-confirm="Delete this competitor?">
+                  <button type="submit" class="btn btn-danger" style="font-size:11px;padding:4px 10px">✕</button>
+                </form>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+<% } %>

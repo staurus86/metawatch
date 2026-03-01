@@ -305,4 +305,96 @@ router.get('/uptime/:id/rt', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/uptime/check-domain?domain=example.com — for browser extension
+// Auth: X-API-Key header
+router.get('/uptime/check-domain', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) return res.status(401).json({ error: 'X-API-Key required' });
+
+  try {
+    const { rows: [user] } = await pool.query(
+      'SELECT id FROM users WHERE api_key = $1',
+      [apiKey]
+    );
+    if (!user) return res.status(401).json({ error: 'Invalid API key' });
+
+    const domain = (req.query.domain || '').replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase();
+    if (!domain) return res.status(400).json({ error: 'domain param required' });
+
+    const { rows: [monitor] } = await pool.query(
+      `SELECT um.id, um.name, um.url, um.threshold_ms,
+              lc.status, lc.response_time_ms, lc.checked_at AS last_checked_at
+       FROM uptime_monitors um
+       LEFT JOIN LATERAL (
+         SELECT status, response_time_ms, checked_at FROM uptime_checks
+         WHERE monitor_id = um.id ORDER BY checked_at DESC LIMIT 1
+       ) lc ON true
+       WHERE um.user_id = $1 AND um.url ILIKE $2
+       ORDER BY um.created_at ASC LIMIT 1`,
+      [user.id, `%${domain}%`]
+    );
+
+    if (!monitor) return res.json({ monitored: false, domain });
+
+    const { rows: [pctRow] } = await pool.query(
+      `SELECT ROUND((COUNT(*) FILTER (WHERE status IN ('up','degraded'))::float / NULLIF(COUNT(*),0) * 100)::numeric, 1) AS pct
+       FROM uptime_checks WHERE monitor_id = $1 AND checked_at > NOW() - INTERVAL '30 days'`,
+      [monitor.id]
+    );
+
+    res.json({
+      monitored: true,
+      domain,
+      monitor_id: monitor.id,
+      name: monitor.name,
+      url: monitor.url,
+      status: monitor.status || 'unknown',
+      response_time_ms: monitor.response_time_ms,
+      last_checked_at: monitor.last_checked_at,
+      uptime_30d: pctRow?.pct ?? null
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/competitor/:id/title-history — Chart.js data for competitor comparison
+router.get('/competitor/:id/title-history', requireAuth, async (req, res) => {
+  const competitorId = parseInt(req.params.id, 10);
+  if (isNaN(competitorId)) return res.status(400).json({ error: 'Invalid ID' });
+
+  try {
+    const { rows: [comp] } = await pool.query(
+      'SELECT * FROM competitor_urls WHERE id = $1 AND user_id = $2',
+      [competitorId, req.user.id]
+    );
+    if (!comp) return res.status(404).json({ error: 'Not found' });
+
+    const { rows: compSnaps } = await pool.query(
+      `SELECT checked_at, title FROM competitor_snapshots
+       WHERE competitor_url_id = $1 ORDER BY checked_at DESC LIMIT 30`,
+      [competitorId]
+    );
+
+    const { rows: yourSnaps } = await pool.query(
+      `SELECT checked_at, title FROM snapshots
+       WHERE url_id = $1 ORDER BY checked_at DESC LIMIT 30`,
+      [comp.your_url_id]
+    );
+
+    const labels = compSnaps.map(r => {
+      const dt = new Date(r.checked_at);
+      return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }).reverse();
+
+    res.json({
+      labels,
+      yours:  yourSnaps.reverse().map(r => (r.title || '').length),
+      theirs: compSnaps.reverse().map(r => (r.title || '').length)
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

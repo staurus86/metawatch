@@ -57,7 +57,7 @@ router.post('/add', requireAuth, async (req, res) => {
     monitor_ssl,
     user_agent, ignore_numbers, custom_text,
     telegram_bot_token, telegram_chat_id, webhook_url,
-    tags, notes
+    tags, notes, response_time_threshold_ms
   } = req.body;
 
   const renderError = (msg) => res.render('add-url', {
@@ -74,6 +74,7 @@ router.post('/add', requireAuth, async (req, res) => {
 
   const interval = parseInt(check_interval_minutes, 10);
   if (isNaN(interval) || interval < 1) return renderError('Invalid check interval.');
+  const rtThreshold = parseInt(response_time_threshold_ms, 10) || null;
 
   try {
     const { rows: [newUrl] } = await pool.query(
@@ -83,8 +84,9 @@ router.post('/add', requireAuth, async (req, res) => {
           monitor_status_code, monitor_noindex, monitor_redirect,
           monitor_canonical, monitor_robots, monitor_hreflang, monitor_og, monitor_ssl,
           user_agent, ignore_numbers, custom_text,
-          telegram_bot_token, telegram_chat_id, webhook_url, tags, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+          telegram_bot_token, telegram_chat_id, webhook_url, tags, notes,
+          response_time_threshold_ms)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
        RETURNING *`,
       [
         trimmedUrl,
@@ -101,7 +103,8 @@ router.post('/add', requireAuth, async (req, res) => {
         telegram_chat_id?.trim() || null,
         webhook_url?.trim() || null,
         normalizeTags(tags),
-        notes?.trim() || ''
+        notes?.trim() || '',
+        rtThreshold
       ]
     );
 

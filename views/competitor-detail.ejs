@@ -1,0 +1,92 @@
+<div class="page-header">
+  <div>
+    <div class="breadcrumb"><a href="/competitors">Competitors</a> / <%= comp.name %></div>
+    <h1 class="page-title">🔍 <%= comp.name %></h1>
+  </div>
+  <div style="display:flex;gap:8px">
+    <form action="/competitors/<%= comp.id %>/check-now" method="POST" style="display:inline">
+      <button type="submit" class="btn btn-primary">▶ Check Now</button>
+    </form>
+    <form action="/competitors/<%= comp.id %>/delete" method="POST" style="display:inline"
+          data-confirm="Delete this competitor?">
+      <button type="submit" class="btn btn-danger">✕ Delete</button>
+    </form>
+  </div>
+</div>
+
+<!-- Meta -->
+<div class="info-grid" style="margin-bottom:20px">
+  <div class="card info-card">
+    <div class="info-label">Competitor URL</div>
+    <div class="info-value" style="font-size:12px;word-break:break-all"><a href="<%= comp.competitor_url %>" target="_blank" style="color:var(--accent)"><%= comp.competitor_url %></a></div>
+  </div>
+  <% if (comp.your_url) { %>
+  <div class="card info-card">
+    <div class="info-label">Your URL</div>
+    <div class="info-value" style="font-size:12px;word-break:break-all"><a href="/urls/<%= comp.your_url_id_val %>" style="color:var(--accent)"><%= comp.your_url %></a></div>
+  </div>
+  <% } %>
+  <div class="card info-card">
+    <div class="info-label">Last Checked</div>
+    <div class="info-value" style="font-size:12px"><%= comp.last_checked_at ? new Date(comp.last_checked_at).toUTCString().replace(' GMT','') : 'Never' %></div>
+  </div>
+</div>
+
+<!-- Comparison table -->
+<div class="card" style="margin-bottom:20px">
+  <div class="card-header"><div class="card-title">Field Comparison</div></div>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:150px">Field</th>
+          <th>Your Value</th>
+          <th>Competitor Value</th>
+          <th style="width:130px">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% comparison.forEach(function(row) { %>
+          <tr class="<%= row.status === 'different' ? 'row-warn' : row.status === 'you-missing' ? 'row-error' : '' %>">
+            <td><strong style="font-size:12px"><%= row.label %></strong></td>
+            <td style="font-size:12px;word-break:break-all;max-width:300px">
+              <% if (row.yourVal === null) { %>
+                <span class="text-muted">—</span>
+              <% } else { %>
+                <%= row.yourVal.substring(0, 200) %><%= row.yourVal.length > 200 ? '…' : '' %>
+              <% } %>
+            </td>
+            <td style="font-size:12px;word-break:break-all;max-width:300px">
+              <% if (row.compVal === null) { %>
+                <span class="text-muted">—</span>
+              <% } else { %>
+                <%= row.compVal.substring(0, 200) %><%= row.compVal.length > 200 ? '…' : '' %>
+              <% } %>
+            </td>
+            <td>
+              <% if (row.status === 'same') { %>
+                <span class="badge badge--ok">Same</span>
+              <% } else if (row.status === 'different') { %>
+                <span class="badge badge--changed">Different</span>
+              <% } else if (row.status === 'you-missing') { %>
+                <span class="badge badge--error">You Missing</span>
+              <% } else if (row.status === 'they-missing') { %>
+                <span class="badge badge--paused">They Missing</span>
+              <% } %>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Title length history chart -->
+<% if (yourHistory.length > 0 || compHistory.length > 0) { %>
+<div class="card">
+  <div class="card-header"><div class="card-title">Title Length Over Time</div></div>
+  <div style="padding:16px;height:200px">
+    <canvas id="chart-competitor" data-yours='<%- JSON.stringify(yourHistory) %>' data-comp='<%- JSON.stringify(compHistory) %>'></canvas>
+  </div>
+</div>
+<% } %>

@@ -1,0 +1,82 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Tags</h1>
+    <div style="font-size:13px;color:var(--text-muted);margin-top:2px">Manage tag colors and names</div>
+  </div>
+  <a href="/" class="btn btn-ghost" style="font-size:12px">← Dashboard</a>
+</div>
+
+<% if (message) { %>
+  <div class="alert-banner alert-banner--ok" style="margin-bottom:12px"><%= message %></div>
+<% } %>
+
+<!-- Add tag form -->
+<div class="card" style="margin-bottom:20px;padding:20px">
+  <div class="form-section-title" style="margin-top:0">Create New Tag</div>
+  <form action="/tags" method="POST" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+    <div>
+      <label class="form-label" style="font-size:11px">Tag Name</label>
+      <input name="name" type="text" class="form-input" placeholder="e.g. priority" maxlength="30"
+             style="width:180px;padding:7px 10px;font-size:13px" required>
+    </div>
+    <div>
+      <label class="form-label" style="font-size:11px">Color</label>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px">
+        <% palette.forEach(function(c) { %>
+          <label style="cursor:pointer">
+            <input type="radio" name="color" value="<%= c %>" style="display:none" class="color-radio">
+            <span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:<%= c %>;border:2px solid transparent;transition:border-color .1s" class="color-swatch"></span>
+          </label>
+        <% }) %>
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary" style="font-size:13px;padding:7px 16px">+ Add Tag</button>
+  </form>
+</div>
+
+<!-- Tags list -->
+<% if (tags.length === 0) { %>
+  <div class="card">
+    <div class="empty-state" style="padding:40px">
+      <p class="text-muted">No tags yet. Create your first tag above.</p>
+    </div>
+  </div>
+<% } else { %>
+  <div class="card">
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr><th>Tag</th><th>Color</th><th>URLs</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          <% tags.forEach(function(tag) { %>
+            <tr>
+              <td>
+                <span class="tag-chip" style="background:<%= tag.color %>20;color:<%= tag.color %>;border-color:<%= tag.color %>40;font-size:12px">
+                  <%= tag.name %>
+                </span>
+              </td>
+              <td>
+                <form action="/tags/<%= tag.id %>/update" method="POST" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                  <% palette.forEach(function(c) { %>
+                    <label style="cursor:pointer">
+                      <input type="radio" name="color" value="<%= c %>" <%= tag.color === c ? 'checked' : '' %> style="display:none" class="color-radio" onchange="this.form.submit()">
+                      <span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:<%= c %>;border:<%= tag.color === c ? '2px solid #2d3748' : '2px solid transparent' %>" class="color-swatch-sm"></span>
+                    </label>
+                  <% }) %>
+                </form>
+              </td>
+              <td><span class="text-muted"><%= countMap[tag.name] || 0 %> URL(s)</span></td>
+              <td>
+                <form action="/tags/<%= tag.id %>/delete" method="POST" style="display:inline"
+                      data-confirm="Delete tag '<%= tag.name %>'? It will be removed from all URLs.">
+                  <button type="submit" class="btn btn-danger" style="font-size:11px;padding:4px 10px">✕ Delete</button>
+                </form>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+<% } %>

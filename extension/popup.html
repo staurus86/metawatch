@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>MetaWatch</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="header">
+    <span class="logo">👁</span>
+    <span class="logo-text">MetaWatch</span>
+    <button id="settings-btn" class="settings-btn" title="Settings">⚙</button>
+  </div>
+
+  <!-- Settings panel -->
+  <div id="settings-panel" class="panel" style="display:none">
+    <div class="panel-title">Settings</div>
+    <div class="field-group">
+      <label>MetaWatch URL</label>
+      <input type="url" id="mw-url" placeholder="https://your-metawatch.com">
+    </div>
+    <div class="field-group">
+      <label>API Key</label>
+      <input type="text" id="mw-key" placeholder="your-api-key-here">
+    </div>
+    <button id="save-settings" class="btn btn-primary">Save</button>
+  </div>
+
+  <!-- Main panel -->
+  <div id="main-panel" class="panel">
+    <div id="domain-info" class="domain-info"></div>
+
+    <div id="status-section" class="status-section" style="display:none">
+      <div class="status-row">
+        <div id="status-dot" class="status-dot"></div>
+        <div>
+          <div id="status-text" class="status-text"></div>
+          <div id="status-sub" class="status-sub"></div>
+        </div>
+      </div>
+      <div class="metrics">
+        <div class="metric">
+          <div id="rt-val" class="metric-val">—</div>
+          <div class="metric-label">Response</div>
+        </div>
+        <div class="metric">
+          <div id="uptime-val" class="metric-val">—</div>
+          <div class="metric-label">Uptime 30d</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="not-monitored" style="display:none" class="not-monitored">
+      <div style="font-size:13px;color:#718096;text-align:center;padding:8px 0">Not monitored in MetaWatch</div>
+    </div>
+
+    <div id="loading" class="loading">Checking...</div>
+    <div id="error-msg" class="error-msg" style="display:none"></div>
+
+    <div class="actions">
+      <button id="add-btn" class="btn btn-primary">+ Add to MetaWatch</button>
+      <button id="view-btn" class="btn btn-ghost" style="display:none">View Details</button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

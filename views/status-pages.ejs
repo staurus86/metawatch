@@ -1,0 +1,52 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Status Pages</h1>
+    <div style="font-size:13px;color:var(--text-muted);margin-top:2px">Public multi-monitor status pages</div>
+  </div>
+  <a href="/status-pages/new" class="btn btn-primary">+ New Status Page</a>
+</div>
+
+<% if (message) { %>
+  <div class="alert-banner alert-banner--ok" style="margin-bottom:12px"><%= message %></div>
+<% } %>
+
+<% if (pages.length === 0) { %>
+  <div class="card">
+    <div class="empty-state" style="padding:48px">
+      <div class="empty-icon">📄</div>
+      <p>No status pages yet.</p>
+      <a href="/status-pages/new" class="btn btn-primary" style="margin-top:12px">Create your first status page</a>
+    </div>
+  </div>
+<% } else { %>
+  <div class="card">
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr><th>Title</th><th>Slug</th><th>Monitors</th><th>Subscribers</th><th>Public</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          <% pages.forEach(function(page) { %>
+            <tr>
+              <td><strong><%= page.title %></strong><% if (page.description) { %><div style="font-size:11px;color:var(--text-muted);margin-top:2px"><%= page.description.substring(0,60) %></div><% } %></td>
+              <td><code style="font-size:11px"><%= page.slug %></code></td>
+              <td><%= page.monitor_ids ? page.monitor_ids.length : 0 %></td>
+              <td><%= subMap[page.id] || 0 %></td>
+              <td><span class="badge badge--<%= page.is_public ? 'ok' : 'paused' %>"><%= page.is_public ? 'Public' : 'Private' %></span></td>
+              <td style="display:flex;gap:6px;flex-wrap:wrap">
+                <% if (page.is_public) { %>
+                  <a href="/status/page/<%= page.slug %>" target="_blank" class="btn btn-ghost" style="font-size:11px;padding:4px 10px">↗ View</a>
+                <% } %>
+                <a href="/status-pages/<%= page.id %>/edit" class="btn btn-ghost" style="font-size:11px;padding:4px 10px">✎ Edit</a>
+                <form action="/status-pages/<%= page.id %>/delete" method="POST" style="display:inline"
+                      data-confirm="Delete this status page?">
+                  <button type="submit" class="btn btn-danger" style="font-size:11px;padding:4px 10px">✕</button>
+                </form>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+<% } %>

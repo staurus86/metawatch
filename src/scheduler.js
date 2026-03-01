@@ -103,56 +103,98 @@ async function startScheduler() {
     console.log(`[Scheduler] Snapshot retention enabled (${retentionDays} days)`);
   }
 
-  // Email digest cron jobs
-  // Daily: every day at 08:00
-  cron.schedule('0 8 * * *', () => sendDigests('daily'));
-  // Weekly: every Monday at 08:00
-  cron.schedule('0 8 * * 1', () => sendDigests('weekly'));
-  console.log('[Scheduler] Email digest jobs scheduled (daily 08:00, weekly Mon 08:00)');
+  // Email digest cron — runs every hour, checks per-user settings
+  cron.schedule('0 * * * *', () => sendHourlyDigests());
+  console.log('[Scheduler] Email digest cron active (hourly check)');
 
   // Webhook retry cron — runs every 2 minutes
   cron.schedule('*/2 * * * *', () => retryWebhooks());
   console.log('[Scheduler] Webhook retry queue active (every 2 min)');
 }
 
-async function sendDigests(frequency) {
-  const interval = frequency === 'weekly' ? '7 days' : '24 hours';
-  const periodLabel = frequency === 'weekly'
-    ? `Last 7 days (${new Date(Date.now() - 7 * 86400000).toLocaleDateString()} – today)`
-    : `Last 24 hours`;
-
+async function sendHourlyDigests() {
   try {
-    // Find users with this digest frequency who have a digest_email
-    const { rows: users } = await pool.query(
-      `SELECT id, COALESCE(digest_email, email) AS send_to
-       FROM users
-       WHERE digest_frequency = $1 AND (digest_email IS NOT NULL OR email IS NOT NULL)`,
-      [frequency]
-    );
+    const now = new Date();
+    const currentHour = now.getUTCHours();
+    const currentDow  = now.getUTCDay(); // 0=Sun, 1=Mon, ...
 
-    for (const user of users) {
-      if (!user.send_to) continue;
-      // Fetch alerts for this user's URLs in the period
-      const { rows: alerts } = await pool.query(
-        `SELECT a.*, mu.url, mu.id AS url_id
-         FROM alerts a
-         JOIN monitored_urls mu ON mu.id = a.url_id
-         WHERE mu.user_id = $1 AND a.detected_at > NOW() - INTERVAL '${interval}'
-         ORDER BY a.detected_at DESC`,
-        [user.id]
-      );
+    // Find digest_settings rows due this hour
+    const { rows: settings } = await pool.query(`
+      SELECT ds.*, u.email AS user_email, u.id AS uid
+      FROM digest_settings ds
+      JOIN users u ON u.id = ds.user_id
+      WHERE ds.enabled = true
+        AND ds.hour = $1
+        AND (
+          ds.frequency = 'daily'
+          OR (ds.frequency = 'weekly' AND ds.day_of_week = $2)
+        )
+        AND (ds.last_sent_at IS NULL OR ds.last_sent_at < NOW() - INTERVAL '20 hours')
+    `, [currentHour, currentDow]);
 
-      if (alerts.length === 0) continue;
+    for (const ds of settings) {
+      const to = ds.alt_email || ds.user_email;
+      if (!to) continue;
 
-      await sendDigest({
-        to: user.send_to,
-        frequency,
-        alerts,
-        periodLabel
+      const since = ds.last_sent_at || new Date(Date.now() - (ds.frequency === 'weekly' ? 7 * 86400000 : 86400000));
+      const sinceIso = since.toISOString();
+      const interval = ds.frequency === 'weekly' ? '7 days' : '24 hours';
+
+      // Section 1: Meta alerts
+      const { rows: alerts } = await pool.query(`
+        SELECT a.*, mu.url, mu.id AS url_id
+        FROM alerts a
+        JOIN monitored_urls mu ON mu.id = a.url_id
+        WHERE mu.user_id = $1 AND a.detected_at > $2
+        ORDER BY a.detected_at DESC LIMIT 200
+      `, [ds.uid, sinceIso]);
+
+      // Section 2: Uptime incidents
+      const { rows: incidents } = await pool.query(`
+        SELECT ui.*, um.name AS monitor_name, um.url AS monitor_url
+        FROM uptime_incidents ui
+        JOIN uptime_monitors um ON um.id = ui.monitor_id
+        WHERE um.user_id = $1 AND ui.started_at > $2
+        ORDER BY ui.started_at DESC LIMIT 50
+      `, [ds.uid, sinceIso]);
+
+      // Section 3: SSL expirations in next 30 days
+      const { rows: sslExpirations } = await pool.query(`
+        SELECT mu.url, mu.id AS url_id, s.ssl_expires_at,
+               EXTRACT(DAY FROM s.ssl_expires_at - NOW())::int AS days_left
+        FROM monitored_urls mu
+        JOIN LATERAL (
+          SELECT ssl_expires_at FROM snapshots
+          WHERE url_id = mu.id AND ssl_expires_at IS NOT NULL
+          ORDER BY checked_at DESC LIMIT 1
+        ) s ON true
+        WHERE mu.user_id = $1
+          AND s.ssl_expires_at BETWEEN NOW() AND NOW() + INTERVAL '30 days'
+        ORDER BY s.ssl_expires_at ASC
+      `, [ds.uid]);
+
+      if (alerts.length === 0 && incidents.length === 0 && sslExpirations.length === 0) {
+        // Still update last_sent_at so we don't resend empty digest
+        await pool.query('UPDATE digest_settings SET last_sent_at = NOW() WHERE id = $1', [ds.id]);
+        continue;
+      }
+
+      const rangeEnd = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const rangeStart = new Date(since).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const dateRange = ds.frequency === 'weekly' ? `${rangeStart} – ${rangeEnd}` : rangeEnd;
+      const periodLabel = ds.frequency === 'weekly' ? `Last 7 days (${dateRange})` : `Last 24 hours`;
+
+      const sent = await sendDigest({
+        to, frequency: ds.frequency, periodLabel, dateRange,
+        alerts, incidents, sslExpirations
       });
+
+      if (sent) {
+        await pool.query('UPDATE digest_settings SET last_sent_at = NOW() WHERE id = $1', [ds.id]);
+      }
     }
   } catch (err) {
-    console.error(`[Digest] Error sending ${frequency} digests:`, err.message);
+    console.error('[Digest] Hourly check error:', err.message);
   }
 }
 

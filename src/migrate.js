@@ -298,6 +298,102 @@ async function migrate() {
       END$$
     `);
 
+    // ─── Sprint 6 additions ───────────────────────────────────────────────────
+
+    // Response time threshold on monitored_urls
+    await client.query(
+      'ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS response_time_threshold_ms INTEGER'
+    );
+
+    // ─── digest_settings ──────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS digest_settings (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        enabled BOOLEAN NOT NULL DEFAULT false,
+        frequency VARCHAR(10) NOT NULL DEFAULT 'daily',
+        hour INT NOT NULL DEFAULT 8,
+        day_of_week INT NOT NULL DEFAULT 1,
+        alt_email VARCHAR(255),
+        last_sent_at TIMESTAMPTZ,
+        UNIQUE(user_id)
+      )
+    `);
+
+    // ─── tag_definitions ─────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS tag_definitions (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(50) NOT NULL,
+        color VARCHAR(7) NOT NULL DEFAULT '#a0aec0',
+        UNIQUE(user_id, name)
+      )
+    `);
+
+    // ─── status_pages ─────────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS status_pages (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        slug VARCHAR(32) UNIQUE NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        description TEXT DEFAULT '',
+        monitor_ids INTEGER[] NOT NULL DEFAULT '{}',
+        is_public BOOLEAN NOT NULL DEFAULT true,
+        custom_domain VARCHAR(255),
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    // ─── uptime_subscribers ───────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS uptime_subscribers (
+        id SERIAL PRIMARY KEY,
+        status_page_id INT NOT NULL REFERENCES status_pages(id) ON DELETE CASCADE,
+        email VARCHAR(255) NOT NULL,
+        token VARCHAR(64) UNIQUE NOT NULL,
+        confirmed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(status_page_id, email)
+      )
+    `);
+
+    // ─── competitor_urls ──────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS competitor_urls (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        your_url_id INT REFERENCES monitored_urls(id) ON DELETE SET NULL,
+        competitor_url TEXT NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        last_checked_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    // ─── competitor_snapshots ─────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS competitor_snapshots (
+        id SERIAL PRIMARY KEY,
+        competitor_url_id INT NOT NULL REFERENCES competitor_urls(id) ON DELETE CASCADE,
+        checked_at TIMESTAMPTZ DEFAULT NOW(),
+        status_code INTEGER,
+        title TEXT,
+        description TEXT,
+        h1 TEXT,
+        canonical TEXT,
+        noindex BOOLEAN,
+        redirect_url TEXT,
+        og_title TEXT,
+        og_description TEXT,
+        response_time_ms INTEGER
+      )
+    `);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_competitor_snapshots_cid ON competitor_snapshots(competitor_url_id, checked_at DESC)`
+    );
+
     await client.query('COMMIT');
     console.log('✓ Database migrations completed');
   } catch (err) {

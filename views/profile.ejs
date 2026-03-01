@@ -65,30 +65,61 @@
   </div>
 
   <!-- Email Digest -->
-  <div class="card" style="grid-column:1/-1;max-width:480px">
-    <div class="card-header"><h2 class="card-title">Email Digest</h2></div>
+  <div class="card" style="grid-column:1/-1;max-width:620px">
+    <div class="card-header">
+      <h2 class="card-title">Email Digest</h2>
+      <% if (digestSettings && digestSettings.enabled) { %>
+        <span class="badge badge--ok">Active</span>
+      <% } %>
+    </div>
     <form action="/profile/digest" method="POST" class="form" style="padding:20px">
       <p class="text-muted" style="font-size:13px;margin-bottom:16px">
-        Receive a summary of all detected changes instead of (or in addition to) per-change alerts.
+        Receive a summary covering meta changes, uptime incidents, and upcoming SSL expirations.
       </p>
+      <div class="form-group">
+        <label class="checkbox-label" style="margin-bottom:12px">
+          <input type="checkbox" name="enabled" value="1" <%= digestSettings && digestSettings.enabled ? 'checked' : '' %>>
+          <strong>Enable email digest</strong>
+        </label>
+      </div>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label" for="digest_frequency">Frequency</label>
-          <select id="digest_frequency" name="digest_frequency" class="form-select">
-            <option value="" <%= !locals.user.digest_frequency ? 'selected' : '' %>>Disabled</option>
-            <option value="daily" <%= locals.user.digest_frequency === 'daily' ? 'selected' : '' %>>Daily (08:00)</option>
-            <option value="weekly" <%= locals.user.digest_frequency === 'weekly' ? 'selected' : '' %>>Weekly (Mon 08:00)</option>
+          <label class="form-label">Frequency</label>
+          <select name="frequency" id="digest-frequency" class="form-select">
+            <option value="daily" <%= !digestSettings || digestSettings.frequency === 'daily' ? 'selected' : '' %>>Daily</option>
+            <option value="weekly" <%= digestSettings && digestSettings.frequency === 'weekly' ? 'selected' : '' %>>Weekly</option>
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label" for="digest_email">Send to</label>
-          <input type="email" id="digest_email" name="digest_email" class="form-input"
-                 placeholder="<%= locals.user.email %>"
-                 value="<%= locals.user.digest_email || '' %>">
-          <p class="form-hint">Leave blank to use your account email</p>
+          <label class="form-label">Send at (UTC hour)</label>
+          <select name="hour" class="form-select">
+            <% for (let h = 0; h < 24; h++) { %>
+              <option value="<%= h %>" <%= digestSettings && digestSettings.hour === h ? 'selected' : h === 8 ? 'selected' : '' %>><%= String(h).padStart(2,'0') %>:00</option>
+            <% } %>
+          </select>
+        </div>
+        <div class="form-group" id="dow-group" style="<%= digestSettings && digestSettings.frequency === 'weekly' ? '' : 'display:none' %>">
+          <label class="form-label">Day of week</label>
+          <select name="day_of_week" class="form-select">
+            <% ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(function(d,i) { %>
+              <option value="<%= i %>" <%= digestSettings && digestSettings.day_of_week === i ? 'selected' : i === 1 ? 'selected' : '' %>><%= d %></option>
+            <% }) %>
+          </select>
         </div>
       </div>
-      <button type="submit" class="btn btn-primary">Save Digest Settings</button>
+      <div class="form-group">
+        <label class="form-label">Delivery email</label>
+        <input type="email" name="alt_email" class="form-input"
+               placeholder="<%= locals.user.email %> (account email)"
+               value="<%= digestSettings && digestSettings.alt_email || '' %>">
+        <p class="form-hint">Leave blank to use your account email</p>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Save Digest Settings</button>
+        <form action="/profile/digest/test" method="POST" style="display:inline">
+          <button type="submit" class="btn btn-ghost" style="font-size:13px">Send Test Digest</button>
+        </form>
+      </div>
     </form>
   </div>
 
