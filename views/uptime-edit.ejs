@@ -1,0 +1,102 @@
+<div class="page-header">
+  <h1 class="page-title">Edit Monitor</h1>
+  <a href="/uptime/<%= monitor.id %>" class="btn btn-ghost">← Back</a>
+</div>
+
+<div class="card" style="max-width:680px">
+  <% if (error) { %>
+    <div class="alert-banner alert-banner--error"><%= error %></div>
+  <% } %>
+
+  <div style="padding:12px 20px;background:var(--bg-secondary);border-bottom:1px solid var(--border);font-size:13px;color:var(--text-muted)">
+    <strong>URL:</strong> <%= monitor.url %>
+  </div>
+
+  <form action="/uptime/<%= monitor.id %>/edit" method="POST" class="form">
+    <div class="form-section-title">Monitor Settings</div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="name">Monitor Name</label>
+        <input type="text" id="name" name="name" class="form-input"
+               value="<%= monitor.name %>" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="interval_minutes">Check Interval</label>
+        <select id="interval_minutes" name="interval_minutes" class="form-select">
+          <option value="1"   <%= monitor.interval_minutes == 1   ? 'selected' : '' %>>Every 1 minute</option>
+          <option value="5"   <%= monitor.interval_minutes == 5   ? 'selected' : '' %>>Every 5 minutes</option>
+          <option value="15"  <%= monitor.interval_minutes == 15  ? 'selected' : '' %>>Every 15 minutes</option>
+          <option value="30"  <%= monitor.interval_minutes == 30  ? 'selected' : '' %>>Every 30 minutes</option>
+          <option value="60"  <%= monitor.interval_minutes == 60  ? 'selected' : '' %>>Every 1 hour</option>
+          <option value="180" <%= monitor.interval_minutes == 180 ? 'selected' : '' %>>Every 3 hours</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="url">URL</label>
+      <input type="url" id="url" name="url" class="form-input"
+             value="<%= monitor.url %>" required>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="threshold_ms">Slow Response Threshold (ms)</label>
+      <input type="number" id="threshold_ms" name="threshold_ms" class="form-input"
+             value="<%= monitor.threshold_ms %>" min="100" max="30000">
+    </div>
+
+    <div class="form-section-title">Maintenance Window</div>
+    <div class="form-group">
+      <label class="form-label" for="silenced_until">Silence alerts until</label>
+      <input type="datetime-local" id="silenced_until" name="silenced_until" class="form-input"
+             value="<%= monitor.silenced_until ? new Date(monitor.silenced_until).toISOString().slice(0,16) : '' %>">
+      <p class="form-hint">Checks continue but no alerts will be sent until this time</p>
+    </div>
+
+    <div class="form-section-title">Alerts</div>
+
+    <div class="form-group">
+      <label class="form-label" for="alert_email">Alert Email</label>
+      <input type="email" id="alert_email" name="alert_email" class="form-input"
+             value="<%= monitor.alert_email || '' %>">
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="telegram_token">Telegram Bot Token</label>
+        <input type="text" id="telegram_token" name="telegram_token" class="form-input"
+               value="<%= monitor.telegram_token || '' %>">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="telegram_chat_id">Telegram Chat ID</label>
+        <input type="text" id="telegram_chat_id" name="telegram_chat_id" class="form-input"
+               value="<%= monitor.telegram_chat_id || '' %>">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="webhook_url">Webhook URL</label>
+      <input type="url" id="webhook_url" name="webhook_url" class="form-input"
+             value="<%= monitor.webhook_url || '' %>">
+    </div>
+
+    <div class="form-section-title">Status Page</div>
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" name="is_public" value="1" <%= monitor.is_public ? 'checked' : '' %>>
+        <span>Enable public status page</span>
+      </label>
+      <% if (monitor.is_public) { %>
+        <p class="form-hint">
+          Public URL: <a href="/status/<%= monitor.slug %>" target="_blank">/status/<%= monitor.slug %></a>
+        </p>
+      <% } %>
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Save Changes</button>
+      <a href="/uptime/<%= monitor.id %>" class="btn btn-ghost">Cancel</a>
+    </div>
+  </form>
+</div>

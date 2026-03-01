@@ -328,9 +328,120 @@ if (testNotifyBtn) {
   });
 }
 
+// ─── Uptime response-time chart (uptime-detail page) ─────────────────────────
+function initUptimeChart() {
+  const canvas = document.getElementById('chart-uptime-rt');
+  if (!canvas || typeof Chart === 'undefined') return;
+  const monitorId = canvas.getAttribute('data-monitor-id');
+  fetch('/api/uptime/' + monitorId + '/rt')
+    .then(r => r.json())
+    .then(data => {
+      if (!data.length) { canvas.parentElement.style.display = 'none'; return; }
+      const labels = data.map(d => {
+        const dt = new Date(d.checked_at);
+        return dt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+      });
+      new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'ms',
+            data: data.map(d => d.response_time_ms),
+            borderColor: data.map(d => d.status === 'up' ? '#68d391' : d.status === 'degraded' ? '#f6ad55' : '#fc8181'),
+            backgroundColor: 'rgba(66,153,225,.06)',
+            segment: {
+              borderColor: ctx => {
+                const s = data[ctx.p0DataIndex]?.status;
+                return s === 'up' ? '#68d391' : s === 'degraded' ? '#f6ad55' : '#fc8181';
+              }
+            },
+            tension: 0.3, fill: true, pointRadius: 2
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          scales: { x: { ticks: { font: { size: 10 }, maxTicksLimit: 12 } }, y: { beginAtZero: true, ticks: { font: { size: 10 } } } },
+          plugins: { legend: { display: false } }
+        }
+      });
+    })
+    .catch(() => {});
+}
+
+// ─── Uptime test-notify button ───────────────────────────────────────────────
+const uptimeTestBtn = document.getElementById('uptime-test-btn');
+if (uptimeTestBtn) {
+  uptimeTestBtn.addEventListener('click', async function () {
+    const id = this.getAttribute('data-id');
+    const orig = this.textContent;
+    this.textContent = 'Sending…';
+    this.disabled = true;
+    try {
+      const r = await fetch('/uptime/' + id + '/test-notify', { method: 'POST' });
+      const data = await r.json();
+      this.textContent = data.ok ? '✓ Sent!' : '⚠ ' + data.message;
+      setTimeout(() => { this.textContent = orig; this.disabled = false; }, 4000);
+    } catch (e) {
+      this.textContent = '⚠ Error';
+      setTimeout(() => { this.textContent = orig; this.disabled = false; }, 3000);
+    }
+  });
+}
+
+// ─── Dark mode ───────────────────────────────────────────────────────────────
+const darkBtn = document.getElementById('dark-mode-toggle');
+const themeIcon = document.getElementById('theme-icon');
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('mw-theme', theme);
+  if (themeIcon) themeIcon.textContent = theme === 'dark' ? '☀️' : '🌙';
+}
+
+if (darkBtn) {
+  // Set initial icon
+  applyTheme(localStorage.getItem('mw-theme') || 'light');
+  darkBtn.addEventListener('click', () => {
+    const current = document.documentElement.getAttribute('data-theme') || 'light';
+    applyTheme(current === 'dark' ? 'light' : 'dark');
+  });
+}
+
+// ─── Bulk select on dashboard ─────────────────────────────────────────────────
+const selectAllCb = document.getElementById('select-all-urls');
+if (selectAllCb) {
+  selectAllCb.addEventListener('change', function () {
+    document.querySelectorAll('.url-row-cb').forEach(cb => { cb.checked = this.checked; });
+    updateBulkBar();
+  });
+  document.querySelectorAll('.url-row-cb').forEach(cb => {
+    cb.addEventListener('change', updateBulkBar);
+  });
+}
+
+function updateBulkBar() {
+  const checked = document.querySelectorAll('.url-row-cb:checked');
+  const bar = document.getElementById('bulk-action-bar');
+  const countEl = document.getElementById('bulk-count');
+  if (!bar) return;
+  bar.style.display = checked.length > 0 ? 'flex' : 'none';
+  if (countEl) countEl.textContent = checked.length;
+  // Sync hidden input values
+  const form = document.getElementById('bulk-form');
+  if (form) {
+    form.querySelectorAll('input[name="ids"]').forEach(i => i.remove());
+    checked.forEach(cb => {
+      const inp = document.createElement('input');
+      inp.type = 'hidden'; inp.name = 'ids'; inp.value = cb.value;
+      form.appendChild(inp);
+    });
+  }
+}
+
 // Wait for Chart.js CDN to load
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => { initCharts(); initResponseTimeChart(); });
+  document.addEventListener('DOMContentLoaded', () => { initCharts(); initResponseTimeChart(); initUptimeChart(); });
 } else {
-  window.addEventListener('load', () => { initCharts(); initResponseTimeChart(); });
+  window.addEventListener('load', () => { initCharts(); initResponseTimeChart(); initUptimeChart(); });
 }

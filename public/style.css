@@ -9,9 +9,13 @@
   --sidebar-active: #4299e1;
   --main-bg: #f0f4f8;
   --card-bg: #ffffff;
+  --bg: #f0f4f8;
+  --bg-secondary: #f7fafc;
   --border: #e2e8f0;
+  --text: #2d3748;
   --text-primary: #2d3748;
   --text-muted: #718096;
+  --accent: #4299e1;
   --text-small: 13px;
   --radius: 8px;
   --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
@@ -27,6 +31,34 @@
   --error-border: #fed7d7;
   --pending: #a0aec0;
 }
+
+/* ─── Dark Mode ─── */
+[data-theme="dark"] {
+  --main-bg: #0f1117;
+  --bg: #0f1117;
+  --bg-secondary: #1a1d27;
+  --card-bg: #1a1d27;
+  --border: #2d3147;
+  --text: #e2e8f0;
+  --text-primary: #e2e8f0;
+  --text-muted: #718096;
+  --shadow: 0 1px 3px rgba(0,0,0,.4);
+  --ok-bg: #1a2e20;
+  --ok-border: #2d5a35;
+  --error-bg: #2d1515;
+  --error-border: #5a2020;
+  --changed-bg: #2d2010;
+  --changed-border: #5a4010;
+}
+[data-theme="dark"] body { background: var(--main-bg); color: var(--text-primary); }
+[data-theme="dark"] .card { background: var(--card-bg); border-color: var(--border); }
+[data-theme="dark"] .form-input, [data-theme="dark"] .form-select { background: #0f1117; color: var(--text-primary); border-color: var(--border); }
+[data-theme="dark"] code { background: #2d3147; color: #e2e8f0; }
+[data-theme="dark"] .data-table th { background: #1a1d27; color: var(--text-muted); }
+[data-theme="dark"] .data-table td { border-color: var(--border); }
+[data-theme="dark"] .data-table tr:hover { background: #252840; }
+[data-theme="dark"] .row-latest { background: #1a2230 !important; }
+[data-theme="dark"] pre { background: #1a1d27; color: #e2e8f0; }
 
 html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 15px; color: var(--text-primary); background: var(--main-bg); }
 
@@ -309,6 +341,71 @@ mark.diff-word-removed { background: #fed7d7; color: #742a2a; border-radius: 2px
 /* ─── Utilities ─── */
 .text-muted { color: var(--text-muted); }
 code { font-family: 'Courier New', monospace; font-size: 12px; background: #f7fafc; padding: 1px 5px; border-radius: 3px; }
+
+/* ─── Dark mode button ─── */
+.dark-mode-btn { background: none; border: none; cursor: pointer; font-size: 18px; padding: 4px 6px; border-radius: 6px; line-height: 1; }
+.dark-mode-btn:hover { background: rgba(255,255,255,.1); }
+
+/* ─── Uptime Monitor styles ─── */
+.uptime-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+
+.uptime-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); transition: border-color .2s; }
+.uptime-card:hover { border-color: var(--accent); }
+.uptime-card--down { border-left: 3px solid var(--error); }
+.uptime-card--degraded { border-left: 3px solid var(--changed); }
+.uptime-card--up { border-left: 3px solid var(--ok); }
+.uptime-card--pending { border-left: 3px solid var(--pending); }
+
+.uptime-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+.uptime-status-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; letter-spacing: .5px; margin-bottom: 4px; }
+.uptime-status--up { color: #276749; }
+.uptime-status--down { color: #9b2c2c; }
+.uptime-status--degraded { color: #7b341e; }
+.uptime-status--pending { color: var(--text-muted); }
+
+.uptime-card-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.uptime-card-name a { color: inherit; text-decoration: none; }
+.uptime-card-name a:hover { color: var(--accent); }
+.uptime-card-url { font-size: 11px; color: var(--text-muted); word-break: break-all; margin-top: 2px; }
+.uptime-card-meta { text-align: right; flex-shrink: 0; }
+.uptime-resp-time { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+.uptime-pct { font-size: 15px; font-weight: 700; margin-top: 4px; }
+.uptime-pct--great { color: #276749; }
+.uptime-pct--ok { color: #7b341e; }
+.uptime-pct--warn { color: #9b2c2c; }
+
+.uptime-sparkline { display: flex; gap: 2px; margin: 10px 0; flex-wrap: wrap; }
+.uptime-dot-lg { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.uptime-dot-lg--up { background: #68d391; }
+.uptime-dot-lg--down { background: #fc8181; }
+.uptime-dot-lg--degraded { background: #f6ad55; }
+.uptime-dot-lg--pending { background: var(--border); }
+.uptime-dot--warn { background: #f6ad55; }
+.uptime-dot--empty { background: var(--border); opacity: .4; }
+
+.uptime-card-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+
+/* Uptime detail page */
+.uptime-status-big { display: flex; align-items: center; gap: 16px; padding: 20px 24px; border-radius: var(--radius); margin-bottom: 20px; border: 1px solid var(--border); background: var(--card-bg); }
+.uptime-status-big--up { border-left: 4px solid #68d391; }
+.uptime-status-big--down { border-left: 4px solid #fc8181; }
+.uptime-status-big--degraded { border-left: 4px solid #f6ad55; }
+.uptime-status-big--pending { border-left: 4px solid var(--border); }
+.uptime-status-big-label { font-size: 22px; font-weight: 800; }
+.uptime-status-big-sub { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+
+.uptime-stats-row { display: flex; gap: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.uptime-stat-cell { flex: 1; text-align: center; padding: 14px 8px; border-right: 1px solid var(--border); }
+.uptime-stat-cell:last-child { border-right: none; }
+.uptime-stat-val { font-size: 20px; font-weight: 700; color: var(--text-primary); }
+.uptime-stat-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.text-ok { color: #276749; }
+.text-warn { color: #7b341e; }
+.text-err { color: #9b2c2c; }
+
+/* Dashboard URL row wrap for bulk select */
+.url-row-wrap { display: flex; align-items: center; border-bottom: 1px solid var(--border); }
+.url-row-wrap .url-row { flex: 1; border-bottom: none; }
 
 /* ─── Responsive ─── */
 @media (max-width: 1100px) {

@@ -1,11 +1,14 @@
 const cron = require('node-cron');
 const pool = require('./db');
 const { checkUrl } = require('./checker');
+const { checkMonitor } = require('./uptime-checker');
 const { checkSemaphore, domainRateLimit } = require('./queue');
 const { sendDigest } = require('./mailer');
 
 // Map of urlId -> cron ScheduledTask
 const activeJobs = new Map();
+// Map of monitorId -> cron ScheduledTask (uptime monitors)
+const uptimeJobs = new Map();
 
 function intervalToCron(minutes) {
   if (minutes <= 0) minutes = 60;
@@ -61,6 +64,13 @@ async function startScheduler() {
 
   console.log(`[Scheduler] Started with ${rows.length} active URL(s)`);
 
+  // Load and schedule uptime monitors
+  const { rows: monitors } = await pool.query(
+    'SELECT id, url, interval_minutes FROM uptime_monitors WHERE is_active = true'
+  );
+  for (const m of monitors) scheduleMonitor(m);
+  console.log(`[Uptime] Started with ${monitors.length} active monitor(s)`);
+
   // Snapshot retention — runs daily at 03:00
   const retentionDays = parseInt(process.env.SNAPSHOT_RETENTION_DAYS || '90', 10);
   if (retentionDays > 0) {
@@ -77,6 +87,13 @@ async function startScheduler() {
         );
         if (result.rowCount > 0) {
           console.log(`[Retention] Deleted ${result.rowCount} snapshots older than ${retentionDays} days`);
+        }
+        // Uptime checks retention (same period)
+        const upRes = await pool.query(
+          `DELETE FROM uptime_checks WHERE checked_at < NOW() - INTERVAL '${retentionDays} days'`
+        );
+        if (upRes.rowCount > 0) {
+          console.log(`[Retention] Deleted ${upRes.rowCount} uptime_checks older than ${retentionDays} days`);
         }
       } catch (err) {
         console.error('[Retention] Error:', err.message);
@@ -134,4 +151,40 @@ async function sendDigests(frequency) {
   }
 }
 
-module.exports = { startScheduler, scheduleUrl, unscheduleUrl, intervalToCron };
+// ─── Uptime monitor scheduling ────────────────────────────────────────────────
+
+function scheduleMonitor(monitor) {
+  const { id, url, interval_minutes } = monitor;
+
+  if (uptimeJobs.has(id)) {
+    uptimeJobs.get(id).stop();
+    uptimeJobs.delete(id);
+  }
+
+  const cronExpr = intervalToCron(interval_minutes);
+
+  const job = cron.schedule(cronExpr, async () => {
+    console.log(`[Uptime] Checking monitor: ${url}`);
+    try {
+      await checkSemaphore.wrap(async () => {
+        await domainRateLimit(url);
+        await checkMonitor(id);
+      });
+    } catch (err) {
+      console.error(`[Uptime] Error checking monitor #${id} (${url}): ${err.message}`);
+    }
+  });
+
+  uptimeJobs.set(id, job);
+  console.log(`[Uptime] Monitor #${id} scheduled — every ${interval_minutes}min [${cronExpr}]`);
+}
+
+function unscheduleMonitor(monitorId) {
+  if (uptimeJobs.has(monitorId)) {
+    uptimeJobs.get(monitorId).stop();
+    uptimeJobs.delete(monitorId);
+    console.log(`[Uptime] Removed monitor #${monitorId}`);
+  }
+}
+
+module.exports = { startScheduler, scheduleUrl, unscheduleUrl, scheduleMonitor, unscheduleMonitor, intervalToCron };

@@ -1,0 +1,233 @@
+<div class="page-header">
+  <div>
+    <div class="breadcrumb"><a href="/uptime">Uptime</a> / <%= monitor.name %></div>
+    <h1 class="page-title"><%= monitor.name %></h1>
+    <div style="font-size:13px;color:var(--text-muted);margin-top:2px"><%= monitor.url %></div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0">
+    <a href="/uptime/<%= monitor.id %>/edit" class="btn btn-ghost" style="font-size:12px">✎ Edit</a>
+    <button id="uptime-test-btn" class="btn btn-ghost" style="font-size:12px" data-id="<%= monitor.id %>">🔔 Test Alert</button>
+    <a href="/uptime" class="btn btn-ghost" style="font-size:12px">← Back</a>
+  </div>
+</div>
+
+<% if (req.query.saved) { %><div class="alert-banner alert-banner--ok" style="margin-bottom:12px">Settings saved.</div><% } %>
+<% if (req.query.checked) { %><div class="alert-banner alert-banner--ok" style="margin-bottom:12px">Manual check completed.</div><% } %>
+
+<!-- Actions -->
+<div class="actions-bar">
+  <form action="/uptime/<%= monitor.id %>/check-now" method="POST" style="display:inline">
+    <button type="submit" class="btn btn-primary">▶ Check Now</button>
+  </form>
+  <form action="/uptime/<%= monitor.id %>/toggle" method="POST" style="display:inline">
+    <button type="submit" class="btn btn-ghost">
+      <%= monitor.is_active ? '⏸ Pause' : '▶ Resume' %>
+    </button>
+  </form>
+  <% if (monitor.is_public) { %>
+    <a href="/status/<%= monitor.slug %>" target="_blank" class="btn btn-ghost" style="font-size:12px">↗ Public Status Page</a>
+  <% } %>
+  <form action="/uptime/<%= monitor.id %>/delete" method="POST" style="display:inline"
+        data-confirm="Delete this monitor and all its history?">
+    <button type="submit" class="btn btn-danger">✕ Delete</button>
+  </form>
+</div>
+
+<!-- Big status indicator -->
+<% const st = latestCheck ? latestCheck.status : 'pending'; %>
+<div class="uptime-status-big uptime-status-big--<%= st %>">
+  <div class="uptime-status-big-dot uptime-dot-lg--<%= st %>"></div>
+  <div>
+    <div class="uptime-status-big-label"><%= st.toUpperCase() %></div>
+    <% if (openIncident) { %>
+      <div class="uptime-status-big-sub">
+        Down since <span class="time-ago" data-ts="<%= new Date(openIncident.started_at).toISOString() %>"></span>
+        (<%= openIncident.cause %>)
+      </div>
+    <% } else if (latestCheck) { %>
+      <div class="uptime-status-big-sub">
+        Last checked <span class="time-ago" data-ts="<%= new Date(latestCheck.checked_at).toISOString() %>"></span>
+        <% if (latestCheck.response_time_ms != null) { %>· <%= latestCheck.response_time_ms %>ms<% } %>
+      </div>
+    <% } %>
+  </div>
+  <% if (!monitor.is_active) { %><span class="badge badge--paused" style="margin-left:12px">Paused</span><% } %>
+  <% if (monitor.silenced_until && new Date(monitor.silenced_until) > new Date()) { %>
+    <span class="badge badge--paused" style="margin-left:8px">Silenced until <span class="time-ago" data-ts="<%= new Date(monitor.silenced_until).toISOString() %>" data-mode="future"></span></span>
+  <% } %>
+</div>
+
+<!-- Tab nav -->
+<div class="tabs" style="margin-top:20px;margin-bottom:0">
+  <a href="/uptime/<%= monitor.id %>?tab=overview" class="tab-link <%= activeTab === 'overview' ? 'tab-link--active' : '' %>">Overview</a>
+  <a href="/uptime/<%= monitor.id %>?tab=incidents" class="tab-link <%= activeTab === 'incidents' ? 'tab-link--active' : '' %>">
+    Incidents
+    <% if (openIncident) { %><span class="tab-badge">1</span><% } %>
+  </a>
+  <a href="/uptime/<%= monitor.id %>?tab=checks" class="tab-link <%= activeTab === 'checks' ? 'tab-link--active' : '' %>">Checks Log</a>
+</div>
+
+<div class="card tab-content-card">
+
+  <!-- OVERVIEW TAB -->
+  <% if (activeTab === 'overview') { %>
+    <div style="padding:20px">
+
+      <!-- Uptime % stats -->
+      <div class="section-label" style="margin-bottom:12px">Uptime Statistics</div>
+      <div class="uptime-stats-row">
+        <% const periods = [['1h','1 hour'],['24h','24 hours'],['7d','7 days'],['30d','30 days'],['90d','90 days']]; %>
+        <% periods.forEach(function([k, label]) { %>
+          <div class="uptime-stat-cell">
+            <div class="uptime-stat-val <%= stats[k] == null ? '' : stats[k] >= 99 ? 'text-ok' : stats[k] >= 95 ? 'text-warn' : 'text-err' %>">
+              <%= stats[k] != null ? stats[k] + '%' : '—' %>
+            </div>
+            <div class="uptime-stat-label"><%= label %></div>
+          </div>
+        <% }) %>
+      </div>
+
+      <!-- Response time stats -->
+      <div class="section-label" style="margin:20px 0 12px">Response Time (last 24h)</div>
+      <div class="uptime-stats-row">
+        <div class="uptime-stat-cell">
+          <div class="uptime-stat-val"><%= rtStats.avg_ms != null ? rtStats.avg_ms + 'ms' : '—' %></div>
+          <div class="uptime-stat-label">Avg</div>
+        </div>
+        <div class="uptime-stat-cell">
+          <div class="uptime-stat-val"><%= rtStats.min_ms != null ? rtStats.min_ms + 'ms' : '—' %></div>
+          <div class="uptime-stat-label">Min</div>
+        </div>
+        <div class="uptime-stat-cell">
+          <div class="uptime-stat-val"><%= rtStats.max_ms != null ? rtStats.max_ms + 'ms' : '—' %></div>
+          <div class="uptime-stat-label">Max</div>
+        </div>
+        <div class="uptime-stat-cell">
+          <div class="uptime-stat-val"><%= monitor.threshold_ms %>ms</div>
+          <div class="uptime-stat-label">Threshold</div>
+        </div>
+      </div>
+
+      <!-- Response time chart -->
+      <div class="section-label" style="margin:20px 0 10px">Response Time Chart (last 24h)</div>
+      <div style="height:160px">
+        <canvas id="chart-uptime-rt" data-monitor-id="<%= monitor.id %>"></canvas>
+      </div>
+
+      <!-- SSL info -->
+      <% if (latestCheck && latestCheck.ssl_expires_at) { %>
+        <% const sslExpiry = new Date(latestCheck.ssl_expires_at); %>
+        <% const sslDays = Math.ceil((sslExpiry - new Date()) / 86400000); %>
+        <div class="section-label" style="margin:20px 0 10px">SSL Certificate</div>
+        <div class="info-grid" style="grid-template-columns:repeat(3,1fr)">
+          <div class="card info-card">
+            <div class="info-label">Days Remaining</div>
+            <div class="info-value">
+              <span class="badge badge--<%= sslDays > 30 ? 'ok' : sslDays > 7 ? 'changed' : 'error' %>">
+                <%= sslDays > 0 ? sslDays + ' days' : 'EXPIRED' %>
+              </span>
+            </div>
+          </div>
+          <div class="card info-card">
+            <div class="info-label">Expires</div>
+            <div class="info-value" style="font-size:13px"><%= sslExpiry.toLocaleDateString() %></div>
+          </div>
+          <div class="card info-card">
+            <div class="info-label">Status</div>
+            <div class="info-value">
+              <span class="badge badge--<%= sslDays > 14 ? 'ok' : 'changed' %>">
+                <%= sslDays > 14 ? 'Valid' : 'Expiring Soon' %>
+              </span>
+            </div>
+          </div>
+        </div>
+      <% } %>
+    </div>
+
+  <!-- INCIDENTS TAB -->
+  <% } else if (activeTab === 'incidents') { %>
+    <% if (incidents.length === 0) { %>
+      <div class="empty-state" style="padding:32px">
+        <div class="empty-icon">✅</div>
+        <p>No incidents recorded.</p>
+      </div>
+    <% } else { %>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Started</th>
+              <th>Resolved</th>
+              <th>Duration</th>
+              <th>Cause</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% incidents.forEach(function(inc) { %>
+              <tr>
+                <td class="nowrap">
+                  <span class="time-ago" data-ts="<%= new Date(inc.started_at).toISOString() %>"></span><br>
+                  <small class="text-muted"><%= new Date(inc.started_at).toUTCString().replace(' GMT','') %></small>
+                </td>
+                <td class="nowrap">
+                  <% if (inc.resolved_at) { %>
+                    <span class="time-ago" data-ts="<%= new Date(inc.resolved_at).toISOString() %>"></span>
+                  <% } else { %>
+                    <span class="badge badge--error">Ongoing</span>
+                  <% } %>
+                </td>
+                <td><%= inc.resolved_at ? fmtDuration(inc.duration_seconds) : '—' %></td>
+                <td><code style="font-size:11px"><%= inc.cause || '—' %></code></td>
+                <td>
+                  <span class="badge badge--<%= inc.resolved_at ? 'ok' : 'error' %>">
+                    <%= inc.resolved_at ? 'Resolved' : 'Open' %>
+                  </span>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+      <% if (totalIncidentPages > 1) { %>
+      <div class="pagination">
+        <% if (incidentPage > 1) { %><a href="/uptime/<%= monitor.id %>?tab=incidents&ipage=<%= incidentPage - 1 %>" class="btn btn-ghost btn-sm">← Prev</a><% } %>
+        <span class="pagination-info">Page <%= incidentPage %> of <%= totalIncidentPages %></span>
+        <% if (incidentPage < totalIncidentPages) { %><a href="/uptime/<%= monitor.id %>?tab=incidents&ipage=<%= incidentPage + 1 %>" class="btn btn-ghost btn-sm">Next →</a><% } %>
+      </div>
+      <% } %>
+    <% } %>
+
+  <!-- CHECKS LOG TAB -->
+  <% } else if (activeTab === 'checks') { %>
+    <% if (checks.length === 0) { %>
+      <div class="empty-state" style="padding:32px"><p class="text-muted">No checks yet.</p></div>
+    <% } else { %>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr><th>Time</th><th>Status</th><th>HTTP</th><th>Response (ms)</th><th>Error</th></tr>
+          </thead>
+          <tbody>
+            <% checks.forEach(function(c) { %>
+              <tr class="<%= c.status === 'down' ? 'row-error' : c.status === 'degraded' ? 'row-warn' : '' %>">
+                <td class="nowrap">
+                  <span class="time-ago" data-ts="<%= new Date(c.checked_at).toISOString() %>"></span><br>
+                  <small class="text-muted"><%= new Date(c.checked_at).toUTCString().replace(' GMT','') %></small>
+                </td>
+                <td>
+                  <span class="badge badge--<%= c.status === 'up' ? 'ok' : c.status === 'degraded' ? 'changed' : 'error' %>">
+                    <%= c.status.toUpperCase() %>
+                  </span>
+                </td>
+                <td><%= c.status_code || '—' %></td>
+                <td><%= c.response_time_ms != null ? c.response_time_ms : '—' %></td>
+                <td style="font-size:11px;color:var(--text-muted)"><%= c.error_message ? c.error_message.substring(0,80) : '' %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  <% } %>
+</div>

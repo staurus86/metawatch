@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= monitor.name %> — Status</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
+    .status-page { max-width: 700px; margin: 0 auto; padding: 48px 24px; }
+    .status-header { text-align: center; margin-bottom: 40px; }
+    .status-name { font-size: 28px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+    .status-url { font-size: 14px; color: var(--text-muted); }
+    .status-big { display: flex; flex-direction: column; align-items: center; padding: 32px; border-radius: 12px; margin-bottom: 32px; }
+    .status-big--up { background: #f0fff4; border: 2px solid #9ae6b4; }
+    .status-big--down { background: #fff5f5; border: 2px solid #fed7d7; }
+    .status-big--degraded { background: #fffaf0; border: 2px solid #fbd38d; }
+    .status-big--pending { background: var(--bg-secondary); border: 2px solid var(--border); }
+    .status-big-label { font-size: 32px; font-weight: 800; margin-top: 12px; }
+    .status-big--up .status-big-label { color: #276749; }
+    .status-big--down .status-big-label { color: #9b2c2c; }
+    .status-big--degraded .status-big-label { color: #7b341e; }
+    .status-big-sub { font-size: 14px; color: var(--text-muted); margin-top: 6px; }
+    .status-section { margin-bottom: 32px; }
+    .status-section-title { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 14px; }
+    .uptime-bars { display: flex; gap: 3px; height: 32px; align-items: flex-end; }
+    .uptime-bar { flex: 1; border-radius: 2px; min-height: 4px; cursor: default; transition: opacity .15s; }
+    .uptime-bar:hover { opacity: .75; }
+    .uptime-bar--up { background: #68d391; }
+    .uptime-bar--down { background: #fc8181; }
+    .uptime-bar--degraded { background: #f6ad55; }
+    .uptime-bar--empty { background: var(--border); }
+    .incident-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .incident-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .incident-badge--resolved { background: #f0fff4; color: #276749; }
+    .incident-badge--open { background: #fff5f5; color: #9b2c2c; }
+    .powered-by { text-align: center; margin-top: 48px; font-size: 12px; color: var(--text-muted); }
+    .powered-by a { color: var(--text-muted); text-decoration: none; }
+    .powered-by a:hover { text-decoration: underline; }
+    .pct-bar { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; margin-top: 8px; }
+    .pct-fill { height: 100%; border-radius: 4px; background: #68d391; }
+  </style>
+</head>
+<body>
+  <div class="status-page">
+    <div class="status-header">
+      <div class="status-name"><%= monitor.name %></div>
+      <div class="status-url"><%= monitor.url %></div>
+    </div>
+
+    <% const st = latestCheck ? latestCheck.status : 'pending'; %>
+    <div class="status-big status-big--<%= st %>">
+      <% if (st === 'up') { %><div style="font-size:48px">✅</div>
+      <% } else if (st === 'down') { %><div style="font-size:48px">🔴</div>
+      <% } else if (st === 'degraded') { %><div style="font-size:48px">🟡</div>
+      <% } else { %><div style="font-size:48px">⏳</div>
+      <% } %>
+      <div class="status-big-label"><%= st.toUpperCase() %></div>
+      <% if (openIncident) { %>
+        <div class="status-big-sub">Incident ongoing since <%= new Date(openIncident.started_at).toUTCString() %></div>
+      <% } else if (latestCheck) { %>
+        <div class="status-big-sub">
+          Last checked <%= new Date(latestCheck.checked_at).toUTCString() %>
+          <% if (latestCheck.response_time_ms != null) { %>· <%= latestCheck.response_time_ms %>ms<% } %>
+        </div>
+      <% } %>
+    </div>
+
+    <!-- Uptime % -->
+    <div class="status-section">
+      <div class="status-section-title">Uptime (30 days)</div>
+      <% if (pct30d != null) { %>
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="font-size:28px;font-weight:700;color:<%= pct30d >= 99 ? '#276749' : pct30d >= 95 ? '#7b341e' : '#9b2c2c' %>">
+            <%= pct30d %>%
+          </div>
+          <div style="flex:1">
+            <div class="pct-bar"><div class="pct-fill" style="width:<%= pct30d %>%;background:<%= pct30d >= 99 ? '#68d391' : pct30d >= 95 ? '#f6ad55' : '#fc8181' %>"></div></div>
+          </div>
+        </div>
+      <% } else { %>
+        <p style="color:var(--text-muted);font-size:13px">Not enough data yet.</p>
+      <% } %>
+    </div>
+
+    <!-- 90-day bar chart -->
+    <div class="status-section">
+      <div class="status-section-title">Last 90 days</div>
+      <div class="uptime-bars">
+        <% dayBuckets.forEach(function(bucket) { %>
+          <div class="uptime-bar uptime-bar--<%= bucket.status %>"
+               style="height:<%= Math.max(4, Math.min(32, bucket.count * 4)) %>px"
+               title="<%= bucket.date %>: <%= bucket.status %>"></div>
+        <% }) %>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px">
+        <span>90 days ago</span><span>Today</span>
+      </div>
+    </div>
+
+    <!-- Recent incidents -->
+    <div class="status-section">
+      <div class="status-section-title">Recent Incidents</div>
+      <% if (incidents.length === 0) { %>
+        <p style="font-size:13px;color:var(--text-muted)">No incidents in the last 90 days.</p>
+      <% } else { %>
+        <% incidents.forEach(function(inc) { %>
+          <div class="incident-row">
+            <div>
+              <div style="font-weight:500;font-size:13px"><%= inc.cause || 'Outage' %></div>
+              <div style="color:var(--text-muted);font-size:12px;margin-top:2px">
+                <%= new Date(inc.started_at).toLocaleDateString() %>
+                <% if (inc.duration_seconds) { %> · Duration: <%= fmtDuration(inc.duration_seconds) %><% } %>
+              </div>
+            </div>
+            <span class="incident-badge incident-badge--<%= inc.resolved_at ? 'resolved' : 'open' %>">
+              <%= inc.resolved_at ? 'Resolved' : 'Ongoing' %>
+            </span>
+          </div>
+        <% }) %>
+      <% } %>
+    </div>
+
+    <div class="powered-by">Powered by <a href="/" target="_blank">MetaWatch</a></div>
+  </div>
+</body>
+</html>

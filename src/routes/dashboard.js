@@ -152,6 +152,23 @@ router.get('/', requireAuth, async (req, res) => {
     `, userParams);
     const alertFields = fieldRows.map(r => r.field_changed);
 
+    // Uptime summary for this user
+    let uptimeSummary = { total: 0, up: 0, down: 0, degraded: 0 };
+    try {
+      const { rows: uptimeRows } = await pool.query(`
+        SELECT lc.status
+        FROM uptime_monitors um
+        LEFT JOIN LATERAL (
+          SELECT status FROM uptime_checks WHERE monitor_id = um.id ORDER BY checked_at DESC LIMIT 1
+        ) lc ON true
+        WHERE um.is_active = true ${userWhere.replace('mu.', 'um.')}
+      `, userParams);
+      uptimeSummary.total = uptimeRows.length;
+      uptimeSummary.up = uptimeRows.filter(r => r.status === 'up').length;
+      uptimeSummary.down = uptimeRows.filter(r => r.status === 'down').length;
+      uptimeSummary.degraded = uptimeRows.filter(r => r.status === 'degraded').length;
+    } catch { /* table may not exist yet */ }
+
     res.render('dashboard', {
       title: 'Dashboard',
       urls: urlsWithStatus,
@@ -165,7 +182,8 @@ router.get('/', requireAuth, async (req, res) => {
       page,
       totalPages,
       totalCount,
-      importedCount: req.query.imported ? parseInt(req.query.imported, 10) : null
+      importedCount: req.query.imported ? parseInt(req.query.imported, 10) : null,
+      uptimeSummary
     });
   } catch (err) {
     console.error(err);

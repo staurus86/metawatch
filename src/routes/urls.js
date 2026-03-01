@@ -577,6 +577,59 @@ router.post('/:id/delete', requireAuth, async (req, res) => {
   }
 });
 
+// POST /urls/bulk-action — bulk pause/resume/accept/delete
+router.post('/bulk-action', requireAuth, async (req, res) => {
+  const { action, ids } = req.body;
+  const rawIds = Array.isArray(ids) ? ids : ids ? [ids] : [];
+  const urlIds = rawIds.map(i => parseInt(i, 10)).filter(i => !isNaN(i));
+  if (urlIds.length === 0) return res.redirect('/');
+
+  const isAdmin = req.user.role === 'admin';
+  const ownerWhere = isAdmin ? '' : 'AND user_id = $' + (urlIds.length + 1);
+  const ownerParam = isAdmin ? [] : [req.user.id];
+  const placeholders = urlIds.map((_, i) => `$${i + 1}`).join(',');
+
+  try {
+    if (action === 'pause') {
+      await pool.query(
+        `UPDATE monitored_urls SET is_active = false WHERE id IN (${placeholders}) ${ownerWhere}`,
+        [...urlIds, ...ownerParam]
+      );
+      // Unschedule each
+      for (const id of urlIds) unscheduleUrl(id);
+    } else if (action === 'resume') {
+      const { rows } = await pool.query(
+        `UPDATE monitored_urls SET is_active = true WHERE id IN (${placeholders}) ${ownerWhere} RETURNING *`,
+        [...urlIds, ...ownerParam]
+      );
+      for (const rec of rows) scheduleUrl(rec);
+    } else if (action === 'accept') {
+      // Set reference_snapshot_id to latest snapshot for each URL
+      for (const id of urlIds) {
+        const { rows: [latest] } = await pool.query(
+          'SELECT id FROM snapshots WHERE url_id = $1 ORDER BY checked_at DESC LIMIT 1', [id]
+        );
+        if (latest) {
+          await pool.query(
+            `UPDATE monitored_urls SET reference_snapshot_id = $1 WHERE id = $2 ${ownerWhere.replace('AND user_id = $' + (urlIds.length + 1), isAdmin ? '' : 'AND user_id = $3')}`,
+            isAdmin ? [latest.id, id] : [latest.id, id, req.user.id]
+          );
+        }
+      }
+    } else if (action === 'delete') {
+      const { rows: deleted } = await pool.query(
+        `DELETE FROM monitored_urls WHERE id IN (${placeholders}) ${ownerWhere} RETURNING id`,
+        [...urlIds, ...ownerParam]
+      );
+      for (const r of deleted) unscheduleUrl(r.id);
+    }
+  } catch (err) {
+    console.error('[Bulk Action]', err.message);
+  }
+
+  res.redirect('/');
+});
+
 // POST /urls/:id/clone — duplicate a URL with all its settings
 router.post('/:id/clone', requireAuth, async (req, res) => {
   const urlId = parseInt(req.params.id, 10);

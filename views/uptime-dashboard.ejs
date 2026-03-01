@@ -1,0 +1,93 @@
+<div class="page-header">
+  <h1 class="page-title">Uptime Monitors</h1>
+  <a href="/uptime/add" class="btn btn-primary">+ Add Monitor</a>
+</div>
+
+<!-- Summary bar -->
+<div class="stats-row" style="margin-bottom:20px">
+  <div class="stat-card stat-card--ok">
+    <div class="stat-value"><%= summary.up %></div>
+    <div class="stat-label">Up</div>
+  </div>
+  <div class="stat-card stat-card--error">
+    <div class="stat-value"><%= summary.down %></div>
+    <div class="stat-label">Down</div>
+  </div>
+  <div class="stat-card stat-card--changed">
+    <div class="stat-value"><%= summary.degraded %></div>
+    <div class="stat-label">Degraded</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value"><%= summary.total %></div>
+    <div class="stat-label">Total</div>
+  </div>
+</div>
+
+<% if (monitors.length === 0) { %>
+  <div class="empty-state">
+    <div class="empty-icon">📡</div>
+    <p>No uptime monitors yet.</p>
+    <a href="/uptime/add" class="btn btn-primary">Add your first monitor</a>
+  </div>
+<% } else { %>
+  <div class="uptime-grid">
+    <% monitors.forEach(function(m) { %>
+      <% const st = m.last_status || 'pending'; %>
+      <div class="uptime-card uptime-card--<%= st %>">
+        <div class="uptime-card-header">
+          <div>
+            <div class="uptime-status-badge uptime-status--<%= st %>">
+              <span class="uptime-dot-lg uptime-dot-lg--<%= st %>"></span>
+              <%= st.toUpperCase() %>
+            </div>
+            <div class="uptime-card-name"><a href="/uptime/<%= m.id %>"><%= m.name %></a></div>
+            <div class="uptime-card-url"><%= m.url %></div>
+          </div>
+          <div class="uptime-card-meta">
+            <% if (m.last_response_ms != null) { %>
+              <div class="uptime-resp-time"><%= m.last_response_ms %>ms</div>
+            <% } %>
+            <% if (m.pct24h != null) { %>
+              <div class="uptime-pct <%= m.pct24h >= 99 ? 'uptime-pct--great' : m.pct24h >= 95 ? 'uptime-pct--ok' : 'uptime-pct--warn' %>">
+                <%= m.pct24h %>% <span style="font-size:10px;opacity:.7">24h</span>
+              </div>
+            <% } %>
+          </div>
+        </div>
+
+        <!-- Sparkline: last 50 checks -->
+        <div class="uptime-sparkline">
+          <% m.recentChecks.forEach(function(c) { %>
+            <div class="uptime-dot uptime-dot--<%= c.status === 'up' ? 'ok' : c.status === 'degraded' ? 'warn' : 'err' %>"
+                 title="<%= new Date(c.checked_at).toUTCString() %> — <%= c.status %><%= c.response_time_ms ? ' (' + c.response_time_ms + 'ms)' : '' %>"></div>
+          <% }) %>
+          <% for (let i = m.recentChecks.length; i < 50; i++) { %>
+            <div class="uptime-dot uptime-dot--empty"></div>
+          <% } %>
+        </div>
+
+        <div class="uptime-card-footer">
+          <% if (m.open_incident_id) { %>
+            <span class="badge badge--error" style="font-size:10px">
+              🔴 Down since <span class="time-ago" data-ts="<%= new Date(m.incident_started_at).toISOString() %>"></span>
+            </span>
+          <% } else if (m.last_checked) { %>
+            <span style="font-size:11px;color:var(--text-muted)">
+              Checked <span class="time-ago" data-ts="<%= new Date(m.last_checked).toISOString() %>"></span>
+            </span>
+          <% } else { %>
+            <span style="font-size:11px;color:var(--text-muted)">Not checked yet</span>
+          <% } %>
+          <div style="display:flex;gap:6px">
+            <% if (!m.is_active) { %>
+              <span class="badge badge--paused">Paused</span>
+            <% } %>
+            <% if (m.is_public) { %>
+              <a href="/status/<%= m.slug %>" target="_blank" class="badge badge--paused" style="text-decoration:none;font-size:10px">Public ↗</a>
+            <% } %>
+          </div>
+        </div>
+      </div>
+    <% }) %>
+  </div>
+<% } %>

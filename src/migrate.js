@@ -151,6 +151,62 @@ async function migrate() {
     ];
     for (const sql of userExtra) await client.query(sql);
 
+    // ─── uptime_monitors ──────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS uptime_monitors (
+        id SERIAL PRIMARY KEY,
+        user_id INT REFERENCES users(id) ON DELETE SET NULL,
+        name VARCHAR(255) NOT NULL,
+        url TEXT NOT NULL,
+        slug VARCHAR(32) UNIQUE NOT NULL,
+        interval_minutes INTEGER NOT NULL DEFAULT 5,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        is_public BOOLEAN NOT NULL DEFAULT false,
+        alert_email VARCHAR(255),
+        telegram_token TEXT,
+        telegram_chat_id TEXT,
+        webhook_url TEXT,
+        threshold_ms INTEGER NOT NULL DEFAULT 3000,
+        silenced_until TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    // ─── uptime_checks ────────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS uptime_checks (
+        id SERIAL PRIMARY KEY,
+        monitor_id INT NOT NULL REFERENCES uptime_monitors(id) ON DELETE CASCADE,
+        checked_at TIMESTAMPTZ DEFAULT NOW(),
+        status VARCHAR(10) NOT NULL,
+        response_time_ms INTEGER,
+        status_code INTEGER,
+        error_message TEXT,
+        ssl_expires_at TIMESTAMPTZ
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_uptime_checks_monitor_checked
+        ON uptime_checks(monitor_id, checked_at DESC)
+    `);
+
+    // ─── uptime_incidents ─────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS uptime_incidents (
+        id SERIAL PRIMARY KEY,
+        monitor_id INT NOT NULL REFERENCES uptime_monitors(id) ON DELETE CASCADE,
+        started_at TIMESTAMPTZ DEFAULT NOW(),
+        resolved_at TIMESTAMPTZ,
+        duration_seconds INT,
+        cause VARCHAR(50),
+        alert_sent BOOLEAN NOT NULL DEFAULT false
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_uptime_incidents_monitor
+        ON uptime_incidents(monitor_id, started_at DESC)
+    `);
+
     // ─── users self-ref FK (invited_by_id) ────────────────────────────────────
     // Add FK only if it doesn't already exist
     await client.query(`

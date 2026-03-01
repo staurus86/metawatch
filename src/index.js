@@ -46,10 +46,14 @@ app.use('/', require('./routes/auth'));
 // Routes — protected
 app.use('/', require('./routes/dashboard'));
 app.use('/urls', require('./routes/urls'));
+app.use('/uptime', require('./routes/uptime'));
 app.use('/export', require('./routes/export'));
 app.use('/admin', require('./routes/admin'));
 app.use('/profile', require('./routes/profile'));
 app.use('/api', require('./routes/api'));
+
+// Public status page — no auth
+app.use('/status', require('./routes/status'));
 
 // 404
 app.use((req, res) => {

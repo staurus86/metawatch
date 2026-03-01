@@ -1,0 +1,91 @@
+<div class="page-header">
+  <h1 class="page-title">Add Uptime Monitor</h1>
+  <a href="/uptime" class="btn btn-ghost">← Back</a>
+</div>
+
+<div class="card" style="max-width:680px">
+  <% if (error) { %>
+    <div class="alert-banner alert-banner--error"><%= error %></div>
+  <% } %>
+
+  <form action="/uptime/add" method="POST" class="form">
+    <div class="form-section-title">Monitor Settings</div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="name">Monitor Name <span class="required">*</span></label>
+        <input type="text" id="name" name="name" class="form-input"
+               placeholder="My Website" value="<%= values.name || '' %>" required>
+        <p class="form-hint">Friendly name shown in dashboard and alerts</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="interval_minutes">Check Interval <span class="required">*</span></label>
+        <select id="interval_minutes" name="interval_minutes" class="form-select">
+          <option value="1"   <%= values.interval_minutes == '1'   ? 'selected' : '' %>>Every 1 minute</option>
+          <option value="5"   <%= !values.interval_minutes || values.interval_minutes == '5' ? 'selected' : '' %>>Every 5 minutes</option>
+          <option value="15"  <%= values.interval_minutes == '15'  ? 'selected' : '' %>>Every 15 minutes</option>
+          <option value="30"  <%= values.interval_minutes == '30'  ? 'selected' : '' %>>Every 30 minutes</option>
+          <option value="60"  <%= values.interval_minutes == '60'  ? 'selected' : '' %>>Every 1 hour</option>
+          <option value="180" <%= values.interval_minutes == '180' ? 'selected' : '' %>>Every 3 hours</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="url">URL to Monitor <span class="required">*</span></label>
+      <input type="url" id="url" name="url" class="form-input"
+             placeholder="https://example.com"
+             value="<%= values.url || '' %>" required>
+      <p class="form-hint">Must start with http:// or https://</p>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="threshold_ms">Slow Response Threshold (ms)</label>
+      <input type="number" id="threshold_ms" name="threshold_ms" class="form-input"
+             placeholder="3000" value="<%= values.threshold_ms || '3000' %>" min="100" max="30000">
+      <p class="form-hint">Response time above this marks the monitor as "Degraded" (yellow)</p>
+    </div>
+
+    <div class="form-section-title">Alerts</div>
+
+    <div class="form-group">
+      <label class="form-label" for="alert_email">Alert Email</label>
+      <input type="email" id="alert_email" name="alert_email" class="form-input"
+             placeholder="you@example.com" value="<%= values.alert_email || '' %>">
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="telegram_token">Telegram Bot Token</label>
+        <input type="text" id="telegram_token" name="telegram_token" class="form-input"
+               placeholder="123456:ABC-DEF…" value="<%= values.telegram_token || '' %>">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="telegram_chat_id">Telegram Chat ID</label>
+        <input type="text" id="telegram_chat_id" name="telegram_chat_id" class="form-input"
+               placeholder="-100123456789" value="<%= values.telegram_chat_id || '' %>">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="webhook_url">Webhook URL</label>
+      <input type="url" id="webhook_url" name="webhook_url" class="form-input"
+             placeholder="https://hooks.example.com/…" value="<%= values.webhook_url || '' %>">
+      <p class="form-hint">JSON POST on each status change</p>
+    </div>
+
+    <div class="form-section-title">Status Page</div>
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" name="is_public" value="1" <%= values.is_public ? 'checked' : '' %>>
+        <span>Enable public status page</span>
+      </label>
+      <p class="form-hint">Generates a public URL at /status/[slug] — no login required</p>
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Start Monitoring</button>
+      <a href="/uptime" class="btn btn-ghost">Cancel</a>
+    </div>
+  </form>
+</div>

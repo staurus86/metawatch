@@ -237,4 +237,72 @@ router.get('/tasks/:id/results', requireApiKey, async (req, res) => {
   }
 });
 
+// ─── Uptime API ───────────────────────────────────────────────────────────────
+
+// GET /api/uptime — list all monitors (cookie auth)
+router.get('/uptime', requireAuth, async (req, res) => {
+  try {
+    const isAdmin = req.user?.role === 'admin';
+    const userWhere = isAdmin ? '' : 'WHERE user_id = $1';
+    const params = isAdmin ? [] : [req.user.id];
+    const { rows } = await pool.query(
+      `SELECT id, name, url, slug, interval_minutes, is_active, is_public, threshold_ms, created_at
+       FROM uptime_monitors ${userWhere} ORDER BY created_at ASC`,
+      params
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/uptime/:id/status — current status + last 10 checks
+router.get('/uptime/:id/status', requireAuth, async (req, res) => {
+  const monitorId = parseInt(req.params.id, 10);
+  const isAdmin = req.user?.role === 'admin';
+  try {
+    const { rows: [monitor] } = await pool.query(
+      isAdmin
+        ? 'SELECT * FROM uptime_monitors WHERE id = $1'
+        : 'SELECT * FROM uptime_monitors WHERE id = $1 AND user_id = $2',
+      isAdmin ? [monitorId] : [monitorId, req.user.id]
+    );
+    if (!monitor) return res.status(404).json({ error: 'Not found' });
+
+    const { rows: checks } = await pool.query(
+      'SELECT * FROM uptime_checks WHERE monitor_id = $1 ORDER BY checked_at DESC LIMIT 10',
+      [monitorId]
+    );
+    res.json({ monitor, last_checks: checks });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/uptime/:id/rt — response time data for Chart.js (last 48 checks)
+router.get('/uptime/:id/rt', requireAuth, async (req, res) => {
+  const monitorId = parseInt(req.params.id, 10);
+  const isAdmin = req.user?.role === 'admin';
+  try {
+    const { rows: [monitor] } = await pool.query(
+      isAdmin
+        ? 'SELECT id FROM uptime_monitors WHERE id = $1'
+        : 'SELECT id FROM uptime_monitors WHERE id = $1 AND user_id = $2',
+      isAdmin ? [monitorId] : [monitorId, req.user.id]
+    );
+    if (!monitor) return res.status(404).json({ error: 'Not found' });
+
+    const { rows } = await pool.query(
+      `SELECT checked_at, response_time_ms, status
+       FROM uptime_checks
+       WHERE monitor_id = $1 AND response_time_ms IS NOT NULL
+       ORDER BY checked_at DESC LIMIT 48`,
+      [monitorId]
+    );
+    res.json(rows.reverse());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
