@@ -2,8 +2,10 @@ const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const pool = require('../db');
-const { requireAuth, requireApiKey } = require('../auth');
+const { requireAuth, requireApiKey, hashApiKey } = require('../auth');
 const { scanEmitter, isScanRunning } = require('../scan-events');
+const { getSchedulerStatus } = require('../scheduler');
+const { ipKeyGenerator } = require('express-rate-limit');
 
 // 100 req/min per API key (or IP for cookie/no-key requests)
 const apiLimiter = rateLimit({
@@ -12,8 +14,12 @@ const apiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
-    const apiKey = req.headers['x-api-key'];
-    return apiKey ? `api:${apiKey}` : `ip:${req.ip}`;
+    const apiKey = String(req.headers['x-api-key'] || '').trim();
+    if (apiKey) {
+      // Keep raw API keys out of limiter keys/logging paths.
+      return `api:${hashApiKey(apiKey)}`;
+    }
+    return `ip:${ipKeyGenerator(req.ip)}`;
   },
   message: { error: 'Too many requests. Limit: 100/min per API key or IP.' }
 });
@@ -22,12 +28,40 @@ router.use(apiLimiter);
 // Simple in-memory cache for chart/stats payload
 const statsCache = new Map();
 const STATS_CACHE_TTL_MS = 60 * 1000;
+const STATS_CACHE_MAX_KEYS = 2000;
+
+function pruneStatsCache() {
+  const now = Date.now();
+  for (const [key, value] of statsCache.entries()) {
+    if (!value || (now - value.ts) > STATS_CACHE_TTL_MS * 3) {
+      statsCache.delete(key);
+    }
+  }
+  if (statsCache.size <= STATS_CACHE_MAX_KEYS) return;
+  const oldest = [...statsCache.entries()]
+    .sort((a, b) => (a[1]?.ts || 0) - (b[1]?.ts || 0))
+    .slice(0, statsCache.size - STATS_CACHE_MAX_KEYS);
+  oldest.forEach(([key]) => statsCache.delete(key));
+}
 
 // GET /api/health — Railway health check
 router.get('/health', async (req, res) => {
   try {
+    const t0 = Date.now();
     await pool.query('SELECT 1');
-    res.json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() });
+    const dbLatencyMs = Date.now() - t0;
+    const { rows: [q] } = await pool.query(
+      `SELECT COUNT(*) FILTER (WHERE status = 'pending')::int AS pending_webhooks
+       FROM webhook_delivery_log`
+    );
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      db_latency_ms: dbLatencyMs,
+      pending_webhooks: q?.pending_webhooks || 0,
+      scheduler: getSchedulerStatus()
+    });
   } catch (err) {
     res.status(503).json({ status: 'error', error: err.message });
   }
@@ -167,6 +201,7 @@ router.get('/stats', requireAuth, async (req, res) => {
       }))
     };
 
+    pruneStatsCache();
     statsCache.set(cacheKey, { ts: Date.now(), data: payload });
     res.json(payload);
   } catch (err) {
@@ -362,8 +397,8 @@ router.get('/uptime/check-domain', async (req, res) => {
 
   try {
     const { rows: [user] } = await pool.query(
-      'SELECT id FROM users WHERE api_key = $1',
-      [apiKey]
+      'SELECT id FROM users WHERE api_key = $1 OR api_key_hash = $2',
+      [apiKey, hashApiKey(apiKey)]
     );
     if (!user) return res.status(401).json({ error: 'Invalid API key' });
 

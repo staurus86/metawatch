@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
-const { requireAuth, generateApiKey, hashPassword, comparePassword, clearAuthCookie } = require('../auth');
+const { requireAuth, generateApiKey, hashApiKey, hashPassword, comparePassword, clearAuthCookie } = require('../auth');
+const { auditFromRequest } = require('../audit');
 
 function sanitizeRowsPerPage(val) {
   const n = parseInt(val, 10);
@@ -37,7 +38,15 @@ router.get('/', requireAuth, async (req, res) => {
 router.post('/regenerate-key', requireAuth, async (req, res) => {
   try {
     const newKey = generateApiKey();
-    await pool.query('UPDATE users SET api_key = $1 WHERE id = $2', [newKey, req.user.id]);
+    await pool.query(
+      'UPDATE users SET api_key = $1, api_key_hash = $2, api_key_last4 = $3 WHERE id = $4',
+      [newKey, hashApiKey(newKey), newKey.slice(-4), req.user.id]
+    );
+    await auditFromRequest(req, {
+      action: 'profile.regenerate_api_key',
+      entityType: 'user',
+      entityId: req.user.id
+    });
     res.redirect('/profile?msg=API+key+regenerated');
   } catch (err) {
     console.error(err);
@@ -135,6 +144,11 @@ router.post('/preferences', requireAuth, async (req, res) => {
         req.user.id
       ]
     );
+    await auditFromRequest(req, {
+      action: 'profile.update_preferences',
+      entityType: 'user',
+      entityId: req.user.id
+    });
     res.redirect('/profile?msg=Preferences+saved');
   } catch (err) {
     console.error(err);
@@ -146,6 +160,11 @@ router.post('/preferences', requireAuth, async (req, res) => {
 router.post('/delete-urls', requireAuth, async (req, res) => {
   try {
     await pool.query('DELETE FROM monitored_urls WHERE user_id = $1', [req.user.id]);
+    await auditFromRequest(req, {
+      action: 'profile.delete_all_urls',
+      entityType: 'user',
+      entityId: req.user.id
+    });
     res.redirect('/profile?msg=All+URLs+deleted');
   } catch (err) {
     console.error(err);
@@ -162,6 +181,11 @@ router.post('/delete-account', requireAuth, async (req, res) => {
   }
 
   try {
+    await auditFromRequest(req, {
+      action: 'profile.delete_account',
+      entityType: 'user',
+      entityId: req.user.id
+    });
     await pool.query('DELETE FROM users WHERE id = $1', [req.user.id]);
     clearAuthCookie(res);
     res.redirect('/register');
@@ -192,6 +216,11 @@ router.post('/change-password', requireAuth, async (req, res) => {
 
     const hash = await hashPassword(new_password);
     await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, req.user.id]);
+    await auditFromRequest(req, {
+      action: 'profile.change_password',
+      entityType: 'user',
+      entityId: req.user.id
+    });
     res.redirect('/profile?msg=Password+changed+successfully');
   } catch (err) {
     console.error(err);

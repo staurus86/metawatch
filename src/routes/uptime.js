@@ -8,6 +8,8 @@ const { scheduleMonitor, unscheduleMonitor } = require('../scheduler');
 const { notify: notifyMeta } = require('../notifier');
 const { sendTelegram, sendWebhook } = require('../notifier');
 const { sendAlert: sendEmail } = require('../mailer');
+const { assertSafeOutboundUrl } = require('../net-safety');
+const { auditFromRequest } = require('../audit');
 
 function generateSlug() {
   return crypto.randomBytes(6).toString('hex'); // 12-char hex slug
@@ -142,6 +144,7 @@ router.post('/add', requireAuth, async (req, res) => {
   }
 
   try {
+    const safeUrl = await assertSafeOutboundUrl(url.trim());
     const maintenanceDuration = parseInt(maintenance_duration_minutes, 10);
     const safeMaintenanceDuration = Number.isFinite(maintenanceDuration) && maintenanceDuration > 0
       ? maintenanceDuration
@@ -156,7 +159,7 @@ router.post('/add', requireAuth, async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        RETURNING *`,
       [
-        req.user.id, name.trim(), url.trim(), slug,
+        req.user.id, name.trim(), safeUrl, slug,
         parseInt(interval_minutes || '5', 10),
         parseInt(threshold_ms || '3000', 10),
         alert_email?.trim() || req.user.default_alert_email || null,
@@ -171,6 +174,12 @@ router.post('/add', requireAuth, async (req, res) => {
 
     scheduleMonitor(monitor);
     checkMonitor(monitor.id).catch(() => {});
+    await auditFromRequest(req, {
+      action: 'uptime.create',
+      entityType: 'uptime_monitor',
+      entityId: monitor.id,
+      meta: { url: monitor.url, interval: monitor.interval_minutes }
+    });
     res.redirect(`/uptime/${monitor.id}`);
   } catch (err) {
     console.error(err);
@@ -217,9 +226,9 @@ router.get('/:id', requireAuth, async (req, res) => {
 
     // Uptime stats
     const stats = {
-      '1h':  await uptimePct(monitorId, '1 hour'),
+      '1h': await uptimePct(monitorId, '1 hour'),
       '24h': await uptimePct(monitorId, '24 hours'),
-      '7d':  await uptimePct(monitorId, '7 days'),
+      '7d': await uptimePct(monitorId, '7 days'),
       '30d': await uptimePct(monitorId, '30 days'),
       '90d': await uptimePct(monitorId, '90 days')
     };
@@ -287,6 +296,7 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
   } = req.body;
 
   try {
+    const safeUrl = await assertSafeOutboundUrl(url?.trim() || '');
     const maintenanceDuration = parseInt(maintenance_duration_minutes, 10);
     const safeMaintenanceDuration = Number.isFinite(maintenanceDuration) && maintenanceDuration > 0
       ? maintenanceDuration
@@ -302,21 +312,27 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
        WHERE id = $13 ${!isAdmin ? 'AND user_id = $14' : ''}
        RETURNING *`,
       !isAdmin
-        ? [name?.trim(), url?.trim(), parseInt(interval_minutes || '5', 10),
-           parseInt(threshold_ms || '3000', 10), alert_email?.trim() || null,
-           telegram_token?.trim() || null, telegram_chat_id?.trim() || null,
-           webhook_url?.trim() || null, !!is_public, silenced_until?.trim() || null,
-           maintenance_cron?.trim() || null, safeMaintenanceDuration,
-           monitorId, req.user.id]
-        : [name?.trim(), url?.trim(), parseInt(interval_minutes || '5', 10),
-           parseInt(threshold_ms || '3000', 10), alert_email?.trim() || null,
-           telegram_token?.trim() || null, telegram_chat_id?.trim() || null,
-           webhook_url?.trim() || null, !!is_public, silenced_until?.trim() || null,
-           maintenance_cron?.trim() || null, safeMaintenanceDuration,
-           monitorId]
+        ? [name?.trim(), safeUrl, parseInt(interval_minutes || '5', 10),
+          parseInt(threshold_ms || '3000', 10), alert_email?.trim() || null,
+          telegram_token?.trim() || null, telegram_chat_id?.trim() || null,
+          webhook_url?.trim() || null, !!is_public, silenced_until?.trim() || null,
+          maintenance_cron?.trim() || null, safeMaintenanceDuration,
+          monitorId, req.user.id]
+        : [name?.trim(), safeUrl, parseInt(interval_minutes || '5', 10),
+          parseInt(threshold_ms || '3000', 10), alert_email?.trim() || null,
+          telegram_token?.trim() || null, telegram_chat_id?.trim() || null,
+          webhook_url?.trim() || null, !!is_public, silenced_until?.trim() || null,
+          maintenance_cron?.trim() || null, safeMaintenanceDuration,
+          monitorId]
     );
     if (!updated) return res.status(404).render('error', { title: 'Not Found', error: 'Monitor not found' });
     scheduleMonitor(updated);
+    await auditFromRequest(req, {
+      action: 'uptime.update',
+      entityType: 'uptime_monitor',
+      entityId: updated.id,
+      meta: { url: updated.url, interval: updated.interval_minutes, active: updated.is_active }
+    });
     res.redirect(`/uptime/${monitorId}?saved=1`);
   } catch (err) {
     console.error(err);
@@ -339,6 +355,11 @@ router.post('/:id/toggle', requireAuth, async (req, res) => {
     );
     if (updated.is_active) scheduleMonitor(updated);
     else unscheduleMonitor(monitorId);
+    await auditFromRequest(req, {
+      action: updated.is_active ? 'uptime.resume' : 'uptime.pause',
+      entityType: 'uptime_monitor',
+      entityId: updated.id
+    });
     res.redirect(`/uptime/${monitorId}`);
   } catch (err) {
     res.status(500).render('error', { title: 'Error', error: err.message });
@@ -406,6 +427,13 @@ router.post('/:id/delete', requireAuth, async (req, res) => {
       isAdmin ? [monitorId] : [monitorId, req.user.id]
     );
     if (rowCount > 0) unscheduleMonitor(monitorId);
+    if (rowCount > 0) {
+      await auditFromRequest(req, {
+        action: 'uptime.delete',
+        entityType: 'uptime_monitor',
+        entityId: monitorId
+      });
+    }
     res.redirect('/uptime');
   } catch (err) {
     res.status(500).render('error', { title: 'Error', error: err.message });

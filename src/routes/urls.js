@@ -11,6 +11,8 @@ const { scheduleUrl, unscheduleUrl } = require('../scheduler');
 const { requireAuth } = require('../auth');
 const { checkSemaphore, domainRateLimit } = require('../queue');
 const { scanEmitter, isScanRunning, setScanRunning } = require('../scan-events');
+const { assertSafeOutboundUrl } = require('../net-safety');
+const { auditFromRequest } = require('../audit');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 const MAX_BULK_IMPORT_URLS = 500;
@@ -115,6 +117,12 @@ router.post('/add', requireAuth, async (req, res) => {
   if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
     return renderError('URL must start with http:// or https://');
   }
+  let safeUrl;
+  try {
+    safeUrl = await assertSafeOutboundUrl(trimmedUrl);
+  } catch (e) {
+    return renderError(`URL is not allowed: ${e.message}`);
+  }
 
   const interval = parseInt(check_interval_minutes, 10);
   if (isNaN(interval) || interval < 1) return renderError('Invalid check interval.');
@@ -135,9 +143,9 @@ router.post('/add', requireAuth, async (req, res) => {
           telegram_bot_token, telegram_chat_id, webhook_url, tags, notes,
           response_time_threshold_ms, maintenance_cron, maintenance_duration_minutes)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
-       RETURNING *`,
+        RETURNING *`,
       [
-        trimmedUrl,
+        safeUrl,
         email?.trim() || req.user.default_alert_email || null,
         interval || 60,
         req.user.id,
@@ -162,6 +170,12 @@ router.post('/add', requireAuth, async (req, res) => {
     checkUrl(newUrl.id).catch(err =>
       console.error(`Initial check failed for URL #${newUrl.id}: ${err.message}`)
     );
+    await auditFromRequest(req, {
+      action: 'url.create',
+      entityType: 'monitored_url',
+      entityId: newUrl.id,
+      meta: { url: newUrl.url, interval: newUrl.check_interval_minutes }
+    });
 
     res.redirect(`/urls/${newUrl.id}`);
   } catch (err) {
@@ -222,6 +236,10 @@ router.post('/bulk', requireAuth, upload.single('file'), async (req, res) => {
 
       for (const u of selectedUrls) {
         try {
+          const safeImportUrl = await assertSafeOutboundUrl(u).catch(() => null);
+          if (!safeImportUrl) {
+            continue;
+          }
           const { rows: [newRec] } = await pool.query(
             `INSERT INTO monitored_urls
                (url, check_interval_minutes, user_id, tags,
@@ -230,7 +248,7 @@ router.post('/bulk', requireAuth, upload.single('file'), async (req, res) => {
                 monitor_canonical, monitor_robots)
              VALUES ($1,$2,$3,$4,true,true,true,true,true,true,true,true,true)
              RETURNING *`,
-            [u, interval, req.user.id, importTag]
+            [safeImportUrl, interval, req.user.id, importTag]
           );
           scheduleUrl(newRec);
           checkUrl(newRec.id).catch(() => {});
@@ -339,8 +357,9 @@ router.post('/bulk', requireAuth, upload.single('file'), async (req, res) => {
 async function parseSitemap(url, depth = 0) {
   if (depth > 3) return [];
   const parser = new XMLParser({ ignoreAttributes: false });
+  const safeSitemapUrl = await assertSafeOutboundUrl(url);
 
-  const response = await axios.get(url, {
+  const response = await axios.get(safeSitemapUrl, {
     timeout: 15000,
     headers: { 'User-Agent': 'MetaWatch/2.0 Sitemap-Parser' },
     validateStatus: () => true,
@@ -360,7 +379,9 @@ async function parseSitemap(url, depth = 0) {
     for (const sm of sitemaps.slice(0, 20)) {
       const loc = sm.loc || sm['#text'];
       if (loc) {
-        const nested = await parseSitemap(String(loc).trim(), depth + 1);
+        const nestedUrl = await assertSafeOutboundUrl(String(loc).trim()).catch(() => null);
+        if (!nestedUrl) continue;
+        const nested = await parseSitemap(nestedUrl, depth + 1);
         records.push(...nested);
       }
     }
@@ -514,6 +535,12 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
 
     // Reschedule if interval changed
     scheduleUrl(updated);
+    await auditFromRequest(req, {
+      action: 'url.update',
+      entityType: 'monitored_url',
+      entityId: updated.id,
+      meta: { interval: updated.check_interval_minutes, active: updated.is_active }
+    });
 
     res.redirect(`/urls/${urlId}`);
   } catch (err) {
@@ -634,6 +661,11 @@ router.post('/:id/toggle', requireAuth, async (req, res) => {
 
     if (updated.is_active) scheduleUrl(updated);
     else unscheduleUrl(urlId);
+    await auditFromRequest(req, {
+      action: updated.is_active ? 'url.resume' : 'url.pause',
+      entityType: 'monitored_url',
+      entityId: updated.id
+    });
 
     res.redirect(`/urls/${urlId}`);
   } catch (err) {
@@ -721,6 +753,13 @@ router.post('/:id/delete', requireAuth, async (req, res) => {
       isAdmin ? [urlId] : [urlId, req.user.id]
     );
     if (rowCount > 0) unscheduleUrl(urlId);
+    if (rowCount > 0) {
+      await auditFromRequest(req, {
+        action: 'url.delete',
+        entityType: 'monitored_url',
+        entityId: urlId
+      });
+    }
     res.redirect('/');
   } catch (err) {
     console.error(err);

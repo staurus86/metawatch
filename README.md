@@ -11,6 +11,17 @@ npm run dev
 
 Environment variables are documented in `.env.example`.
 
+## Production hardening flags
+
+Key production flags (see `.env.example` for full list):
+
+- `ENABLE_OUTBOUND_SAFETY=true` blocks private/internal outbound targets (SSRF guard).
+- `ENABLE_ALERT_STATE_ENGINE=true` enables cooldown/state-based alert suppression.
+- `DEFAULT_ALERT_COOLDOWN_MINUTES=60` controls duplicate alert cooldown.
+- `SLOW_QUERY_MS=250` logs slow SQL queries.
+- `WEBHOOK_SIGNING_SECRET=` adds `X-MetaWatch-Signature` HMAC header to outgoing webhooks.
+- `ALERT_RETENTION_DAYS`, `NOTIFICATION_LOG_RETENTION_DAYS`, `WEBHOOK_LOG_RETENTION_DAYS` control data retention.
+
 ## Browser Extension
 
 The Chrome extension lives in [`/extension`](./extension) and lets you quickly check if the current domain is monitored in MetaWatch uptime.

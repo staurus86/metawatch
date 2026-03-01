@@ -1,5 +1,8 @@
 <div class="page-header">
   <h1 class="page-title">Admin — User Management</h1>
+  <div style="display:flex;gap:8px">
+    <a href="/admin/system" class="btn btn-ghost">System Metrics</a>
+  </div>
 </div>
 
 <% if (locals.message) { %>
@@ -70,7 +73,7 @@
               <%= new Date(u.created_at).toISOString().split('T')[0] %>
             </td>
             <td class="truncate" style="max-width:120px;font-family:monospace;font-size:11px">
-              <%= u.api_key ? u.api_key.substring(0, 16) + '…' : '—' %>
+              <%= u.api_key_last4 ? ('••••••••••••' + u.api_key_last4) : '—' %>
             </td>
             <td>
               <% if (u.id !== locals.user.id) { %>

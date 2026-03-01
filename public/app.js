@@ -488,6 +488,36 @@ function updateBulkBar() {
   }
 }
 
+// ─── Bulk import preview selector ─────────────────────────────────────────────
+const bulkImportSelectAll = document.getElementById('bulk-select-all');
+if (bulkImportSelectAll) {
+  const rowChecks = Array.from(document.querySelectorAll('.bulk-select-row'));
+  const countEl = document.getElementById('bulk-import-count');
+  const submitBtn = document.getElementById('bulk-import-submit');
+
+  function selectedCount() {
+    return rowChecks.filter(cb => !cb.disabled && cb.checked).length;
+  }
+
+  function updateBulkImportUi() {
+    const count = selectedCount();
+    if (countEl) countEl.textContent = String(count);
+    if (submitBtn) submitBtn.disabled = count === 0;
+    const selectable = rowChecks.filter(cb => !cb.disabled);
+    bulkImportSelectAll.checked = selectable.length > 0 && selectable.every(cb => cb.checked);
+  }
+
+  bulkImportSelectAll.addEventListener('change', function () {
+    rowChecks.forEach(cb => {
+      if (!cb.disabled) cb.checked = this.checked;
+    });
+    updateBulkImportUi();
+  });
+
+  rowChecks.forEach(cb => cb.addEventListener('change', updateBulkImportUi));
+  updateBulkImportUi();
+}
+
 // ─── Onboarding Wizard ───────────────────────────────────────────────────────
 document.querySelectorAll('[data-ob-next]').forEach(btn => {
   btn.addEventListener('click', function () {

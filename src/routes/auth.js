@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const pool = require('../db');
 const {
   signToken, setAuthCookie, clearAuthCookie,
-  hashPassword, comparePassword, generateApiKey
+  hashPassword, comparePassword, generateApiKey, hashApiKey
 } = require('../auth');
 
 // Simple in-memory rate limiter for login: max 10 attempts per 15 min per IP
@@ -129,11 +129,13 @@ router.post('/register', async (req, res) => {
 
     const hash = await hashPassword(password);
     const apiKey = generateApiKey();
+    const apiKeyHash = hashApiKey(apiKey);
+    const apiKeyLast4 = apiKey.slice(-4);
 
     const { rows: [user] } = await pool.query(
-      `INSERT INTO users (email, password_hash, role, api_key)
-       VALUES ($1, $2, 'admin', $3) RETURNING *`,
-      [email.trim().toLowerCase(), hash, apiKey]
+      `INSERT INTO users (email, password_hash, role, api_key, api_key_hash, api_key_last4)
+       VALUES ($1, $2, 'admin', $3, $4, $5) RETURNING *`,
+      [email.trim().toLowerCase(), hash, apiKey, apiKeyHash, apiKeyLast4]
     );
 
     const token = signToken(user.id);
@@ -206,11 +208,13 @@ router.post('/invite/:token', async (req, res) => {
 
     const hash = await hashPassword(password);
     const apiKey = generateApiKey();
+    const apiKeyHash = hashApiKey(apiKey);
+    const apiKeyLast4 = apiKey.slice(-4);
 
     const { rows: [user] } = await pool.query(
-      `INSERT INTO users (email, password_hash, role, api_key, invited_by_id)
-       VALUES ($1, $2, 'viewer', $3, $4) RETURNING *`,
-      [email.trim().toLowerCase(), hash, apiKey, invite.invited_by_id]
+      `INSERT INTO users (email, password_hash, role, api_key, api_key_hash, api_key_last4, invited_by_id)
+       VALUES ($1, $2, 'viewer', $3, $4, $5, $6) RETURNING *`,
+      [email.trim().toLowerCase(), hash, apiKey, apiKeyHash, apiKeyLast4, invite.invited_by_id]
     );
 
     await pool.query('UPDATE invites SET used = true WHERE id = $1', [invite.id]);

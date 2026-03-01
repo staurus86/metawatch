@@ -4,6 +4,7 @@ const pool = require('./db');
 const { checkSsl } = require('./scraper');
 const { sendTelegram, sendWebhook } = require('./notifier');
 const { sendAlert: sendEmail } = require('./mailer');
+const { assertSafeOutboundUrl } = require('./net-safety');
 
 // Classify a check result
 function classifyStatus(statusCode, responseTimeMs, thresholdMs) {
@@ -88,12 +89,23 @@ async function sendUptimeNotification({ monitor, subject, body }) {
 }
 
 async function checkMonitor(monitorId) {
-  const { rows } = await pool.query(
-    'SELECT * FROM uptime_monitors WHERE id = $1 AND is_active = true',
-    [monitorId]
+  const lockKeyA = 9092;
+  const lockKeyB = parseInt(monitorId, 10);
+  const { rows: [lockRow] } = await pool.query(
+    'SELECT pg_try_advisory_lock($1, $2) AS locked',
+    [lockKeyA, lockKeyB]
   );
-  const monitor = rows[0];
-  if (!monitor) return;
+  if (!lockRow?.locked) {
+    return { skipped: true, reason: 'already_running' };
+  }
+
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM uptime_monitors WHERE id = $1 AND is_active = true',
+      [monitorId]
+    );
+    const monitor = rows[0];
+    if (!monitor) return { skipped: true };
 
   // Get previous check for incident logic
   const { rows: prevRows } = await pool.query(
@@ -108,20 +120,31 @@ async function checkMonitor(monitorId) {
   let responseTimeMs = null;
   let errorMessage = null;
   let fetchErr = null;
+  let safeTargetUrl = monitor.url;
 
   try {
-    const resp = await axios.get(monitor.url, {
-      timeout: 10000,
-      maxRedirects: 5,
-      validateStatus: () => true,
-      headers: { 'User-Agent': 'MetaWatch-Uptime/2.0' }
-    });
-    statusCode = resp.status;
-    responseTimeMs = Date.now() - start;
+    safeTargetUrl = await assertSafeOutboundUrl(monitor.url);
   } catch (err) {
-    responseTimeMs = Date.now() - start;
     fetchErr = err;
-    errorMessage = err.message?.substring(0, 200) || 'Unknown error';
+    errorMessage = err.message?.substring(0, 200) || 'Target blocked by outbound safety policy';
+    responseTimeMs = 0;
+  }
+
+  if (!fetchErr) {
+    try {
+      const resp = await axios.get(safeTargetUrl, {
+        timeout: 10000,
+        maxRedirects: 5,
+        validateStatus: () => true,
+        headers: { 'User-Agent': 'MetaWatch-Uptime/2.0' }
+      });
+      statusCode = resp.status;
+      responseTimeMs = Date.now() - start;
+    } catch (err) {
+      responseTimeMs = Date.now() - start;
+      fetchErr = err;
+      errorMessage = err.message?.substring(0, 200) || 'Unknown error';
+    }
   }
 
   // SSL check
@@ -231,7 +254,10 @@ async function checkMonitor(monitorId) {
     }
   }
 
-  return { status, responseTimeMs, statusCode };
+    return { status, responseTimeMs, statusCode };
+  } finally {
+    await pool.query('SELECT pg_advisory_unlock($1, $2)', [lockKeyA, lockKeyB]).catch(() => {});
+  }
 }
 
 module.exports = { checkMonitor };

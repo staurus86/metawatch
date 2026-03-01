@@ -1,4 +1,5 @@
 const pool = require('./db');
+const crypto = require('crypto');
 
 async function migrate() {
   const client = await pool.connect();
@@ -431,9 +432,44 @@ async function migrate() {
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS default_webhook_url TEXT',
       "ALTER TABLE users ADD COLUMN IF NOT EXISTS pref_dashboard_view VARCHAR(20) NOT NULL DEFAULT 'list'",
       "ALTER TABLE users ADD COLUMN IF NOT EXISTS pref_timezone VARCHAR(64) NOT NULL DEFAULT 'UTC'",
-      'ALTER TABLE users ADD COLUMN IF NOT EXISTS pref_rows_per_page INTEGER NOT NULL DEFAULT 25'
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS pref_rows_per_page INTEGER NOT NULL DEFAULT 25',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS api_key_hash VARCHAR(64)',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS api_key_last4 VARCHAR(4)'
     ];
     for (const sql of userSprint7) await client.query(sql);
+
+    // Backfill API key hash metadata for legacy rows
+    const { rows: apiUsers } = await client.query(
+      `SELECT id, api_key
+       FROM users
+       WHERE api_key IS NOT NULL
+         AND (api_key_hash IS NULL OR api_key_last4 IS NULL)`
+    );
+    for (const u of apiUsers) {
+      const apiKey = String(u.api_key || '');
+      const apiHash = crypto.createHash('sha256').update(apiKey).digest('hex');
+      const apiLast4 = apiKey.slice(-4);
+      await client.query(
+        'UPDATE users SET api_key_hash = $1, api_key_last4 = $2 WHERE id = $3',
+        [apiHash, apiLast4 || null, u.id]
+      );
+    }
+
+    // monitored_urls: alert cooldown (minutes)
+    await client.query(
+      'ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS alert_cooldown_minutes INTEGER NOT NULL DEFAULT 60'
+    );
+
+    // snapshots: richer monitoring signals (backward compatible)
+    const snapshotSignalCols = [
+      'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS normalized_body_hash VARCHAR(64)',
+      'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS soft_404 BOOLEAN NOT NULL DEFAULT false',
+      'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS redirect_chain TEXT',
+      'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS canonical_issue TEXT',
+      'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS indexability_conflict BOOLEAN NOT NULL DEFAULT false',
+      'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS robots_blocked BOOLEAN NOT NULL DEFAULT false'
+    ];
+    for (const sql of snapshotSignalCols) await client.query(sql);
 
     // ─── alert_rules ──────────────────────────────────────────────────────────
     await client.query(`
@@ -450,6 +486,50 @@ async function migrate() {
     await client.query(
       `CREATE INDEX IF NOT EXISTS idx_alert_rules_user ON alert_rules(user_id) WHERE is_active = true`
     );
+
+    // ─── alert_state (noise suppression / cooldown / transition state) ───────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS alert_state (
+        id SERIAL PRIMARY KEY,
+        url_id INT NOT NULL REFERENCES monitored_urls(id) ON DELETE CASCADE,
+        field_key VARCHAR(120) NOT NULL,
+        state_hash VARCHAR(64) NOT NULL,
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_alert_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        cooldown_until TIMESTAMPTZ,
+        UNIQUE(url_id, field_key)
+      )
+    `);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_alert_state_url_field ON alert_state(url_id, field_key)`
+    );
+
+    // ─── audit_log (SaaS traceability) ───────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS audit_log (
+        id SERIAL PRIMARY KEY,
+        user_id INT REFERENCES users(id) ON DELETE SET NULL,
+        action VARCHAR(120) NOT NULL,
+        entity_type VARCHAR(60),
+        entity_id VARCHAR(120),
+        ip VARCHAR(128),
+        user_agent VARCHAR(255),
+        meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // ─── scale indexes ────────────────────────────────────────────────────────
+    const scaleIndexes = [
+      'CREATE INDEX IF NOT EXISTS idx_monitored_urls_user_active_created ON monitored_urls(user_id, is_active, created_at DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_uptime_monitors_user_active_created ON uptime_monitors(user_id, is_active, created_at DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_snapshots_checked_at ON snapshots(checked_at)',
+      'CREATE INDEX IF NOT EXISTS idx_alerts_detected_at ON alerts(detected_at DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_alerts_url_field_new_detected ON alerts(url_id, field_changed, new_value, detected_at DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_notification_log_status_sent ON notification_log(status, sent_at DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_audit_log_user_created ON audit_log(user_id, created_at DESC)'
+    ];
+    for (const sql of scaleIndexes) await client.query(sql);
 
     await client.query('COMMIT');
     console.log('✓ Database migrations completed');

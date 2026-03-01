@@ -1,5 +1,15 @@
 const axios = require('axios');
+const crypto = require('crypto');
 const { sendAlert: sendEmailAlert } = require('./mailer');
+const { assertSafeOutboundUrl } = require('./net-safety');
+
+function buildWebhookSignature(payload, secret) {
+  const raw = JSON.stringify(payload || {});
+  return crypto
+    .createHmac('sha256', secret)
+    .update(raw)
+    .digest('hex');
+}
 
 async function sendTelegram({ botToken, chatId, message }) {
   if (!botToken || !chatId) return false;
@@ -19,9 +29,19 @@ async function sendTelegram({ botToken, chatId, message }) {
 async function sendWebhook({ webhookUrl, payload }) {
   if (!webhookUrl) return false;
   try {
-    await axios.post(webhookUrl, payload, {
+    const safeWebhookUrl = await assertSafeOutboundUrl(webhookUrl);
+    const headers = {
+      'Content-Type': 'application/json',
+      'User-Agent': 'MetaWatch/2.0'
+    };
+    const signingSecret = String(process.env.WEBHOOK_SIGNING_SECRET || '').trim();
+    headers['X-MetaWatch-Timestamp'] = new Date().toISOString();
+    if (signingSecret) {
+      headers['X-MetaWatch-Signature'] = `sha256=${buildWebhookSignature(payload, signingSecret)}`;
+    }
+    await axios.post(safeWebhookUrl, payload, {
       timeout: 10000,
-      headers: { 'Content-Type': 'application/json' }
+      headers
     });
     return true;
   } catch (err) {

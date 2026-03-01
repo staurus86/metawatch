@@ -22,6 +22,17 @@ function parseDate(str) {
   return isNaN(d) ? null : d;
 }
 
+function addDateRangeFilters({ columnSql, fromDate, toDate, whereParts, params }) {
+  if (fromDate) {
+    params.push(fromDate.toISOString());
+    whereParts.push(`${columnSql} >= $${params.length}`);
+  }
+  if (toDate) {
+    params.push(toDate.toISOString());
+    whereParts.push(`${columnSql} <= $${params.length}`);
+  }
+}
+
 // Apply header row style (frozen, dark bg)
 function styleHeader(sheet, headers, colWidths = {}) {
   const headerRow = sheet.addRow(headers);
@@ -47,6 +58,9 @@ router.get('/report.xlsx', requireAuth, async (req, res) => {
     const userId = req.user.id;
     const fromDate = parseDate(req.query.from);
     const toDate   = parseDate(req.query.to);
+    if (fromDate && toDate && fromDate > toDate) {
+      return res.status(400).send('Invalid date range: "from" must be <= "to".');
+    }
 
     const userParam = isAdmin ? [] : [userId];
     const userWhere = isAdmin ? '' : 'AND mu.user_id = $1';
@@ -73,35 +87,51 @@ router.get('/report.xlsx', requireAuth, async (req, res) => {
         SELECT COUNT(*) AS alert_count FROM alerts
         WHERE url_id = mu.id AND detected_at > NOW() - INTERVAL '24 hours'
       ) ac ON true
-      ${userWhereBase} ${userWhere.replace('AND', '')}
+      ${userWhereBase}
       ORDER BY mu.id
     `, userParam);
 
     // Changes (with optional date range)
-    const alertDateFilter = fromDate && toDate
-      ? `AND a.detected_at BETWEEN '${fromDate.toISOString()}' AND '${toDate.toISOString()}'`
-      : fromDate
-      ? `AND a.detected_at >= '${fromDate.toISOString()}'`
-      : '';
+    const changesParams = [...userParam];
+    const changesWhere = ['true'];
+    if (!isAdmin) changesWhere.push(`mu.user_id = $${changesParams.length}`);
+    addDateRangeFilters({
+      columnSql: 'a.detected_at',
+      fromDate,
+      toDate,
+      whereParts: changesWhere,
+      params: changesParams
+    });
 
     const { rows: changes } = await pool.query(`
       SELECT a.id, a.detected_at, a.field_changed, a.old_value, a.new_value,
              a.severity, mu.url
       FROM alerts a
       JOIN monitored_urls mu ON mu.id = a.url_id
-      WHERE true ${userWhere} ${alertDateFilter}
+      WHERE ${changesWhere.join(' AND ')}
       ORDER BY a.detected_at DESC
       LIMIT 2000
-    `, userParam);
+    `, changesParams);
 
     // Error snapshots (status ≠ 200, excluding redirects)
+    const errorsParams = [...userParam];
+    const errorsWhere = ['(s.status_code = 0 OR s.status_code >= 400)'];
+    if (!isAdmin) errorsWhere.push(`mu.user_id = $${errorsParams.length}`);
+    addDateRangeFilters({
+      columnSql: 's.checked_at',
+      fromDate,
+      toDate,
+      whereParts: errorsWhere,
+      params: errorsParams
+    });
+
     const { rows: errors } = await pool.query(`
       SELECT DISTINCT ON (mu.id) mu.url, s.status_code, s.checked_at, s.response_time_ms
       FROM snapshots s
       JOIN monitored_urls mu ON mu.id = s.url_id
-      WHERE (s.status_code = 0 OR s.status_code >= 400) ${userWhere}
+      WHERE ${errorsWhere.join(' AND ')}
       ORDER BY mu.id, s.checked_at DESC
-    `, userParam);
+    `, errorsParams);
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'MetaWatch';
@@ -277,6 +307,9 @@ router.get('/uptime-report.xlsx', requireAuth, async (req, res) => {
     const userId = req.user.id;
     const fromDate = parseDate(req.query.from);
     const toDate   = parseDate(req.query.to);
+    if (fromDate && toDate && fromDate > toDate) {
+      return res.status(400).send('Invalid date range: "from" must be <= "to".');
+    }
 
     const userParam = isAdmin ? [] : [userId];
     const userWhere = isAdmin ? '' : 'WHERE um.user_id = $1';
@@ -298,28 +331,44 @@ router.get('/uptime-report.xlsx', requireAuth, async (req, res) => {
       ORDER BY um.id
     `, userParam);
 
-    const incidentDateFilter = fromDate && toDate
-      ? `AND ui.started_at BETWEEN '${fromDate.toISOString()}' AND '${toDate.toISOString()}'`
-      : fromDate ? `AND ui.started_at >= '${fromDate.toISOString()}'` : '';
+    const incidentsParams = [...userParam];
+    const incidentsWhere = ['true'];
+    if (!isAdmin) incidentsWhere.push(`um.user_id = $${incidentsParams.length}`);
+    addDateRangeFilters({
+      columnSql: 'ui.started_at',
+      fromDate,
+      toDate,
+      whereParts: incidentsWhere,
+      params: incidentsParams
+    });
 
     const { rows: incidents } = await pool.query(`
       SELECT ui.*, um.name AS monitor_name, um.url AS monitor_url
       FROM uptime_incidents ui
       JOIN uptime_monitors um ON um.id = ui.monitor_id
-      WHERE true ${isAdmin ? '' : 'AND um.user_id = $1'} ${incidentDateFilter}
+      WHERE ${incidentsWhere.join(' AND ')}
       ORDER BY ui.started_at DESC LIMIT 1000
-    `, userParam);
+    `, incidentsParams);
+
+    const checksParams = [...userParam];
+    const checksWhere = ['true'];
+    if (!isAdmin) checksWhere.push(`um.user_id = $${checksParams.length}`);
+    addDateRangeFilters({
+      columnSql: 'uc.checked_at',
+      fromDate,
+      toDate,
+      whereParts: checksWhere,
+      params: checksParams
+    });
 
     const { rows: checks } = await pool.query(`
       SELECT uc.checked_at, uc.status, uc.response_time_ms, uc.status_code,
              um.name AS monitor_name
       FROM uptime_checks uc
       JOIN uptime_monitors um ON um.id = uc.monitor_id
-      WHERE true ${isAdmin ? '' : 'AND um.user_id = $1'}
-        ${fromDate ? `AND uc.checked_at >= '${fromDate.toISOString()}'` : ''}
-        ${toDate   ? `AND uc.checked_at <= '${toDate.toISOString()}'` : ''}
+      WHERE ${checksWhere.join(' AND ')}
       ORDER BY uc.checked_at DESC LIMIT 5000
-    `, userParam);
+    `, checksParams);
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'MetaWatch';
@@ -394,21 +443,29 @@ router.get('/alerts.csv', requireAuth, async (req, res) => {
     const isAdmin = req.user?.role === 'admin';
     const fromDate = parseDate(req.query.from);
     const toDate   = parseDate(req.query.to);
+    if (fromDate && toDate && fromDate > toDate) {
+      return res.status(400).send('Invalid date range: "from" must be <= "to".');
+    }
 
-    const userParam = isAdmin ? [] : [req.user.id];
-    const userWhere = isAdmin ? '' : 'AND mu.user_id = $1';
-    const dateFilter = fromDate && toDate
-      ? `AND a.detected_at BETWEEN '${fromDate.toISOString()}' AND '${toDate.toISOString()}'`
-      : fromDate ? `AND a.detected_at >= '${fromDate.toISOString()}'` : '';
+    const alertParams = isAdmin ? [] : [req.user.id];
+    const alertWhere = ['true'];
+    if (!isAdmin) alertWhere.push(`mu.user_id = $${alertParams.length}`);
+    addDateRangeFilters({
+      columnSql: 'a.detected_at',
+      fromDate,
+      toDate,
+      whereParts: alertWhere,
+      params: alertParams
+    });
 
     const { rows: alerts } = await pool.query(`
       SELECT a.id, a.detected_at, a.field_changed, a.old_value, a.new_value,
              a.severity, mu.url
       FROM alerts a
       JOIN monitored_urls mu ON mu.id = a.url_id
-      WHERE true ${userWhere} ${dateFilter}
+      WHERE ${alertWhere.join(' AND ')}
       ORDER BY a.detected_at DESC
-    `, userParam);
+    `, alertParams);
 
     const lines = [
       ['ID', 'Detected At', 'URL', 'Field', 'Old Value', 'New Value', 'Severity']

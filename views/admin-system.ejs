@@ -1,0 +1,61 @@
+<div class="page-header">
+  <h1 class="page-title">Admin — System Metrics</h1>
+  <div style="display:flex;gap:8px">
+    <a href="/admin/users" class="btn btn-ghost">← Users</a>
+  </div>
+</div>
+
+<div class="stats-row" style="margin-bottom:16px">
+  <div class="stat-card">
+    <div class="stat-value"><%= system.users %></div>
+    <div class="stat-label">Users</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value"><%= system.urlsActive %> / <%= system.urlsTotal %></div>
+    <div class="stat-label">Active URLs</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value"><%= system.monitorsActive %> / <%= system.monitorsTotal %></div>
+    <div class="stat-label">Active Monitors</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value"><%= system.dbSize %></div>
+    <div class="stat-label">DB Size</div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-header">
+    <h2 class="card-title">Scheduler</h2>
+  </div>
+  <div style="padding:16px 20px;font-size:14px;line-height:1.6">
+    <div><strong>Started:</strong> <%= system.scheduler.started ? 'yes' : 'no' %></div>
+    <div><strong>Leader lock held:</strong> <%= system.scheduler.hasLock ? 'yes' : 'no' %></div>
+    <div><strong>Queue backend:</strong> <%= system.scheduler.queueBackend %></div>
+    <div><strong>URL jobs:</strong> <%= system.scheduler.urlJobs %></div>
+    <div><strong>Uptime jobs:</strong> <%= system.scheduler.uptimeJobs %></div>
+    <div><strong>Running URL checks:</strong> <%= system.scheduler.runningUrlChecks %></div>
+    <div><strong>Running uptime checks:</strong> <%= system.scheduler.runningUptimeChecks %></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h2 class="card-title">Events & Queue</h2>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <tbody>
+        <tr><th>Snapshots total</th><td><%= system.snapshotsTotal %></td></tr>
+        <tr><th>Snapshots (24h)</th><td><%= system.snapshots24h %></td></tr>
+        <tr><th>Alerts total</th><td><%= system.alertsTotal %></td></tr>
+        <tr><th>Alerts (24h)</th><td><%= system.alerts24h %></td></tr>
+        <tr><th>Critical alerts (24h)</th><td><%= system.alertsCritical24h %></td></tr>
+        <tr><th>Notifications total</th><td><%= system.notificationsTotal %></td></tr>
+        <tr><th>Notification failures (24h)</th><td><%= system.notificationsFailed24h %></td></tr>
+        <tr><th>Webhook queue pending</th><td><%= system.webhookPending %></td></tr>
+        <tr><th>Webhook queue failed</th><td><%= system.webhookFailed %></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>

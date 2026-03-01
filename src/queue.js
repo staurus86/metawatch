@@ -37,6 +37,7 @@ class Semaphore {
 
 // Per-domain rate limiter: enforces at least 1000ms between requests to the same domain
 const domainLastRequest = new Map();
+const userLastRequest = new Map();
 
 async function domainRateLimit(url) {
   let hostname;
@@ -57,7 +58,19 @@ async function domainRateLimit(url) {
   domainLastRequest.set(hostname, Date.now());
 }
 
+async function userRateLimit(userId, minGapMs = 250) {
+  if (!userId) return;
+  const key = String(userId);
+  const now = Date.now();
+  const last = userLastRequest.get(key) || 0;
+  const wait = minGapMs - (now - last);
+  if (wait > 0) {
+    await new Promise(r => setTimeout(r, wait));
+  }
+  userLastRequest.set(key, Date.now());
+}
+
 // Global semaphore: max 5 concurrent URL checks
 const checkSemaphore = new Semaphore(5);
 
-module.exports = { Semaphore, domainRateLimit, checkSemaphore };
+module.exports = { Semaphore, domainRateLimit, userRateLimit, checkSemaphore };

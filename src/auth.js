@@ -73,7 +73,11 @@ async function requireApiKey(req, res, next) {
   const apiKey = req.headers['x-api-key'];
   if (!apiKey) return res.status(401).json({ error: 'API key required. Pass X-API-Key header.' });
   try {
-    const { rows } = await pool.query('SELECT * FROM users WHERE api_key = $1', [apiKey]);
+    const keyHash = hashApiKey(apiKey);
+    const { rows } = await pool.query(
+      'SELECT * FROM users WHERE api_key = $1 OR api_key_hash = $2',
+      [apiKey, keyHash]
+    );
     if (!rows[0]) return res.status(401).json({ error: 'Invalid API key.' });
     req.user = rows[0];
     next();
@@ -84,6 +88,10 @@ async function requireApiKey(req, res, next) {
 
 function generateApiKey() {
   return crypto.randomBytes(32).toString('hex');
+}
+
+function hashApiKey(apiKey) {
+  return crypto.createHash('sha256').update(String(apiKey || '')).digest('hex');
 }
 
 function hashPassword(pw) {
@@ -103,6 +111,7 @@ module.exports = {
   requireAdmin,
   requireApiKey,
   generateApiKey,
+  hashApiKey,
   hashPassword,
   comparePassword,
   COOKIE_NAME

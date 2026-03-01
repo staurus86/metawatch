@@ -136,43 +136,6 @@
     </div>
   </div>
 
-  <% if (preview.rows.length > 0) { %>
-    <script>
-      (function () {
-        const rowChecks = Array.from(document.querySelectorAll('.bulk-select-row'));
-        const selectAll = document.getElementById('bulk-select-all');
-        const countEl = document.getElementById('bulk-import-count');
-        const submitBtn = document.getElementById('bulk-import-submit');
-
-        function selectedCount() {
-          return rowChecks.filter(cb => !cb.disabled && cb.checked).length;
-        }
-
-        function updateUi() {
-          const count = selectedCount();
-          if (countEl) countEl.textContent = String(count);
-          if (submitBtn) submitBtn.disabled = count === 0;
-          if (selectAll) {
-            const selectable = rowChecks.filter(cb => !cb.disabled);
-            selectAll.checked = selectable.length > 0 && selectable.every(cb => cb.checked);
-          }
-        }
-
-        if (selectAll) {
-          selectAll.addEventListener('change', function () {
-            rowChecks.forEach(cb => {
-              if (!cb.disabled) cb.checked = this.checked;
-            });
-            updateUi();
-          });
-        }
-
-        rowChecks.forEach(cb => cb.addEventListener('change', updateUi));
-        updateUi();
-      })();
-    </script>
-  <% } %>
-
 <% } else { %>
   <!-- Input form -->
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;align-items:start">
