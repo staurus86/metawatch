@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const pool = require('../db');
 const { isEmailConfigured } = require('../mailer');
 const nodemailer = require('nodemailer');
+const cron = require('node-cron');
 
 function fmtDuration(sec) {
   if (!sec) return '—';
@@ -23,6 +24,150 @@ function normalizeBucket(row) {
   if (degraded > 0) return { status: 'degraded', count: degraded };
   if (total > 0) return { status: 'up', count: total };
   return { status: 'empty', count: 0 };
+}
+
+function parseCronField(field, min, max) {
+  const value = String(field || '').trim();
+  if (!value) return null;
+  if (value === '*') return () => true;
+
+  const parts = value.split(',').map(v => v.trim()).filter(Boolean);
+  const matchers = parts.map((part) => {
+    if (part === '*') return () => true;
+    if (part.startsWith('*/')) {
+      const step = parseInt(part.slice(2), 10);
+      if (!Number.isFinite(step) || step <= 0) return null;
+      return v => v % step === 0;
+    }
+    if (part.includes('/')) {
+      const [range, stepRaw] = part.split('/');
+      const step = parseInt(stepRaw, 10);
+      if (!Number.isFinite(step) || step <= 0) return null;
+      if (range && range.includes('-')) {
+        const [a, b] = range.split('-').map(n => parseInt(n, 10));
+        if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+        const from = Math.min(a, b);
+        const to = Math.max(a, b);
+        return v => v >= from && v <= to && ((v - from) % step === 0);
+      }
+      return v => v % step === 0;
+    }
+    if (part.includes('-')) {
+      const [a, b] = part.split('-').map(n => parseInt(n, 10));
+      if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+      const from = Math.min(a, b);
+      const to = Math.max(a, b);
+      return v => v >= from && v <= to;
+    }
+    const n = parseInt(part, 10);
+    if (!Number.isFinite(n)) return null;
+    return v => v === n;
+  }).filter(Boolean);
+
+  if (matchers.length === 0) return null;
+  return (v) => {
+    if (!Number.isFinite(v) || v < min || v > max) return false;
+    return matchers.some(fn => fn(v));
+  };
+}
+
+function cronMatchesUtcDate(cronExpr, dateObj) {
+  const expr = String(cronExpr || '').trim();
+  if (!expr || !cron.validate(expr)) return false;
+  const fields = expr.split(/\s+/);
+  if (fields.length !== 5) return false;
+  const [m, h, dom, mon, dow] = fields;
+
+  const mMatch = parseCronField(m, 0, 59);
+  const hMatch = parseCronField(h, 0, 23);
+  const domMatch = parseCronField(dom, 1, 31);
+  const monMatch = parseCronField(mon, 1, 12);
+  const dowMatch = parseCronField(dow, 0, 7);
+  if (!mMatch || !hMatch || !domMatch || !monMatch || !dowMatch) return false;
+
+  const minute = dateObj.getUTCMinutes();
+  const hour = dateObj.getUTCHours();
+  const dayOfMonth = dateObj.getUTCDate();
+  const month = dateObj.getUTCMonth() + 1;
+  const dayOfWeek = dateObj.getUTCDay();
+  const dayOfWeekAlt = dayOfWeek === 0 ? 7 : dayOfWeek;
+
+  return (
+    mMatch(minute) &&
+    hMatch(hour) &&
+    domMatch(dayOfMonth) &&
+    monMatch(month) &&
+    (dowMatch(dayOfWeek) || dowMatch(dayOfWeekAlt))
+  );
+}
+
+function isNowInMaintenanceWindow(maintenanceCron, durationMinutes) {
+  const duration = parseInt(durationMinutes, 10);
+  if (!maintenanceCron || !Number.isFinite(duration) || duration <= 0) return false;
+
+  const now = new Date();
+  now.setUTCSeconds(0, 0);
+  for (let i = 0; i <= duration; i++) {
+    const t = new Date(now.getTime() - i * 60000);
+    if (cronMatchesUtcDate(maintenanceCron, t)) return true;
+  }
+  return false;
+}
+
+function findNextMaintenanceWindows(maintenanceCron, durationMinutes, limit = 3, horizonDays = 14) {
+  const duration = parseInt(durationMinutes, 10);
+  if (!maintenanceCron || !Number.isFinite(duration) || duration <= 0) return [];
+  if (!cron.validate(String(maintenanceCron || '').trim())) return [];
+
+  const result = [];
+  const cursor = new Date();
+  cursor.setUTCSeconds(0, 0);
+  cursor.setUTCMinutes(cursor.getUTCMinutes() + 1);
+  const horizonMs = horizonDays * 24 * 60 * 60 * 1000;
+  const endTs = cursor.getTime() + horizonMs;
+
+  while (cursor.getTime() <= endTs && result.length < limit) {
+    if (cronMatchesUtcDate(maintenanceCron, cursor)) {
+      const startsAt = new Date(cursor.getTime());
+      const endsAt = new Date(cursor.getTime() + duration * 60000);
+      result.push({ startsAt, endsAt });
+    }
+    cursor.setUTCMinutes(cursor.getUTCMinutes() + 1);
+  }
+
+  return result;
+}
+
+function calcSlo(intervalDays, targetPct, achievedPct) {
+  const totalMinutes = intervalDays * 24 * 60;
+  const allowedDowntimeMin = (totalMinutes * (100 - targetPct)) / 100;
+  if (achievedPct == null) {
+    return {
+      intervalDays,
+      targetPct,
+      achievedPct: null,
+      allowedDowntimeMin,
+      usedDowntimeMin: null,
+      budgetLeftMin: null,
+      burnRate: null,
+      healthy: null
+    };
+  }
+
+  const usedDowntimeMin = (totalMinutes * (100 - Number(achievedPct))) / 100;
+  const budgetLeftMin = Math.max(0, allowedDowntimeMin - usedDowntimeMin);
+  const burnRate = allowedDowntimeMin > 0 ? usedDowntimeMin / allowedDowntimeMin : null;
+
+  return {
+    intervalDays,
+    targetPct,
+    achievedPct: Number(achievedPct),
+    allowedDowntimeMin,
+    usedDowntimeMin,
+    budgetLeftMin,
+    burnRate,
+    healthy: Number(achievedPct) >= targetPct
+  };
 }
 
 // GET /status/:slug — public status page (no auth required)
@@ -51,7 +196,7 @@ router.get('/:slug', async (req, res) => {
     const { rows: incidents } = await pool.query(
       `SELECT * FROM uptime_incidents
        WHERE monitor_id = $1 AND started_at > NOW() - INTERVAL '90 days'
-       ORDER BY started_at DESC LIMIT 10`,
+       ORDER BY started_at DESC LIMIT 20`,
       [monitor.id]
     );
 
@@ -181,6 +326,56 @@ router.get('/:slug', async (req, res) => {
       });
     }
 
+    // SLA/SLO snapshot (informational)
+    const monthlyTarget = Number(process.env.PUBLIC_SLO_TARGET_30D || 99.9);
+    const weeklyTarget = Number(process.env.PUBLIC_SLO_TARGET_7D || 99.5);
+    const slo30d = calcSlo(30, monthlyTarget, uptimeWindows['30d']);
+    const slo7d = calcSlo(7, weeklyTarget, uptimeWindows['7d']);
+
+    // Incident timeline events (started + resolved points)
+    const timelineEvents = [];
+    for (const inc of incidents) {
+      if (inc.started_at) {
+        timelineEvents.push({
+          at: inc.started_at,
+          event: 'started',
+          cause: inc.cause || 'outage',
+          duration_seconds: null,
+          ongoing: !inc.resolved_at
+        });
+      }
+      if (inc.resolved_at) {
+        timelineEvents.push({
+          at: inc.resolved_at,
+          event: 'resolved',
+          cause: inc.cause || 'outage',
+          duration_seconds: inc.duration_seconds || null,
+          ongoing: false
+        });
+      }
+    }
+    timelineEvents.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+    const timeline = timelineEvents.slice(0, 24);
+
+    // Planned maintenance visibility
+    const hasRecurringMaintenance = !!(monitor.maintenance_cron && monitor.maintenance_duration_minutes);
+    const isManualSilenceActive = !!(monitor.silenced_until && new Date(monitor.silenced_until) > new Date());
+    const isCronMaintenanceActive = hasRecurringMaintenance
+      ? isNowInMaintenanceWindow(monitor.maintenance_cron, monitor.maintenance_duration_minutes)
+      : false;
+    const maintenanceWindows = hasRecurringMaintenance
+      ? findNextMaintenanceWindows(monitor.maintenance_cron, monitor.maintenance_duration_minutes, 3, 14)
+      : [];
+    const maintenanceInfo = {
+      hasRecurringMaintenance,
+      isManualSilenceActive,
+      isCronMaintenanceActive,
+      silencedUntil: monitor.silenced_until || null,
+      cron: monitor.maintenance_cron || null,
+      durationMinutes: monitor.maintenance_duration_minutes || null,
+      nextWindows: maintenanceWindows
+    };
+
     res.render('status', {
       layout: false, // Use standalone template
       monitor,
@@ -195,6 +390,10 @@ router.get('/:slug', async (req, res) => {
       dayBuckets,
       weekBuckets,
       hourBuckets,
+      slo30d,
+      slo7d,
+      timeline,
+      maintenanceInfo,
       fmtDuration
     });
   } catch (err) {
