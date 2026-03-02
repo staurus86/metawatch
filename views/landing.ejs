@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MetaWatch — Monitor your website metadata automatically</title>
+  <title><%= String(lang || 'en') === 'ru' ? 'MetaWatch — Мониторинг метаданных сайта' : 'MetaWatch — Monitor your website metadata automatically' %></title>
   <script src="/theme-init.js"></script>
   <link rel="stylesheet" href="/style.css">
   <style>
@@ -22,12 +22,29 @@
     .lp-mini { display: grid; grid-template-columns: repeat(2,1fr); gap: 10px; }
     .lp-mini-item { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 12px; font-size: 12px; color: var(--text-muted); }
     .lp-mini-item b { display: block; color: var(--text-primary); font-size: 20px; margin-top: 4px; }
+    .lp-lang { display: inline-flex; gap: 6px; margin-right: 10px; }
+    .lp-lang a { text-decoration: none; font-size: 12px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 999px; padding: 4px 9px; }
+    .lp-lang a.lp-lang--active { color: var(--text-primary); background: var(--card-bg); font-weight: 700; }
+    .lp-jump { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+    .lp-jump a { text-decoration: none; font-size: 12px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 999px; padding: 5px 10px; background: rgba(255,255,255,0.6); }
+    .lp-jump a:hover { color: var(--text-primary); background: var(--card-bg); }
     .lp-section { margin-top: 24px; }
     .lp-section h2 { font-size: 22px; margin-bottom: 12px; }
     .lp-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
     .lp-feature { padding: 16px; }
     .lp-feature h3 { font-size: 15px; margin-bottom: 6px; }
     .lp-feature p { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+    .lp-example-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .lp-example { padding: 14px; }
+    .lp-example-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .lp-example-url { font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lp-example-field { font-size: 12px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
+    .lp-example-line { font-size: 12px; line-height: 1.5; color: var(--text-muted); background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 8px; margin-bottom: 6px; }
+    .lp-example-line b { display: inline-block; min-width: 48px; color: var(--text-primary); }
+    .lp-pill { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 3px 8px; border: 1px solid transparent; }
+    .lp-pill--critical { color: #9b2c2c; background: #fff5f5; border-color: #fed7d7; }
+    .lp-pill--warning { color: #7b341e; background: #fffaf0; border-color: #fbd38d; }
+    .lp-pill--info { color: #2c5282; background: #ebf8ff; border-color: #bee3f8; }
     .lp-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
     .lp-step { padding: 16px; }
     .lp-step-num { font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: .08em; }
@@ -39,88 +56,260 @@
     .lp-price small { font-size: 12px; color: var(--text-muted); font-weight: 500; }
     .lp-plan ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; color: var(--text-muted); }
     .lp-testimonial { padding: 18px; font-size: 14px; color: var(--text-muted); line-height: 1.6; }
+    .lp-faq { display: grid; gap: 10px; }
+    .lp-faq-item { padding: 12px 14px; }
+    .lp-faq-item summary { cursor: pointer; font-size: 14px; font-weight: 700; color: var(--text-primary); }
+    .lp-faq-item p { margin-top: 8px; font-size: 13px; line-height: 1.6; color: var(--text-muted); }
+    .lp-cta-band { margin-top: 22px; padding: 20px; text-align: center; }
+    .lp-cta-band h3 { font-size: 22px; margin-bottom: 8px; }
+    .lp-cta-band p { color: var(--text-muted); margin-bottom: 12px; }
     .lp-footer { margin-top: 34px; font-size: 13px; color: var(--text-muted); display: flex; gap: 12px; flex-wrap: wrap; }
     .lp-footer a { color: var(--text-muted); text-decoration: none; }
     .lp-footer a:hover { text-decoration: underline; }
     @media (max-width: 960px) {
       .lp-hero { grid-template-columns: 1fr; }
-      .lp-grid3, .lp-steps, .lp-pricing { grid-template-columns: 1fr; }
+      .lp-grid3, .lp-example-grid, .lp-steps, .lp-pricing { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
+  <%
+    const isRu = String(lang || 'en') === 'ru';
+    const text = isRu ? {
+      navSignIn: 'Войти',
+      navStart: 'Начать бесплатно',
+      heroTitle: 'Следите за метаданными сайта автоматически',
+      heroSub: 'MetaWatch мгновенно сообщает, если изменились title, description, H1, canonical, robots/noindex или статус ответа.',
+      heroCtaPrimary: 'Попробовать бесплатно — без карты',
+      heroCtaSecondary: 'У меня уже есть аккаунт',
+      sideTitle: 'Пример за последние 24 часа',
+      sideTracked: 'Отслеживаемые URL',
+      sideIncidents: 'Инциденты (30д)',
+      sideChanged: 'Изменения сегодня',
+      sideUptime: 'Средний аптайм',
+      featuresTitle: 'Что умеет MetaWatch',
+      f1Title: 'Мониторинг мета',
+      f1Text: 'Title, description, H1, canonical, robots, noindex, OG и контент страницы по каждому URL.',
+      f2Title: 'Мониторинг аптайма',
+      f2Text: 'Периодические проверки доступности, фиксация инцидентов и публичные статус-страницы.',
+      f3Title: 'Мгновенные алерты',
+      f3Text: 'Email, Telegram, Slack, Discord, webhook и гибкие правила оповещений.',
+      examplesTitle: 'Примеры срабатываний',
+      ex1Field: 'Title изменился',
+      ex2Field: 'Появился noindex',
+      ex3Field: 'Uptime: DOWN',
+      before: 'Было',
+      after: 'Стало',
+      worksTitle: 'Как это работает',
+      step1: 'Добавьте URL',
+      step1Text: 'Выберите страницы и поля, которые хотите контролировать.',
+      step2: 'Мы проверяем',
+      step2Text: 'MetaWatch запускает проверки по вашему расписанию в фоне.',
+      step3: 'Получайте уведомления',
+      step3Text: 'Сразу узнавайте о рисках для SEO и доступности.',
+      pricingTitle: 'Тарифы',
+      priceMonth: '/месяц',
+      urls: 'URL',
+      monitors: 'Uptime-мониторы',
+      projects: 'Проекты',
+      minInterval: 'Мин. интервал',
+      unlimited: 'Безлимит',
+      testimonial: '«С MetaWatch мы заметили noindex на важных страницах в тот же день и избежали потери органического трафика».',
+      ctaBandTitle: 'Запустите мониторинг за 2 минуты',
+      ctaBandText: 'Добавьте первый проект, включите проверки и получите первое уведомление уже сегодня.',
+      ctaBandBtn: 'Создать аккаунт',
+      footerApi: 'API Документация',
+      footerHelp: 'Справка',
+      footerLogin: 'Вход',
+      footerRegister: 'Регистрация',
+      jumpFeatures: 'Функции',
+      jumpExamples: 'Примеры',
+      jumpHow: 'Как работает',
+      jumpPricing: 'Тарифы',
+      jumpFaq: 'FAQ',
+      faqTitle: 'Частые вопросы',
+      faq1q: 'Через сколько начнутся проверки после добавления URL?',
+      faq1a: 'Первая проверка запускается сразу после добавления URL. Дальше мониторинг идет по выбранному интервалу.',
+      faq2q: 'Какие уведомления доступны?',
+      faq2a: 'Email, Telegram, Slack, Discord, webhook и PagerDuty (в зависимости от тарифа и настроек).',
+      faq3q: 'Можно ли отключить шумные уведомления по отдельным полям?',
+      faq3a: 'Да. Для каждого поля есть override-режимы: Silent, Critical only, Email only, Telegram only, Slack only.'
+    } : {
+      navSignIn: 'Sign in',
+      navStart: 'Start free',
+      heroTitle: 'Monitor your website metadata automatically',
+      heroSub: 'MetaWatch alerts you instantly when title, description, H1, canonical, robots/noindex, or response codes change.',
+      heroCtaPrimary: 'Start free — no credit card needed',
+      heroCtaSecondary: 'I already have an account',
+      sideTitle: 'Sample in the last 24 hours',
+      sideTracked: 'Tracked URLs',
+      sideIncidents: 'Incidents (30d)',
+      sideChanged: 'Changed today',
+      sideUptime: 'Average uptime',
+      featuresTitle: 'What MetaWatch does',
+      f1Title: 'Meta Monitoring',
+      f1Text: 'Track title, description, H1, canonical, robots, noindex, OG tags, and content changes per URL.',
+      f2Title: 'Uptime Monitoring',
+      f2Text: 'Run interval checks, detect incidents automatically, and publish public status pages.',
+      f3Title: 'Instant Alerts',
+      f3Text: 'Send alerts to email, Telegram, Slack, Discord, webhook, and advanced rule channels.',
+      examplesTitle: 'Example Alerts',
+      ex1Field: 'Title changed',
+      ex2Field: 'noindex appeared',
+      ex3Field: 'Uptime: DOWN',
+      before: 'Before',
+      after: 'After',
+      worksTitle: 'How it works',
+      step1: 'Add URLs',
+      step1Text: 'Choose the pages and fields you want to track.',
+      step2: 'We monitor',
+      step2Text: 'MetaWatch runs checks on your schedule in the background.',
+      step3: 'Get alerted',
+      step3Text: 'Know about SEO and availability issues as soon as they happen.',
+      pricingTitle: 'Pricing',
+      priceMonth: '/month',
+      urls: 'URLs',
+      monitors: 'Uptime monitors',
+      projects: 'Projects',
+      minInterval: 'Min interval',
+      unlimited: 'Unlimited',
+      testimonial: '"MetaWatch helped us catch unexpected noindex and title changes before they impacted search traffic."',
+      ctaBandTitle: 'Start monitoring in 2 minutes',
+      ctaBandText: 'Create your first project, enable checks, and receive your first alert today.',
+      ctaBandBtn: 'Create account',
+      footerApi: 'API Docs',
+      footerHelp: 'Help',
+      footerLogin: 'Login',
+      footerRegister: 'Register',
+      jumpFeatures: 'Features',
+      jumpExamples: 'Examples',
+      jumpHow: 'How it works',
+      jumpPricing: 'Pricing',
+      jumpFaq: 'FAQ',
+      faqTitle: 'Frequently Asked Questions',
+      faq1q: 'How soon do checks start after adding a URL?',
+      faq1a: 'The first check runs immediately after you add a URL. After that, monitoring follows your selected interval.',
+      faq2q: 'Which notification channels are supported?',
+      faq2a: 'Email, Telegram, Slack, Discord, webhook, and PagerDuty (depending on plan and settings).',
+      faq3q: 'Can I reduce noisy alerts for specific fields?',
+      faq3a: 'Yes. Each monitored field supports override modes: Silent, Critical only, Email only, Telegram only, and Slack only.'
+    };
+    const langQuery = isRu ? '?lang=ru' : '?lang=en';
+  %>
   <div class="lp-wrap">
     <div class="lp-nav">
       <a href="/" class="lp-logo"><span>👁</span><span>MetaWatch</span></a>
       <div style="display:flex;gap:8px;align-items:center">
-        <a href="/login" class="btn btn-ghost">Sign in</a>
-        <a href="/register" class="btn btn-primary">Start free</a>
+        <div class="lp-lang">
+          <a href="/?lang=en" class="<%= !isRu ? 'lp-lang--active' : '' %>">EN</a>
+          <a href="/?lang=ru" class="<%= isRu ? 'lp-lang--active' : '' %>">RU</a>
+        </div>
+        <a href="/login<%= langQuery %>" class="btn btn-ghost"><%= text.navSignIn %></a>
+        <a href="/register<%= langQuery %>" class="btn btn-primary"><%= text.navStart %></a>
       </div>
     </div>
+    <nav class="lp-jump">
+      <a href="#features"><%= text.jumpFeatures %></a>
+      <a href="#examples"><%= text.jumpExamples %></a>
+      <a href="#how"><%= text.jumpHow %></a>
+      <a href="#pricing"><%= text.jumpPricing %></a>
+      <a href="#faq"><%= text.jumpFaq %></a>
+    </nav>
 
     <section class="lp-hero">
       <div class="lp-card lp-hero-main">
-        <h1 class="lp-title">Monitor your website metadata automatically</h1>
-        <p class="lp-sub">
-          Get alerted instantly when title, description, H1, canonical tags, robots rules or response codes change.
-        </p>
+        <h1 class="lp-title"><%= text.heroTitle %></h1>
+        <p class="lp-sub"><%= text.heroSub %></p>
         <div class="lp-cta">
-          <a href="/register" class="btn btn-primary">Start free — no credit card needed</a>
-          <a href="/login" class="btn btn-ghost">I already have an account</a>
+          <a href="/register<%= langQuery %>" class="btn btn-primary"><%= text.heroCtaPrimary %></a>
+          <a href="/login<%= langQuery %>" class="btn btn-ghost"><%= text.heroCtaSecondary %></a>
         </div>
       </div>
       <div class="lp-card lp-hero-side">
-        <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--text-muted)">Live Snapshot</div>
+        <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--text-muted)"><%= text.sideTitle %></div>
         <div class="lp-mini">
-          <div class="lp-mini-item">Tracked URLs<b>128</b></div>
-          <div class="lp-mini-item">Incidents (30d)<b>4</b></div>
-          <div class="lp-mini-item">Changed today<b>9</b></div>
-          <div class="lp-mini-item">Uptime avg<b>99.7%</b></div>
+          <div class="lp-mini-item"><%= text.sideTracked %><b>128</b></div>
+          <div class="lp-mini-item"><%= text.sideIncidents %><b>4</b></div>
+          <div class="lp-mini-item"><%= text.sideChanged %><b>9</b></div>
+          <div class="lp-mini-item"><%= text.sideUptime %><b>99.7%</b></div>
         </div>
       </div>
     </section>
 
-    <section class="lp-section">
-      <h2>Features</h2>
+    <section class="lp-section" id="features">
+      <h2><%= text.featuresTitle %></h2>
       <div class="lp-grid3">
         <article class="lp-card lp-feature">
-          <h3>Meta Monitoring</h3>
-          <p>Track title, description, H1, canonical, robots, noindex and content hash changes for every URL.</p>
+          <h3><%= text.f1Title %></h3>
+          <p><%= text.f1Text %></p>
         </article>
         <article class="lp-card lp-feature">
-          <h3>Uptime Monitoring</h3>
-          <p>Run interval checks, detect incidents automatically, and keep a public status page for your clients.</p>
+          <h3><%= text.f2Title %></h3>
+          <p><%= text.f2Text %></p>
         </article>
         <article class="lp-card lp-feature">
-          <h3>Instant Alerts</h3>
-          <p>Send notifications to email, Telegram or webhook with severity and suppression rules.</p>
+          <h3><%= text.f3Title %></h3>
+          <p><%= text.f3Text %></p>
         </article>
       </div>
     </section>
 
-    <section class="lp-section">
-      <h2>How it works</h2>
+    <section class="lp-section" id="examples">
+      <h2><%= text.examplesTitle %></h2>
+      <div class="lp-example-grid">
+        <article class="lp-card lp-example">
+          <div class="lp-example-top">
+            <div class="lp-example-url">https://shop.example.com/category/shoes</div>
+            <span class="lp-pill lp-pill--warning">warning</span>
+          </div>
+          <div class="lp-example-field"><%= text.ex1Field %></div>
+          <div class="lp-example-line"><b><%= text.before %>:</b> Running Shoes — Free Delivery</div>
+          <div class="lp-example-line"><b><%= text.after %>:</b> Running Shoes Online</div>
+        </article>
+        <article class="lp-card lp-example">
+          <div class="lp-example-top">
+            <div class="lp-example-url">https://blog.example.com/seo-checklist</div>
+            <span class="lp-pill lp-pill--critical">critical</span>
+          </div>
+          <div class="lp-example-field"><%= text.ex2Field %></div>
+          <div class="lp-example-line"><b><%= text.before %>:</b> index,follow</div>
+          <div class="lp-example-line"><b><%= text.after %>:</b> noindex,nofollow</div>
+        </article>
+        <article class="lp-card lp-example">
+          <div class="lp-example-top">
+            <div class="lp-example-url">https://api.example.com/health</div>
+            <span class="lp-pill lp-pill--critical">critical</span>
+          </div>
+          <div class="lp-example-field"><%= text.ex3Field %></div>
+          <div class="lp-example-line"><b><%= text.before %>:</b> 200 OK, 280ms</div>
+          <div class="lp-example-line"><b><%= text.after %>:</b> 503 Service Unavailable</div>
+        </article>
+      </div>
+    </section>
+
+    <section class="lp-section" id="how">
+      <h2><%= text.worksTitle %></h2>
       <div class="lp-steps">
         <article class="lp-card lp-step">
           <div class="lp-step-num">Step 1</div>
-          <h3>Add URLs</h3>
-          <p class="text-muted">Choose pages and fields you need to watch.</p>
+          <h3><%= text.step1 %></h3>
+          <p class="text-muted"><%= text.step1Text %></p>
         </article>
         <article class="lp-card lp-step">
           <div class="lp-step-num">Step 2</div>
-          <h3>We monitor</h3>
-          <p class="text-muted">MetaWatch runs checks on your schedule in the background.</p>
+          <h3><%= text.step2 %></h3>
+          <p class="text-muted"><%= text.step2Text %></p>
         </article>
         <article class="lp-card lp-step">
           <div class="lp-step-num">Step 3</div>
-          <h3>You get alerted</h3>
-          <p class="text-muted">Receive change and outage notifications instantly.</p>
+          <h3><%= text.step3 %></h3>
+          <p class="text-muted"><%= text.step3Text %></p>
         </article>
       </div>
     </section>
 
-    <section class="lp-section">
-      <h2>Pricing</h2>
+    <section class="lp-section" id="pricing">
+      <h2><%= text.pricingTitle %></h2>
       <div class="lp-pricing">
         <% const visiblePlans = (plans && plans.length > 0 ? plans : [
           { name: 'Free', price_usd: 0, max_urls: 10, max_uptime_monitors: 2, max_projects: 1, check_interval_min: 60 },
@@ -132,13 +321,13 @@
             <h3><%= plan.name %></h3>
             <div class="lp-price">
               <%= Number(plan.price_usd || 0) === 0 ? '$0' : ('$' + Number(plan.price_usd || 0)) %>
-              <small>/month</small>
+              <small><%= text.priceMonth %></small>
             </div>
             <ul>
-              <li>URLs: <%= plan.max_urls == null ? 'Unlimited' : plan.max_urls %></li>
-              <li>Uptime monitors: <%= plan.max_uptime_monitors == null ? 'Unlimited' : plan.max_uptime_monitors %></li>
-              <li>Projects: <%= plan.max_projects == null ? 'Unlimited' : plan.max_projects %></li>
-              <li>Min interval: <%= plan.check_interval_min %> min</li>
+              <li><%= text.urls %>: <%= plan.max_urls == null ? text.unlimited : plan.max_urls %></li>
+              <li><%= text.monitors %>: <%= plan.max_uptime_monitors == null ? text.unlimited : plan.max_uptime_monitors %></li>
+              <li><%= text.projects %>: <%= plan.max_projects == null ? text.unlimited : plan.max_projects %></li>
+              <li><%= text.minInterval %>: <%= plan.check_interval_min %> min</li>
             </ul>
           </article>
         <% }) %>
@@ -147,15 +336,41 @@
 
     <section class="lp-section">
       <div class="lp-card lp-testimonial">
-        “MetaWatch helped us catch unexpected title and noindex changes before they impacted search traffic.”
+        <%= text.testimonial %>
+      </div>
+    </section>
+
+    <section class="lp-section" id="faq">
+      <h2><%= text.faqTitle %></h2>
+      <div class="lp-faq">
+        <details class="lp-card lp-faq-item">
+          <summary><%= text.faq1q %></summary>
+          <p><%= text.faq1a %></p>
+        </details>
+        <details class="lp-card lp-faq-item">
+          <summary><%= text.faq2q %></summary>
+          <p><%= text.faq2a %></p>
+        </details>
+        <details class="lp-card lp-faq-item">
+          <summary><%= text.faq3q %></summary>
+          <p><%= text.faq3a %></p>
+        </details>
+      </div>
+    </section>
+
+    <section class="lp-section">
+      <div class="lp-card lp-cta-band">
+        <h3><%= text.ctaBandTitle %></h3>
+        <p><%= text.ctaBandText %></p>
+        <a href="/register<%= langQuery %>" class="btn btn-primary"><%= text.ctaBandBtn %></a>
       </div>
     </section>
 
     <footer class="lp-footer">
-      <a href="/api/docs">API Docs</a>
-      <a href="/help">Help</a>
-      <a href="/login">Login</a>
-      <a href="/register">Register</a>
+      <a href="/api/docs"><%= text.footerApi %></a>
+      <a href="/help<%= langQuery %>"><%= text.footerHelp %></a>
+      <a href="/login<%= langQuery %>"><%= text.footerLogin %></a>
+      <a href="/register<%= langQuery %>"><%= text.footerRegister %></a>
     </footer>
   </div>
 </body>
