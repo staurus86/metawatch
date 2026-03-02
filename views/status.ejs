@@ -317,6 +317,16 @@
       padding: 14px;
     }
 
+    .uptime-bars--weekly {
+      height: 44px;
+      gap: 6px;
+    }
+
+    .uptime-bars--hourly {
+      height: 34px;
+      gap: 2px;
+    }
+
     .uptime-bar {
       flex: 1;
       min-height: 4px;
@@ -342,6 +352,14 @@
       justify-content: space-between;
       color: var(--muted);
       font-size: 11px;
+    }
+
+    .hour-markers {
+      padding: 0 14px 12px;
+      display: flex;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 10px;
     }
 
     .legend-dots {
@@ -583,6 +601,45 @@
           <span><i style="background:#f87171"></i>Down</span>
         </span>
         <span>Today</span>
+      </div>
+    </section>
+
+    <section class="status-card status-section reveal">
+      <div class="status-card-title"><%= t('status.last_7_days') %></div>
+      <div class="uptime-bars uptime-bars--weekly">
+        <% weekBuckets.forEach(function(bucket) { %>
+          <div
+            class="uptime-bar uptime-bar--<%= bucket.status %>"
+            style="height:<%= Math.max(10, Math.min(42, bucket.count * 7)) %>px"
+            title="<%= bucket.date %>: <%= bucket.status %>">
+          </div>
+        <% }) %>
+      </div>
+      <div class="bar-legend">
+        <span><%= t('status.ago_7d') %></span>
+        <span>Today</span>
+      </div>
+    </section>
+
+    <section class="status-card status-section reveal">
+      <div class="status-card-title"><%= t('status.last_24_hours') %></div>
+      <div class="uptime-bars uptime-bars--hourly">
+        <% hourBuckets.forEach(function(bucket) { %>
+          <div
+            class="uptime-bar uptime-bar--<%= bucket.status %>"
+            style="height:<%= Math.max(6, Math.min(32, bucket.count * 8)) %>px"
+            title="<%= bucket.hour_label %> UTC: <%= bucket.status %>">
+          </div>
+        <% }) %>
+      </div>
+      <div class="hour-markers">
+        <% [0, 6, 12, 18, 23].forEach(function(i) { %>
+          <span><%= hourBuckets[i] ? hourBuckets[i].hour_label : '' %></span>
+        <% }) %>
+      </div>
+      <div class="bar-legend">
+        <span><%= t('status.ago_24h') %></span>
+        <span><%= t('status.now_utc') %></span>
       </div>
     </section>
 

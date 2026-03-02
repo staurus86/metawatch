@@ -14,6 +14,17 @@ function fmtDuration(sec) {
   return `${h}h ${m}m`;
 }
 
+function normalizeBucket(row) {
+  if (!row) return { status: 'empty', count: 0 };
+  const down = parseInt(row.down_count || 0, 10) || 0;
+  const degraded = parseInt(row.degraded_count || 0, 10) || 0;
+  const total = parseInt(row.count || 0, 10) || 0;
+  if (down > 0) return { status: 'down', count: down };
+  if (degraded > 0) return { status: 'degraded', count: degraded };
+  if (total > 0) return { status: 'up', count: total };
+  return { status: 'empty', count: 0 };
+}
+
 // GET /status/:slug — public status page (no auth required)
 router.get('/:slug', async (req, res) => {
   try {
@@ -125,15 +136,49 @@ router.get('/:slug', async (req, res) => {
       d.setDate(d.getDate() - i);
       const key = d.toISOString().split('T')[0];
       const bucket = dayMap.get(key);
-      if (!bucket) {
-        dayBuckets.push({ date: key, status: 'empty', count: 0 });
-      } else if (parseInt(bucket.down_count) > 0) {
-        dayBuckets.push({ date: key, status: 'down', count: parseInt(bucket.down_count) });
-      } else if (parseInt(bucket.degraded_count) > 0) {
-        dayBuckets.push({ date: key, status: 'degraded', count: parseInt(bucket.degraded_count) });
-      } else {
-        dayBuckets.push({ date: key, status: 'up', count: parseInt(bucket.count) });
-      }
+      const normalized = normalizeBucket(bucket);
+      dayBuckets.push({ date: key, ...normalized });
+    }
+
+    // Build 7-day daily buckets (including today)
+    const weekBuckets = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().split('T')[0];
+      const bucket = dayMap.get(key);
+      const normalized = normalizeBucket(bucket);
+      weekBuckets.push({ date: key, ...normalized });
+    }
+
+    // 24-hour hourly buckets for chart
+    const { rows: hourlyRows } = await pool.query(
+      `SELECT
+         EXTRACT(EPOCH FROM DATE_TRUNC('hour', checked_at AT TIME ZONE 'UTC'))::bigint AS hour_epoch,
+         COUNT(*) AS count,
+         COUNT(*) FILTER (WHERE status = 'down') AS down_count,
+         COUNT(*) FILTER (WHERE status = 'degraded') AS degraded_count
+       FROM uptime_checks
+       WHERE monitor_id = $1
+         AND checked_at > NOW() - INTERVAL '24 hours'
+       GROUP BY DATE_TRUNC('hour', checked_at AT TIME ZONE 'UTC')
+       ORDER BY hour_epoch ASC`,
+      [monitor.id]
+    );
+    const hourMap = new Map(hourlyRows.map(r => [Number(r.hour_epoch), r]));
+    const hourBuckets = [];
+    const nowHourUtc = new Date();
+    nowHourUtc.setUTCMinutes(0, 0, 0);
+    for (let i = 23; i >= 0; i--) {
+      const hourDate = new Date(nowHourUtc.getTime() - i * 60 * 60 * 1000);
+      const hourEpoch = Math.floor(hourDate.getTime() / 1000);
+      const bucket = hourMap.get(hourEpoch);
+      const normalized = normalizeBucket(bucket);
+      hourBuckets.push({
+        hour_epoch: hourEpoch,
+        hour_label: hourDate.toISOString().slice(11, 16),
+        ...normalized
+      });
     }
 
     res.render('status', {
@@ -148,6 +193,8 @@ router.get('/:slug', async (req, res) => {
       recentChecks,
       incidentSummary: incidentSummary || { incidents_30d: 0, downtime_seconds_30d: 0 },
       dayBuckets,
+      weekBuckets,
+      hourBuckets,
       fmtDuration
     });
   } catch (err) {

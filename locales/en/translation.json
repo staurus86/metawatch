@@ -59,6 +59,8 @@
     "uptime": "Uptime",
     "performance_incidents": "Performance & Incidents (last 24h / 30d)",
     "last_90_days": "Last 90 Days",
+    "last_7_days": "Last 7 Days",
+    "last_24_hours": "Last 24 Hours",
     "recent_checks": "Recent Checks",
     "recent_incidents": "Recent Incidents",
     "no_checks": "No checks yet.",
@@ -77,7 +79,10 @@
     "incidents_30d": "Incidents 30d",
     "check_interval": "Check interval",
     "threshold": "Threshold",
-    "last_error": "Last error"
+    "last_error": "Last error",
+    "ago_7d": "7 days ago",
+    "ago_24h": "24h ago",
+    "now_utc": "Now (UTC)"
   },
   "emails": {
     "alert": {
