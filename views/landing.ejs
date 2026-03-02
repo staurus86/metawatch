@@ -66,6 +66,10 @@
     .lp-footer { margin-top: 34px; font-size: 13px; color: var(--text-muted); display: flex; gap: 12px; flex-wrap: wrap; }
     .lp-footer a { color: var(--text-muted); text-decoration: none; }
     .lp-footer a:hover { text-decoration: underline; }
+    [data-theme="dark"] .lp-jump a { background: rgba(26,29,39,0.75); }
+    [data-theme="dark"] .lp-pill--critical { color: #fc8181; background: #2d1515; border-color: #5a2020; }
+    [data-theme="dark"] .lp-pill--warning { color: #f6ad55; background: #2d2010; border-color: #5a4010; }
+    [data-theme="dark"] .lp-pill--info { color: #90cdf4; background: #1a2638; border-color: #31435f; }
     @media (max-width: 960px) {
       .lp-hero { grid-template-columns: 1fr; }
       .lp-grid3, .lp-example-grid, .lp-steps, .lp-pricing { grid-template-columns: 1fr; }
