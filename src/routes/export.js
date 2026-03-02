@@ -3,6 +3,7 @@ const router = express.Router();
 const ExcelJS = require('exceljs');
 const pool = require('../db');
 const { requireAuth } = require('../auth');
+const { buildPdfReportBuffer, defaultPdfDateRange } = require('../pdf-report');
 
 function csvCell(val) {
   const str = String(val ?? '');
@@ -20,6 +21,15 @@ function parseDate(str) {
   if (!str) return null;
   const d = new Date(str);
   return isNaN(d) ? null : d;
+}
+
+function resolvePdfRange(fromRaw, toRaw) {
+  const from = parseDate(fromRaw);
+  const to = parseDate(toRaw);
+  if (from && to) return { fromDate: from, toDate: to };
+  if (from && !to) return { fromDate: from, toDate: new Date() };
+  if (!from && to) return { fromDate: new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000), toDate: to };
+  return defaultPdfDateRange();
 }
 
 function addDateRangeFilters({ columnSql, fromDate, toDate, whereParts, params }) {
@@ -227,6 +237,33 @@ router.get('/report.xlsx', requireAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).send('Export failed: ' + err.message);
+  }
+});
+
+// GET /export/report.pdf — PDF summary report (default: last 30 days)
+router.get('/report.pdf', requireAuth, async (req, res) => {
+  try {
+    const isAdmin = req.user?.role === 'admin';
+    const { fromDate, toDate } = resolvePdfRange(req.query.from, req.query.to);
+    if (fromDate > toDate) {
+      return res.status(400).send('Invalid date range: "from" must be <= "to".');
+    }
+
+    const pdfBuffer = await buildPdfReportBuffer({
+      userId: req.user.id,
+      isAdmin,
+      userEmail: req.user.email,
+      fromDate,
+      toDate
+    });
+
+    const filename = `metawatch-report-${formatDate(new Date())}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(pdfBuffer);
+  } catch (err) {
+    console.error('[Export PDF] Failed:', err.message);
+    return res.status(500).send('PDF export failed: ' + err.message);
   }
 });
 

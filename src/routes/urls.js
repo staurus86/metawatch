@@ -8,7 +8,7 @@ const axios = require('axios');
 const pool = require('../db');
 const { checkUrl } = require('../checker');
 const { sendPagerDuty } = require('../notifier');
-const { scheduleUrl, unscheduleUrl } = require('../scheduler');
+const { scheduleUrl, unscheduleUrl, triggerUrlCheckNow } = require('../scheduler');
 const { requireAuth } = require('../auth');
 const { checkSemaphore, domainRateLimit } = require('../queue');
 const { scanEmitter, isScanRunning, setScanRunning } = require('../scan-events');
@@ -372,7 +372,7 @@ router.post('/add', requireAuth, async (req, res) => {
     );
 
     scheduleUrl(newUrl);
-    checkUrl(newUrl.id).catch(err =>
+    triggerUrlCheckNow(newUrl, 'create').catch(err =>
       console.error(`Initial check failed for URL #${newUrl.id}: ${err.message}`)
     );
     await auditFromRequest(req, {
@@ -490,7 +490,7 @@ router.post('/bulk', requireAuth, upload.single('file'), async (req, res) => {
             [safeImportUrl, interval, req.user.id, selectedProjectId, importTag]
           );
           scheduleUrl(newRec);
-          checkUrl(newRec.id).catch(() => {});
+          triggerUrlCheckNow(newRec, 'bulk_import').catch(() => {});
           imported++;
         } catch (e) {
           console.error(`Bulk import error for ${u}: ${e.message}`);
@@ -995,12 +995,12 @@ router.post('/:id/check-now', requireAuth, async (req, res) => {
     // Verify ownership before checking
     const { rows: [owned] } = await pool.query(
       isAdmin
-        ? 'SELECT id FROM monitored_urls WHERE id = $1'
-        : 'SELECT id FROM monitored_urls WHERE id = $1 AND user_id = $2',
+        ? 'SELECT id, url, user_id FROM monitored_urls WHERE id = $1'
+        : 'SELECT id, url, user_id FROM monitored_urls WHERE id = $1 AND user_id = $2',
       isAdmin ? [urlId] : [urlId, req.user.id]
     );
     if (!owned) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
-    await checkUrl(urlId);
+    await triggerUrlCheckNow(owned, 'manual_check');
     res.redirect(`/urls/${urlId}`);
   } catch (err) {
     console.error(err);
@@ -1301,7 +1301,7 @@ router.post('/:id/clone', requireAuth, async (req, res) => {
     );
 
     scheduleUrl(cloned);
-    checkUrl(cloned.id).catch(() => {});
+    triggerUrlCheckNow(cloned, 'clone').catch(() => {});
     res.redirect(`/urls/${cloned.id}/edit?cloned=1`);
   } catch (err) {
     console.error(err);

@@ -1,6 +1,7 @@
 const axios = require('axios');
 const crypto = require('crypto');
 const { sendAlert: sendEmailAlert } = require('./mailer');
+const { enqueueNotification, isQueueEnabled } = require('./queue');
 const { assertSafeOutboundUrl } = require('./net-safety');
 
 function buildWebhookSignature(payload, secret) {
@@ -311,6 +312,31 @@ function buildTgMessage(field, url, oldValue, newValue) {
   ].join('\n');
 }
 
+function isAsyncNotificationsEnabled() {
+  const flag = String(process.env.ENABLE_ASYNC_NOTIFICATIONS || 'false').trim().toLowerCase();
+  return flag === 'true' && isQueueEnabled();
+}
+
+async function dispatchOrSend({ channel, target, payload, alertId, sendNow }) {
+  if (isAsyncNotificationsEnabled()) {
+    try {
+      const queued = await enqueueNotification({
+        channel,
+        target,
+        payload,
+        alertId: alertId || null
+      });
+      if (queued?.queued) {
+        return true;
+      }
+    } catch (err) {
+      console.error(`[NotifyQueue] ${channel} enqueue failed: ${err.message}`);
+    }
+  }
+
+  return !!(await sendNow());
+}
+
 /**
  * Dispatch notifications for a field change.
  * If ruleActions is provided (from alert_rules), it overrides URL-level channels.
@@ -320,7 +346,7 @@ function buildTgMessage(field, url, oldValue, newValue) {
  *   - send_telegram: value = "botToken:chatId"
  *   - send_webhook:  value = webhook URL
  */
-async function notify({ urlRecord, field, oldValue, newValue, severity, timestamp, ruleActions }) {
+async function notify({ urlRecord, field, oldValue, newValue, severity, timestamp, ruleActions, alertId = null }) {
   const results = { email: false, telegram: false, webhook: false, discord: false, slack: false, pagerduty: false };
 
   const hasRuleOverride = Array.isArray(ruleActions) && ruleActions.length > 0;
@@ -339,14 +365,29 @@ async function notify({ urlRecord, field, oldValue, newValue, severity, timestam
     : (urlRecord.email ? [urlRecord.email] : []);
 
   for (const to of emailTargets) {
-    const sent = await sendEmailAlert({
-      to,
-      url: urlRecord.url,
-      field,
-      oldValue,
-      newValue,
-      timestamp,
-      language: urlRecord.user_language
+    const sent = await dispatchOrSend({
+      channel: 'email',
+      target: { to },
+      alertId,
+      payload: {
+        mode: 'meta_alert',
+        to,
+        url: urlRecord.url,
+        field,
+        oldValue,
+        newValue,
+        timestamp: timestamp instanceof Date ? timestamp.toISOString() : timestamp,
+        language: urlRecord.user_language
+      },
+      sendNow: () => sendEmailAlert({
+        to,
+        url: urlRecord.url,
+        field,
+        oldValue,
+        newValue,
+        timestamp,
+        language: urlRecord.user_language
+      })
     });
     results.email = results.email || sent;
   }
@@ -362,17 +403,29 @@ async function notify({ urlRecord, field, oldValue, newValue, severity, timestam
       if (sep === -1) continue;
       const botToken = a.value.substring(0, sep);
       const chatId   = a.value.substring(sep + 1);
-      const sent = await sendTelegram({ botToken, chatId, message: msg });
+      const sent = await dispatchOrSend({
+        channel: 'telegram',
+        target: { botToken, chatId },
+        alertId,
+        payload: { botToken, chatId, message: msg },
+        sendNow: () => sendTelegram({ botToken, chatId, message: msg })
+      });
       results.telegram = results.telegram || sent;
     }
   } else if (!hasRuleOverride) {
     const tgToken = urlRecord.telegram_bot_token || process.env.TELEGRAM_BOT_TOKEN || null;
     if (tgToken && urlRecord.telegram_chat_id) {
       const msg = buildTgMessage(field, urlRecord.url, oldValue, newValue);
-      const sent = await sendTelegram({
-        botToken: tgToken,
-        chatId: urlRecord.telegram_chat_id,
-        message: msg
+      const sent = await dispatchOrSend({
+        channel: 'telegram',
+        target: { botToken: tgToken, chatId: urlRecord.telegram_chat_id },
+        alertId,
+        payload: { botToken: tgToken, chatId: urlRecord.telegram_chat_id, message: msg },
+        sendNow: () => sendTelegram({
+          botToken: tgToken,
+          chatId: urlRecord.telegram_chat_id,
+          message: msg
+        })
       });
       results.telegram = results.telegram || sent;
     }
@@ -397,7 +450,13 @@ async function notify({ urlRecord, field, oldValue, newValue, severity, timestam
   };
 
   for (const wUrl of webhookTargets) {
-    const sent = await sendWebhook({ webhookUrl: wUrl, payload: webhookPayload });
+    const sent = await dispatchOrSend({
+      channel: 'webhook',
+      target: { webhookUrl: wUrl },
+      alertId,
+      payload: webhookPayload,
+      sendNow: () => sendWebhook({ webhookUrl: wUrl, payload: webhookPayload })
+    });
     results.webhook = results.webhook || sent;
   }
 
@@ -407,17 +466,24 @@ async function notify({ urlRecord, field, oldValue, newValue, severity, timestam
     ? ruleDiscordTargets
     : (urlRecord.discord_webhook_url ? [urlRecord.discord_webhook_url] : []);
   for (const webhookUrl of discordTargets) {
-    const sent = await sendDiscord({
-      webhookUrl,
-      alert: {
-        type: 'meta',
-        field,
-        url: urlRecord.url,
-        oldValue,
-        newValue,
-        severity: severity || 'info',
-        timestamp: timestamp instanceof Date ? timestamp : new Date(timestamp || Date.now())
-      }
+    const discordAlert = {
+      type: 'meta',
+      field,
+      url: urlRecord.url,
+      oldValue,
+      newValue,
+      severity: severity || 'info',
+      timestamp: timestamp instanceof Date ? timestamp : new Date(timestamp || Date.now())
+    };
+    const sent = await dispatchOrSend({
+      channel: 'discord',
+      target: { webhookUrl },
+      alertId,
+      payload: { alert: discordAlert },
+      sendNow: () => sendDiscord({
+        webhookUrl,
+        alert: discordAlert
+      })
     });
     results.discord = results.discord || sent;
   }
@@ -429,35 +495,49 @@ async function notify({ urlRecord, field, oldValue, newValue, severity, timestam
     for (const action of ruleSlackActions) {
       const channelId = String(action.value || defaultSlackChannel || '').trim();
       if (!urlRecord.slack_bot_token || !channelId) continue;
-      const sent = await sendSlack({
-        botToken: urlRecord.slack_bot_token,
-        channelId,
-        alert: {
-          field,
-          url: urlRecord.url,
-          oldValue,
-          newValue,
-          severity: severity || 'info',
-          timestamp: timestamp instanceof Date ? timestamp : new Date(timestamp || Date.now()),
-          detailsUrl
-        }
+      const slackAlert = {
+        field,
+        url: urlRecord.url,
+        oldValue,
+        newValue,
+        severity: severity || 'info',
+        timestamp: timestamp instanceof Date ? timestamp : new Date(timestamp || Date.now()),
+        detailsUrl
+      };
+      const sent = await dispatchOrSend({
+        channel: 'slack',
+        target: { botToken: urlRecord.slack_bot_token, channelId },
+        alertId,
+        payload: { alert: slackAlert },
+        sendNow: () => sendSlack({
+          botToken: urlRecord.slack_bot_token,
+          channelId,
+          alert: slackAlert
+        })
       });
       results.slack = results.slack || sent;
     }
   } else if (!hasRuleOverride && urlRecord.send_to_slack) {
     if (urlRecord.slack_bot_token && defaultSlackChannel) {
-      const sent = await sendSlack({
-        botToken: urlRecord.slack_bot_token,
-        channelId: defaultSlackChannel,
-        alert: {
-          field,
-          url: urlRecord.url,
-          oldValue,
-          newValue,
-          severity: severity || 'info',
-          timestamp: timestamp instanceof Date ? timestamp : new Date(timestamp || Date.now()),
-          detailsUrl
-        }
+      const slackAlert = {
+        field,
+        url: urlRecord.url,
+        oldValue,
+        newValue,
+        severity: severity || 'info',
+        timestamp: timestamp instanceof Date ? timestamp : new Date(timestamp || Date.now()),
+        detailsUrl
+      };
+      const sent = await dispatchOrSend({
+        channel: 'slack',
+        target: { botToken: urlRecord.slack_bot_token, channelId: defaultSlackChannel },
+        alertId,
+        payload: { alert: slackAlert },
+        sendNow: () => sendSlack({
+          botToken: urlRecord.slack_bot_token,
+          channelId: defaultSlackChannel,
+          alert: slackAlert
+        })
       });
       results.slack = results.slack || sent;
     }
@@ -467,33 +547,47 @@ async function notify({ urlRecord, field, oldValue, newValue, severity, timestam
   const rulePagerDutyActions = byType('send_pagerduty');
   if (rulePagerDutyActions.length > 0) {
     if (urlRecord.pagerduty_integration_key) {
-      const sent = await sendPagerDuty({
-        integrationKey: urlRecord.pagerduty_integration_key,
-        alert: {
-          urlId: urlRecord.id,
-          field,
-          url: urlRecord.url,
-          oldValue,
-          newValue,
-          severity: severity || 'info',
-          timestamp: timestamp instanceof Date ? timestamp : new Date(timestamp || Date.now())
-        }
+      const pagerAlert = {
+        urlId: urlRecord.id,
+        field,
+        url: urlRecord.url,
+        oldValue,
+        newValue,
+        severity: severity || 'info',
+        timestamp: timestamp instanceof Date ? timestamp : new Date(timestamp || Date.now())
+      };
+      const sent = await dispatchOrSend({
+        channel: 'pagerduty',
+        target: { integrationKey: urlRecord.pagerduty_integration_key },
+        alertId,
+        payload: { action: 'trigger', alert: pagerAlert },
+        sendNow: () => sendPagerDuty({
+          integrationKey: urlRecord.pagerduty_integration_key,
+          alert: pagerAlert
+        })
       });
       results.pagerduty = results.pagerduty || sent;
     }
   } else if (!hasRuleOverride && urlRecord.pagerduty_integration_key) {
     if (shouldSendPagerDutyByThreshold(urlRecord.pagerduty_threshold, severity || 'info')) {
-      const sent = await sendPagerDuty({
-        integrationKey: urlRecord.pagerduty_integration_key,
-        alert: {
-          urlId: urlRecord.id,
-          field,
-          url: urlRecord.url,
-          oldValue,
-          newValue,
-          severity: severity || 'info',
-          timestamp: timestamp instanceof Date ? timestamp : new Date(timestamp || Date.now())
-        }
+      const pagerAlert = {
+        urlId: urlRecord.id,
+        field,
+        url: urlRecord.url,
+        oldValue,
+        newValue,
+        severity: severity || 'info',
+        timestamp: timestamp instanceof Date ? timestamp : new Date(timestamp || Date.now())
+      };
+      const sent = await dispatchOrSend({
+        channel: 'pagerduty',
+        target: { integrationKey: urlRecord.pagerduty_integration_key },
+        alertId,
+        payload: { action: 'trigger', alert: pagerAlert },
+        sendNow: () => sendPagerDuty({
+          integrationKey: urlRecord.pagerduty_integration_key,
+          alert: pagerAlert
+        })
       });
       results.pagerduty = results.pagerduty || sent;
     }

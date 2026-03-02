@@ -191,11 +191,27 @@
                value="<%= digestSettings && digestSettings.alt_email || '' %>">
         <p class="form-hint">Leave blank to use your account email</p>
       </div>
+
+      <div class="form-section-title" style="margin-top:6px">PDF Report Attachment</div>
+      <div class="form-group">
+        <label class="checkbox-label" style="margin-bottom:8px">
+          <input type="checkbox" name="pdf_report_enabled" value="1" <%= digestSettings && digestSettings.pdf_report_enabled ? 'checked' : '' %>>
+          <strong>Include PDF report in digest email</strong>
+        </label>
+        <p class="form-hint">Adds a generated MetaWatch PDF report as email attachment.</p>
+      </div>
+      <div class="form-group" style="max-width:260px">
+        <label class="form-label">PDF frequency</label>
+        <select name="pdf_report_frequency" class="form-select">
+          <option value="weekly" <%= !digestSettings || digestSettings.pdf_report_frequency === 'weekly' ? 'selected' : '' %>>Weekly</option>
+          <option value="monthly" <%= digestSettings && digestSettings.pdf_report_frequency === 'monthly' ? 'selected' : '' %>>Monthly (1st day)</option>
+        </select>
+      </div>
       <div class="form-actions">
         <button type="submit" class="btn btn-primary">Save Digest Settings</button>
-        <form action="/profile/digest/test" method="POST" style="display:inline">
-          <button type="submit" class="btn btn-ghost" style="font-size:13px">Send Test Digest</button>
-        </form>
+        <button type="submit" formaction="/profile/digest/test" formmethod="POST" class="btn btn-ghost" style="font-size:13px">
+          Send Test Digest
+        </button>
       </div>
     </form>
   </div>

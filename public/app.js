@@ -386,11 +386,12 @@ function initChangeHeatmap() {
   const urlId = container.getAttribute('data-url-id');
   if (!urlId) return;
 
-  fetch('/api/url/' + urlId + '/change-heatmap')
+  fetch('/api/v2/urls/' + urlId + '/change-heatmap')
     .then(r => r.json())
-    .then(data => {
-      if (!data || data.error) return;
-      renderHeatmap('change-heatmap', data);
+    .then(payload => {
+      if (!payload || payload.error) return;
+      const data = payload.data && typeof payload.data === 'object' ? payload.data : payload;
+      renderHeatmap('change-heatmap', data || {});
     })
     .catch(() => {});
 }

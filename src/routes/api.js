@@ -5,6 +5,8 @@ const pool = require('../db');
 const { requireAuth, requireApiKey, hashApiKey } = require('../auth');
 const { scanEmitter, isScanRunning } = require('../scan-events');
 const { getSchedulerStatus } = require('../scheduler');
+const { getQueueStats } = require('../queue');
+const { getWorkerStatus } = require('../workers');
 const { ipKeyGenerator } = require('express-rate-limit');
 const { version: APP_VERSION } = require('../../package.json');
 
@@ -55,11 +57,13 @@ router.get('/health', async (req, res) => {
     await pool.query('SELECT 1');
     const dbLatencyMs = Date.now() - t0;
     const scheduler = getSchedulerStatus();
+    const workerStatus = getWorkerStatus();
 
     const [
       { rows: [webhookRow] },
       { rows: [queueRow] },
-      { rows: [lastCheckRow] }
+      { rows: [lastCheckRow] },
+      queueStats
     ] = await Promise.all([
       pool.query(
         `SELECT COUNT(*) FILTER (WHERE status = 'pending')::int AS pending_webhooks
@@ -86,7 +90,8 @@ router.get('/health', async (req, res) => {
           (SELECT MAX(checked_at) FROM snapshots),
           (SELECT MAX(checked_at) FROM uptime_checks)
         ) AS last_check_ran_at
-      `)
+      `),
+      getQueueStats().catch(() => null)
     ]);
 
     const pendingWebhooks = webhookRow?.pending_webhooks || 0;
@@ -96,6 +101,9 @@ router.get('/health', async (req, res) => {
       timestamp: new Date().toISOString(),
       db_connected: true,
       scheduler_running: !!(scheduler.started && scheduler.hasLock),
+      queue_backend: scheduler.queueBackend,
+      worker_status: workerStatus,
+      queue_stats: queueStats,
       last_check_ran_at: lastCheckRow?.last_check_ran_at || null,
       queue_depth: {
         pending_checks: pendingChecks,

@@ -2,10 +2,19 @@ const cron = require('node-cron');
 const pool = require('./db');
 const { checkUrl } = require('./checker');
 const { checkMonitor } = require('./uptime-checker');
-const { checkSemaphore, domainRateLimit, userRateLimit } = require('./queue');
+const {
+  checkSemaphore,
+  domainRateLimit,
+  userRateLimit,
+  enqueueMetaCheck,
+  enqueueUptimeCheck,
+  getQueueBackendLabel,
+  isQueueEnabled
+} = require('./queue');
 const { sendDigest } = require('./mailer');
 const { sendWebhook } = require('./notifier');
 const { runOnboardingSequenceDaily } = require('./onboarding-sequence');
+const { buildPdfReportBuffer, defaultPdfDateRange } = require('./pdf-report');
 
 // Map of urlId -> cron ScheduledTask
 const activeJobs = new Map();
@@ -40,6 +49,14 @@ function getJitterMs(priority) {
   if (priority === 'critical') return Math.floor(Math.random() * 10 * 1000);
   if (priority === 'warning') return Math.floor(Math.random() * 30 * 1000);
   return Math.floor(Math.random() * 60 * 1000);
+}
+
+function sourceToPriority(source) {
+  const value = String(source || '').toLowerCase();
+  if (value.includes('critical')) return 'critical';
+  if (value.includes('warning')) return 'warning';
+  if (value.includes('info')) return 'info';
+  return 'warning';
 }
 
 function interleaveByUser(records) {
@@ -105,6 +122,20 @@ async function releaseSchedulerLock() {
 
 async function runUrlCheck(urlRecord, source = 'cron') {
   const { id, url } = urlRecord;
+  if (isQueueEnabled()) {
+    try {
+      await enqueueMetaCheck({
+        urlId: id,
+        userId: urlRecord.user_id || null,
+        source,
+        priority: sourceToPriority(source)
+      });
+    } catch (err) {
+      console.error(`[Scheduler] Failed to enqueue URL #${id}: ${err.message}`);
+    }
+    return;
+  }
+
   if (runningUrlChecks.has(id)) {
     console.log(`[Scheduler] Skip URL #${id} (${source}) — already running`);
     return;
@@ -125,6 +156,20 @@ async function runUrlCheck(urlRecord, source = 'cron') {
 
 async function runMonitorCheck(monitor, source = 'cron') {
   const { id, url } = monitor;
+  if (isQueueEnabled()) {
+    try {
+      await enqueueUptimeCheck({
+        monitorId: id,
+        userId: monitor.user_id || null,
+        source,
+        priority: sourceToPriority(source)
+      });
+    } catch (err) {
+      console.error(`[Uptime] Failed to enqueue monitor #${id}: ${err.message}`);
+    }
+    return;
+  }
+
   if (runningMonitorChecks.has(id)) {
     console.log(`[Uptime] Skip monitor #${id} (${source}) — already running`);
     return;
@@ -169,6 +214,68 @@ function unscheduleUrl(urlId) {
     activeJobs.delete(urlId);
     console.log(`[Scheduler] Removed URL #${urlId}`);
   }
+}
+
+async function loadUrlRecordForRun(urlId) {
+  const { rows: [row] } = await pool.query(
+    'SELECT id, url, user_id FROM monitored_urls WHERE id = $1 LIMIT 1',
+    [urlId]
+  );
+  return row || null;
+}
+
+async function loadMonitorRecordForRun(monitorId) {
+  const { rows: [row] } = await pool.query(
+    'SELECT id, url, user_id FROM uptime_monitors WHERE id = $1 LIMIT 1',
+    [monitorId]
+  );
+  return row || null;
+}
+
+async function triggerUrlCheckNow(urlInput, source = 'manual') {
+  const id = parseInt(typeof urlInput === 'object' ? urlInput?.id : urlInput, 10);
+  if (!Number.isFinite(id) || id <= 0) return { queued: false, reason: 'invalid_url_id' };
+
+  if (isQueueEnabled()) {
+    const result = await enqueueMetaCheck({
+      urlId: id,
+      userId: typeof urlInput === 'object' ? urlInput?.user_id || null : null,
+      source,
+      priority: 'critical'
+    });
+    return { ...result, immediate: false };
+  }
+
+  const record = (typeof urlInput === 'object' && urlInput?.url)
+    ? urlInput
+    : await loadUrlRecordForRun(id);
+  if (!record) return { queued: false, reason: 'url_not_found' };
+
+  await runUrlCheck(record, source);
+  return { queued: true, backend: 'in-memory', immediate: true };
+}
+
+async function triggerMonitorCheckNow(monitorInput, source = 'manual') {
+  const id = parseInt(typeof monitorInput === 'object' ? monitorInput?.id : monitorInput, 10);
+  if (!Number.isFinite(id) || id <= 0) return { queued: false, reason: 'invalid_monitor_id' };
+
+  if (isQueueEnabled()) {
+    const result = await enqueueUptimeCheck({
+      monitorId: id,
+      userId: typeof monitorInput === 'object' ? monitorInput?.user_id || null : null,
+      source,
+      priority: 'critical'
+    });
+    return { ...result, immediate: false };
+  }
+
+  const record = (typeof monitorInput === 'object' && monitorInput?.url)
+    ? monitorInput
+    : await loadMonitorRecordForRun(id);
+  if (!record) return { queued: false, reason: 'monitor_not_found' };
+
+  await runMonitorCheck(record, source);
+  return { queued: true, backend: 'in-memory', immediate: true };
 }
 
 async function startScheduler() {
@@ -313,6 +420,11 @@ async function sendHourlyDigests() {
         AND (
           ds.frequency = 'daily'
           OR (ds.frequency = 'weekly' AND ds.day_of_week = $2)
+          OR (
+            ds.pdf_report_enabled = true
+            AND ds.pdf_report_frequency = 'monthly'
+            AND EXTRACT(DAY FROM (NOW() AT TIME ZONE 'UTC')) = 1
+          )
         )
         AND (ds.last_sent_at IS NULL OR ds.last_sent_at < NOW() - INTERVAL '20 hours')
     `, [currentHour, currentDow]);
@@ -321,7 +433,14 @@ async function sendHourlyDigests() {
       const to = ds.alt_email || ds.user_email;
       if (!to) continue;
 
-      const since = ds.last_sent_at || new Date(Date.now() - (ds.frequency === 'weekly' ? 7 * 86400000 : 86400000));
+      const monthlyPdfWindow = ds.pdf_report_enabled
+        && ds.pdf_report_frequency === 'monthly'
+        && now.getUTCDate() === 1
+        && currentHour === 8;
+
+      const since = monthlyPdfWindow
+        ? new Date(Date.now() - 30 * 86400000)
+        : (ds.last_sent_at || new Date(Date.now() - (ds.frequency === 'weekly' ? 7 * 86400000 : 86400000)));
       const sinceIso = since.toISOString();
 
       // Section 1: Meta alerts
@@ -366,14 +485,61 @@ async function sendHourlyDigests() {
       const rangeEnd = now.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
       const rangeStart = new Date(since).toLocaleDateString(locale, { month: 'short', day: 'numeric' });
       const dateRange = ds.frequency === 'weekly' ? `${rangeStart} - ${rangeEnd}` : rangeEnd;
-      const periodLabel = ds.frequency === 'weekly'
+      const periodLabel = monthlyPdfWindow
+        ? (locale === 'ru-RU' ? `Последние 30 дней (${dateRange})` : `Last 30 days (${dateRange})`)
+        : ds.frequency === 'weekly'
         ? (locale === 'ru-RU' ? `Последние 7 дней (${dateRange})` : `Last 7 days (${dateRange})`)
         : (locale === 'ru-RU' ? 'Последние 24 часа' : 'Last 24 hours');
+
+      let attachments = null;
+      let subjectOverride = null;
+      if (ds.pdf_report_enabled) {
+        const pdfFrequency = ['weekly', 'monthly'].includes(ds.pdf_report_frequency)
+          ? ds.pdf_report_frequency
+          : 'weekly';
+
+        const shouldAttachWeekly = pdfFrequency === 'weekly' && ds.frequency === 'weekly';
+        const shouldAttachMonthly = pdfFrequency === 'monthly' && now.getUTCDate() === 1 && currentHour === 8;
+        if (shouldAttachWeekly || shouldAttachMonthly) {
+          try {
+            const pdfToDate = now;
+            let pdfFromDate;
+            if (shouldAttachMonthly) {
+              pdfFromDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+              subjectOverride = `MetaWatch Monthly Report + PDF — ${now.toISOString().slice(0, 10)}`;
+            } else {
+              const defaultRange = defaultPdfDateRange();
+              pdfFromDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+              if (!(pdfFromDate instanceof Date) || Number.isNaN(pdfFromDate.getTime())) {
+                pdfFromDate = defaultRange.fromDate;
+              }
+              subjectOverride = `MetaWatch Weekly Report + PDF — ${now.toISOString().slice(0, 10)}`;
+            }
+
+            const pdfBuffer = await buildPdfReportBuffer({
+              userId: ds.uid,
+              isAdmin: false,
+              userEmail: ds.user_email,
+              fromDate: pdfFromDate,
+              toDate: pdfToDate
+            });
+
+            attachments = [{
+              filename: `metawatch-report-${now.toISOString().slice(0, 10)}.pdf`,
+              content: pdfBuffer
+            }];
+          } catch (pdfErr) {
+            console.error(`[Digest] PDF generation failed for user #${ds.uid}: ${pdfErr.message}`);
+          }
+        }
+      }
 
       const sent = await sendDigest({
         to, frequency: ds.frequency, periodLabel, dateRange,
         language: ds.user_language,
-        alerts, incidents, sslExpirations
+        alerts, incidents, sslExpirations,
+        attachments,
+        subjectOverride
       });
 
       if (sent) {
@@ -469,10 +635,13 @@ function unscheduleMonitor(monitorId) {
 }
 
 function getSchedulerStatus() {
+  const asyncNotifications = String(process.env.ENABLE_ASYNC_NOTIFICATIONS || 'false').trim().toLowerCase() === 'true'
+    && isQueueEnabled();
   return {
     started: schedulerStarted,
     hasLock: !!schedulerLockClient,
-    queueBackend: process.env.REDIS_URL ? 'redis (not configured in this build)' : 'in-memory',
+    queueBackend: getQueueBackendLabel(),
+    asyncNotifications,
     urlJobs: activeJobs.size,
     uptimeJobs: uptimeJobs.size,
     runningUrlChecks: runningUrlChecks.size,
@@ -484,8 +653,10 @@ module.exports = {
   startScheduler,
   scheduleUrl,
   unscheduleUrl,
+  triggerUrlCheckNow,
   scheduleMonitor,
   unscheduleMonitor,
+  triggerMonitorCheckNow,
   intervalToCron,
   getSchedulerStatus
 };

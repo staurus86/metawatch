@@ -3,8 +3,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const pool = require('../db');
 const { requireAuth } = require('../auth');
-const { checkMonitor } = require('../uptime-checker');
-const { scheduleMonitor, unscheduleMonitor } = require('../scheduler');
+const { scheduleMonitor, unscheduleMonitor, triggerMonitorCheckNow } = require('../scheduler');
 const { notify: notifyMeta } = require('../notifier');
 const { sendTelegram, sendWebhook, sendDiscord } = require('../notifier');
 const { sendAlert: sendEmail } = require('../mailer');
@@ -213,7 +212,7 @@ router.post('/add', requireAuth, async (req, res) => {
     );
 
     scheduleMonitor(monitor);
-    checkMonitor(monitor.id).catch(() => {});
+    triggerMonitorCheckNow(monitor, 'create').catch(() => {});
     await auditFromRequest(req, {
       action: 'uptime.create',
       entityType: 'uptime_monitor',
@@ -428,7 +427,7 @@ router.post('/:id/check-now', requireAuth, async (req, res) => {
     const { query, params } = ownedMonitorQuery(monitorId, req);
     const { rows: [monitor] } = await pool.query(query, params);
     if (!monitor) return res.status(404).render('error', { title: 'Not Found', error: 'Monitor not found' });
-    await checkMonitor(monitorId);
+    await triggerMonitorCheckNow(monitor, 'manual_check');
     res.redirect(`/uptime/${monitorId}?checked=1`);
   } catch (err) {
     res.status(500).render('error', { title: 'Error', error: err.message });

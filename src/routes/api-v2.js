@@ -4,7 +4,7 @@ const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = require('express-rate-limit');
 const pool = require('../db');
 const { requireApiKey, hashApiKey } = require('../auth');
-const { checkUrl } = require('../checker');
+const { triggerUrlCheckNow } = require('../scheduler');
 const { sendPagerDuty } = require('../notifier');
 
 const router = express.Router();
@@ -505,14 +505,22 @@ router.post('/urls/:id/check', async (req, res) => {
   const owned = await getOwnedUrl(urlId, req);
   if (!owned) return fail(res, 404, 'URL not found');
 
-  const checkId = crypto.randomUUID();
-  setImmediate(() => {
-    checkUrl(urlId).catch(err => {
-      console.error(`[API v2] check failed for URL #${urlId}: ${err.message}`);
-    });
-  });
-
-  return ok(res, { queued: true, check_id: checkId }, null);
+  const fallbackCheckId = crypto.randomUUID();
+  try {
+    const dispatch = await triggerUrlCheckNow(
+      { id: urlId, user_id: owned.user_id, url: owned.url },
+      'api_v2'
+    );
+    return ok(res, {
+      queued: !!dispatch?.queued,
+      check_id: dispatch?.jobId || fallbackCheckId,
+      backend: dispatch?.backend || 'in-memory',
+      immediate: !!dispatch?.immediate
+    }, null);
+  } catch (err) {
+    console.error(`[API v2] check failed for URL #${urlId}: ${err.message}`);
+    return fail(res, 500, err.message);
+  }
 });
 
 // PUT /api/v2/urls/:id/accept-changes

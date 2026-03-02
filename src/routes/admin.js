@@ -6,6 +6,8 @@ const { requireAdmin } = require('../auth');
 const { sendAlert } = require('../mailer');
 const { auditFromRequest } = require('../audit');
 const { getSchedulerStatus } = require('../scheduler');
+const { getQueueStats } = require('../queue');
+const { getWorkerStatus } = require('../workers');
 const { clearPlanCache } = require('../plans');
 const { version: APP_VERSION } = require('../../package.json');
 
@@ -272,7 +274,8 @@ router.get('/system', requireAdmin, async (req, res) => {
       queueDepthRes,
       schedulerBucketsRes,
       tableSizesRes,
-      lastCheckRes
+      lastCheckRes,
+      queueStats
     ] = await Promise.all([
       pool.query('SELECT COUNT(*)::int AS total FROM users'),
       pool.query(`SELECT
@@ -351,10 +354,12 @@ router.get('/system', requireAdmin, async (req, res) => {
           (SELECT MAX(checked_at) FROM snapshots),
           (SELECT MAX(checked_at) FROM uptime_checks)
         ) AS last_check_ran_at
-      `)
+      `),
+      getQueueStats().catch(() => null)
     ]);
 
     const scheduler = getSchedulerStatus();
+    const workerStatus = getWorkerStatus();
     const slowQueries = typeof pool.getRecentSlowQueries === 'function'
       ? pool.getRecentSlowQueries(20)
       : [];
@@ -387,6 +392,8 @@ router.get('/system', requireAdmin, async (req, res) => {
         lastCheckRanAt: lastCheckRes.rows[0]?.last_check_ran_at || null,
         schedulerBuckets: schedulerBucketsRes.rows || [],
         tableSizes: tableSizesRes.rows || [],
+        queueStats: queueStats || null,
+        workerStatus,
         slowQueries,
         slowQueryThreshold,
         dbSize: dbSizeRes.rows[0]?.db_size || 'unknown',

@@ -7,6 +7,8 @@ const path = require('path');
 const pool = require('./db');
 const migrate = require('./migrate');
 const { startScheduler } = require('./scheduler');
+const { isQueueEnabled } = require('./queue');
+const { startQueueWorkers } = require('./workers');
 const { loadUserMiddleware } = require('./auth');
 const { loadUserPlanMiddleware } = require('./plans');
 const { i18nMiddleware } = require('./i18n');
@@ -116,6 +118,7 @@ app.use('/status-pages', require('./routes/status-pages'));
 app.use('/competitors', require('./routes/competitors'));
 app.use('/integrations', require('./routes/integrations'));
 app.use('/alert-rules', require('./routes/alert-rules'));
+app.use('/admin/queues', require('./routes/admin-queues'));
 app.use('/admin', require('./routes/admin'));
 app.use('/profile', require('./routes/profile'));
 app.use('/api/v2', require('./routes/api-v2'));
@@ -139,6 +142,17 @@ async function start() {
   try {
     await migrate();
     const schedulerEnabled = String(process.env.ENABLE_SCHEDULER || 'true').toLowerCase() !== 'false';
+    const queueEnabled = isQueueEnabled();
+
+    if (queueEnabled) {
+      await startQueueWorkers();
+    }
+
+    if (queueEnabled && !schedulerEnabled) {
+      console.log('[Queue] Worker mode enabled (REDIS_URL set, ENABLE_SCHEDULER=false). Web server is not started.');
+      return;
+    }
+
     if (schedulerEnabled) {
       await startScheduler();
     } else {

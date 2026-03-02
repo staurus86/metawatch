@@ -693,7 +693,8 @@ async function checkUrl(urlId) {
             newValue: displayNew,
             severity,
             timestamp: new Date(),
-            ruleActions: effectiveRuleActions
+            ruleActions: effectiveRuleActions,
+            alertId
           });
           const anyNotified = Object.values(notifyResults || {}).some(Boolean);
           if (alertId && anyNotified) {
@@ -787,7 +788,8 @@ async function checkUrl(urlId) {
                 newValue: newVal,
                 severity,
                 timestamp: new Date(),
-                ruleActions: transitionOverride.overrideRuleActions || undefined
+                ruleActions: transitionOverride.overrideRuleActions || undefined,
+                alertId: transitionAlertId
               });
               const anyNotified = Object.values(notifyResults || {}).some(Boolean);
               if (transitionAlertId && anyNotified) {
@@ -902,7 +904,8 @@ async function checkUrl(urlId) {
               newValue: newVal,
               severity: 'info',
               timestamp: new Date(),
-              ruleActions: textOverride.overrideRuleActions || undefined
+              ruleActions: textOverride.overrideRuleActions || undefined,
+              alertId: textAlertId
             });
             const anyNotified = Object.values(notifyResults || {}).some(Boolean);
             if (textAlertId && anyNotified) {
@@ -987,7 +990,8 @@ async function checkUrl(urlId) {
                 newValue: `Certificate expires: ${sslExpiresAt.toUTCString()}`,
                 severity: 'critical',
                 timestamp: new Date(),
-                ruleActions: sslOverride.overrideRuleActions || undefined
+                ruleActions: sslOverride.overrideRuleActions || undefined,
+                alertId: sslAlertId
               });
               const anyNotified = Object.values(notifyResults || {}).some(Boolean);
               if (sslAlertId && anyNotified) {
@@ -1068,7 +1072,8 @@ async function checkUrl(urlId) {
                 newValue: `Actual: ${scraped.response_time_ms}ms`,
                 severity: 'warning',
                 timestamp: new Date(),
-                ruleActions: responseTimeOverride.overrideRuleActions || undefined
+                ruleActions: responseTimeOverride.overrideRuleActions || undefined,
+                alertId: responseTimeAlertId
               });
               const anyNotified = Object.values(notifyResults || {}).some(Boolean);
               if (responseTimeAlertId && anyNotified) {

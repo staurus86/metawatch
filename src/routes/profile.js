@@ -57,19 +57,27 @@ router.post('/regenerate-key', requireAuth, async (req, res) => {
 
 // POST /profile/digest — upsert digest_settings
 router.post('/digest', requireAuth, async (req, res) => {
-  const { enabled, frequency, hour, day_of_week, alt_email } = req.body;
+  const {
+    enabled, frequency, hour, day_of_week, alt_email,
+    pdf_report_enabled, pdf_report_frequency
+  } = req.body;
   const isEnabled = enabled === '1' || enabled === 'on' || enabled === 'true';
   const freq = ['daily', 'weekly'].includes(frequency) ? frequency : 'daily';
+  const pdfEnabled = pdf_report_enabled === '1' || pdf_report_enabled === 'on' || pdf_report_enabled === 'true';
+  const pdfFrequency = ['weekly', 'monthly'].includes(pdf_report_frequency) ? pdf_report_frequency : 'weekly';
   const h = Math.max(0, Math.min(23, parseInt(hour || '8', 10)));
   const dow = Math.max(0, Math.min(6, parseInt(day_of_week || '1', 10)));
 
   try {
     await pool.query(`
-      INSERT INTO digest_settings (user_id, enabled, frequency, hour, day_of_week, alt_email)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO digest_settings (
+        user_id, enabled, frequency, hour, day_of_week, alt_email, pdf_report_enabled, pdf_report_frequency
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       ON CONFLICT (user_id) DO UPDATE
-        SET enabled = $2, frequency = $3, hour = $4, day_of_week = $5, alt_email = $6
-    `, [req.user.id, isEnabled, freq, h, dow, alt_email?.trim() || null]);
+        SET enabled = $2, frequency = $3, hour = $4, day_of_week = $5, alt_email = $6,
+            pdf_report_enabled = $7, pdf_report_frequency = $8
+    `, [req.user.id, isEnabled, freq, h, dow, alt_email?.trim() || null, pdfEnabled, pdfFrequency]);
 
     res.redirect('/profile?msg=Digest+settings+saved');
   } catch (err) {

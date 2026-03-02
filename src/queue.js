@@ -73,4 +73,237 @@ async function userRateLimit(userId, minGapMs = 250) {
 // Global semaphore: max 5 concurrent URL checks
 const checkSemaphore = new Semaphore(5);
 
-module.exports = { Semaphore, domainRateLimit, userRateLimit, checkSemaphore };
+const REDIS_URL = String(process.env.REDIS_URL || '').trim();
+const BULLMQ_PREFIX = String(process.env.BULLMQ_PREFIX || 'metawatch').trim() || 'metawatch';
+const QUEUE_NAMES = {
+  meta: `${BULLMQ_PREFIX}:meta`,
+  uptime: `${BULLMQ_PREFIX}:uptime`,
+  notification: `${BULLMQ_PREFIX}:notification`
+};
+
+let QueueCtor = null;
+let IORedisCtor = null;
+
+try {
+  ({ Queue: QueueCtor } = require('bullmq'));
+  IORedisCtor = require('ioredis');
+} catch (err) {
+  if (REDIS_URL) {
+    console.error(`[Queue] REDIS_URL is set, but BullMQ dependencies are unavailable: ${err.message}`);
+  }
+}
+
+const queueEnabled = Boolean(REDIS_URL && QueueCtor && IORedisCtor);
+
+let redisConnection = null;
+let metaQueue = null;
+let uptimeQueue = null;
+let notificationQueue = null;
+
+function getQueueBackendLabel() {
+  return queueEnabled ? 'redis (bullmq)' : 'in-memory';
+}
+
+function isQueueEnabled() {
+  return queueEnabled;
+}
+
+function getRedisConnection() {
+  if (!queueEnabled) return null;
+  if (!redisConnection) {
+    redisConnection = new IORedisCtor(REDIS_URL, {
+      maxRetriesPerRequest: null,
+      enableReadyCheck: false
+    });
+    redisConnection.on('error', (err) => {
+      console.error(`[Queue] Redis error: ${err.message}`);
+    });
+  }
+  return redisConnection;
+}
+
+function ensureBullQueues() {
+  if (!queueEnabled) {
+    return {
+      metaQueue: null,
+      uptimeQueue: null,
+      notificationQueue: null
+    };
+  }
+  if (!metaQueue || !uptimeQueue || !notificationQueue) {
+    const connection = getRedisConnection();
+    const baseOptions = {
+      connection,
+      defaultJobOptions: {
+        removeOnComplete: { age: 3600, count: 1000 },
+        removeOnFail: { age: 24 * 3600, count: 2000 }
+      }
+    };
+    metaQueue = metaQueue || new QueueCtor(QUEUE_NAMES.meta, baseOptions);
+    uptimeQueue = uptimeQueue || new QueueCtor(QUEUE_NAMES.uptime, baseOptions);
+    notificationQueue = notificationQueue || new QueueCtor(QUEUE_NAMES.notification, baseOptions);
+  }
+  return { metaQueue, uptimeQueue, notificationQueue };
+}
+
+function getQueueInstances() {
+  return ensureBullQueues();
+}
+
+function mapPriority(priority) {
+  const normalized = String(priority || '').toLowerCase().trim();
+  if (normalized === 'critical') return 1;
+  if (normalized === 'warning') return 3;
+  if (normalized === 'info') return 6;
+  return 5;
+}
+
+function safePositiveInt(value, fallback) {
+  const n = parseInt(value, 10);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return n;
+}
+
+async function enqueueMetaCheck({ urlId, userId = null, source = 'scheduler', priority = 'warning' }) {
+  const id = safePositiveInt(urlId, 0);
+  if (id <= 0) return { queued: false, reason: 'invalid_url_id', backend: getQueueBackendLabel() };
+  if (!queueEnabled) return { queued: false, backend: 'in-memory' };
+
+  const { metaQueue } = ensureBullQueues();
+  try {
+    const job = await metaQueue.add(
+      'check-url',
+      {
+        urlId: id,
+        userId: userId || null,
+        source: String(source || 'scheduler'),
+        queuedAt: new Date().toISOString()
+      },
+      {
+        jobId: `url:${id}`,
+        attempts: 2,
+        backoff: { type: 'exponential', delay: 5000 },
+        priority: mapPriority(priority)
+      }
+    );
+    return { queued: true, backend: 'redis', jobId: String(job.id) };
+  } catch (err) {
+    const msg = String(err?.message || '').toLowerCase();
+    if (msg.includes('jobid') || msg.includes('already exists')) {
+      return { queued: true, backend: 'redis', jobId: `url:${id}`, duplicate: true };
+    }
+    throw err;
+  }
+}
+
+async function enqueueUptimeCheck({ monitorId, userId = null, source = 'scheduler', priority = 'warning' }) {
+  const id = safePositiveInt(monitorId, 0);
+  if (id <= 0) return { queued: false, reason: 'invalid_monitor_id', backend: getQueueBackendLabel() };
+  if (!queueEnabled) return { queued: false, backend: 'in-memory' };
+
+  const { uptimeQueue } = ensureBullQueues();
+  try {
+    const job = await uptimeQueue.add(
+      'check-monitor',
+      {
+        monitorId: id,
+        userId: userId || null,
+        source: String(source || 'scheduler'),
+        queuedAt: new Date().toISOString()
+      },
+      {
+        jobId: `monitor:${id}`,
+        attempts: 2,
+        backoff: { type: 'exponential', delay: 5000 },
+        priority: mapPriority(priority)
+      }
+    );
+    return { queued: true, backend: 'redis', jobId: String(job.id) };
+  } catch (err) {
+    const msg = String(err?.message || '').toLowerCase();
+    if (msg.includes('jobid') || msg.includes('already exists')) {
+      return { queued: true, backend: 'redis', jobId: `monitor:${id}`, duplicate: true };
+    }
+    throw err;
+  }
+}
+
+async function enqueueNotification({
+  channel,
+  target,
+  payload,
+  alertId = null,
+  jobId = null,
+  delayMs = 0,
+  attempts = 3
+}) {
+  if (!queueEnabled) return { queued: false, backend: 'in-memory' };
+  const { notificationQueue } = ensureBullQueues();
+
+  const job = await notificationQueue.add(
+    'send-notification',
+    {
+      channel: String(channel || '').trim(),
+      target,
+      payload: payload || {},
+      alertId: alertId || null,
+      queuedAt: new Date().toISOString()
+    },
+    {
+      jobId: jobId || undefined,
+      delay: safePositiveInt(delayMs, 0),
+      attempts: Math.max(1, safePositiveInt(attempts, 3)),
+      backoff: { type: 'exponential', delay: 4000 }
+    }
+  );
+
+  return { queued: true, backend: 'redis', jobId: String(job.id) };
+}
+
+async function getQueueStats() {
+  if (!queueEnabled) return null;
+  const { metaQueue, uptimeQueue, notificationQueue } = ensureBullQueues();
+  const countKeys = ['waiting', 'active', 'delayed', 'completed', 'failed', 'paused'];
+  const [meta, uptime, notification] = await Promise.all([
+    metaQueue.getJobCounts(...countKeys),
+    uptimeQueue.getJobCounts(...countKeys),
+    notificationQueue.getJobCounts(...countKeys)
+  ]);
+  return { meta, uptime, notification };
+}
+
+async function closeBullQueues() {
+  const closeOps = [];
+  if (metaQueue?.close) closeOps.push(metaQueue.close());
+  if (uptimeQueue?.close) closeOps.push(uptimeQueue.close());
+  if (notificationQueue?.close) closeOps.push(notificationQueue.close());
+  await Promise.allSettled(closeOps);
+
+  if (redisConnection?.quit) {
+    await redisConnection.quit().catch(() => {});
+  } else if (redisConnection?.disconnect) {
+    redisConnection.disconnect();
+  }
+
+  metaQueue = null;
+  uptimeQueue = null;
+  notificationQueue = null;
+  redisConnection = null;
+}
+
+module.exports = {
+  Semaphore,
+  domainRateLimit,
+  userRateLimit,
+  checkSemaphore,
+  QUEUE_NAMES,
+  getQueueBackendLabel,
+  isQueueEnabled,
+  getRedisConnection,
+  getQueueInstances,
+  enqueueMetaCheck,
+  enqueueUptimeCheck,
+  enqueueNotification,
+  getQueueStats,
+  closeBullQueues
+};

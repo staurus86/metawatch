@@ -1,6 +1,7 @@
 <div class="page-header">
   <h1 class="page-title">Admin — System Metrics</h1>
   <div style="display:flex;gap:8px">
+    <a href="/admin/queues" class="btn btn-secondary">Queue Dashboard</a>
     <a href="/admin/users" class="btn btn-ghost">← Users</a>
   </div>
 </div>
@@ -45,6 +46,11 @@
     <div><strong>Started:</strong> <%= system.scheduler.started ? 'yes' : 'no' %></div>
     <div><strong>Leader lock held:</strong> <%= system.scheduler.hasLock ? 'yes' : 'no' %></div>
     <div><strong>Queue backend:</strong> <%= system.scheduler.queueBackend %></div>
+    <div><strong>Async notifications:</strong> <%= system.scheduler.asyncNotifications ? 'enabled' : 'disabled' %></div>
+    <div><strong>Workers started:</strong> <%= system.workerStatus && system.workerStatus.started ? 'yes' : 'no' %></div>
+    <div><strong>Meta worker:</strong> <%= system.workerStatus && system.workerStatus.meta ? 'up' : 'off' %></div>
+    <div><strong>Uptime worker:</strong> <%= system.workerStatus && system.workerStatus.uptime ? 'up' : 'off' %></div>
+    <div><strong>Notification worker:</strong> <%= system.workerStatus && system.workerStatus.notification ? 'up' : 'off' %></div>
     <div><strong>URL jobs in memory:</strong> <%= system.scheduler.urlJobs %></div>
     <div><strong>Uptime jobs in memory:</strong> <%= system.scheduler.uptimeJobs %></div>
     <div><strong>Running URL checks:</strong> <%= system.scheduler.runningUrlChecks %></div>
@@ -81,6 +87,13 @@
   <div class="card-header">
     <h2 class="card-title">Events & Queue</h2>
   </div>
+  <% if (system.queueStats) { %>
+    <div style="padding:14px 20px;font-size:13px;color:var(--text-muted);display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+      <div><strong style="color:var(--text)">Meta queue:</strong> waiting <%= system.queueStats.meta?.waiting || 0 %>, active <%= system.queueStats.meta?.active || 0 %>, failed <%= system.queueStats.meta?.failed || 0 %></div>
+      <div><strong style="color:var(--text)">Uptime queue:</strong> waiting <%= system.queueStats.uptime?.waiting || 0 %>, active <%= system.queueStats.uptime?.active || 0 %>, failed <%= system.queueStats.uptime?.failed || 0 %></div>
+      <div><strong style="color:var(--text)">Notification queue:</strong> waiting <%= system.queueStats.notification?.waiting || 0 %>, active <%= system.queueStats.notification?.active || 0 %>, failed <%= system.queueStats.notification?.failed || 0 %></div>
+    </div>
+  <% } %>
   <div class="table-wrapper">
     <table class="data-table">
       <tbody>

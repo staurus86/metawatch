@@ -441,10 +441,18 @@ async function migrate() {
         hour INT NOT NULL DEFAULT 8,
         day_of_week INT NOT NULL DEFAULT 1,
         alt_email VARCHAR(255),
+        pdf_report_enabled BOOLEAN NOT NULL DEFAULT false,
+        pdf_report_frequency VARCHAR(10) NOT NULL DEFAULT 'weekly',
         last_sent_at TIMESTAMPTZ,
         UNIQUE(user_id)
       )
     `);
+    await client.query(
+      'ALTER TABLE digest_settings ADD COLUMN IF NOT EXISTS pdf_report_enabled BOOLEAN NOT NULL DEFAULT false'
+    );
+    await client.query(
+      "ALTER TABLE digest_settings ADD COLUMN IF NOT EXISTS pdf_report_frequency VARCHAR(10) NOT NULL DEFAULT 'weekly'"
+    );
 
     // ─── tag_definitions ─────────────────────────────────────────────────────
     await client.query(`

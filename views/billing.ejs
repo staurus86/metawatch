@@ -5,7 +5,10 @@
       Current plan limits, usage and upgrade options.
     </div>
   </div>
-  <a href="/dashboard" class="btn btn-ghost">← Dashboard</a>
+  <div style="display:flex;gap:8px;align-items:center">
+    <a href="/export/report.pdf" class="btn btn-ghost">Download PDF Report</a>
+    <a href="/dashboard" class="btn btn-ghost">← Dashboard</a>
+  </div>
 </div>
 
 <% if (billingError) { %>

@@ -4,6 +4,7 @@ const pool = require('./db');
 const { checkSsl } = require('./scraper');
 const { sendTelegram, sendWebhook, sendDiscord } = require('./notifier');
 const { sendAlert: sendEmail } = require('./mailer');
+const { enqueueNotification, isQueueEnabled } = require('./queue');
 const { assertSafeOutboundUrl } = require('./net-safety');
 
 // Classify a check result
@@ -46,6 +47,28 @@ async function logNotification({ monitorId, channel, fieldChanged, severity, sta
   }
 }
 
+function isAsyncNotificationsEnabled() {
+  const flag = String(process.env.ENABLE_ASYNC_NOTIFICATIONS || 'false').trim().toLowerCase();
+  return flag === 'true' && isQueueEnabled();
+}
+
+async function dispatchOrSendUptime({ channel, target, payload, incidentId = null, sendNow }) {
+  if (isAsyncNotificationsEnabled()) {
+    try {
+      const queued = await enqueueNotification({
+        channel,
+        target,
+        payload,
+        alertId: incidentId || null
+      });
+      if (queued?.queued) return true;
+    } catch (err) {
+      console.error(`[UptimeNotifyQueue] ${channel} enqueue failed: ${err.message}`);
+    }
+  }
+  return !!(await sendNow());
+}
+
 function isInMaintenanceWindow(maintenanceCron, durationMinutes) {
   if (!maintenanceCron || !durationMinutes || durationMinutes <= 0) return false;
   try {
@@ -68,53 +91,98 @@ function isInMaintenanceWindow(maintenanceCron, durationMinutes) {
   return false;
 }
 
-async function sendUptimeNotification({ monitor, subject, body, discordEvent = 'down' }) {
+async function sendUptimeNotification({ monitor, subject, body, discordEvent = 'down', incidentId = null }) {
   const results = {};
 
   // Email
   if (monitor.alert_email) {
     try {
-      await sendEmail({
-        to: monitor.alert_email,
-        url: monitor.url,
-        field: subject,
-        oldValue: '',
-        newValue: body,
-        timestamp: new Date()
+      results.email = await dispatchOrSendUptime({
+        channel: 'email',
+        target: { to: monitor.alert_email },
+        incidentId,
+        payload: {
+          mode: 'meta_alert',
+          to: monitor.alert_email,
+          url: monitor.url,
+          field: subject,
+          oldValue: '',
+          newValue: body,
+          timestamp: new Date().toISOString()
+        },
+        sendNow: () => sendEmail({
+          to: monitor.alert_email,
+          url: monitor.url,
+          field: subject,
+          oldValue: '',
+          newValue: body,
+          timestamp: new Date()
+        })
       });
-      results.email = true;
     } catch { results.email = false; }
   }
 
   // Telegram (per-monitor or global env)
   const tgToken = monitor.telegram_token || process.env.TELEGRAM_BOT_TOKEN || null;
   if (tgToken && monitor.telegram_chat_id) {
-    results.telegram = await sendTelegram({
-      botToken: tgToken,
-      chatId: monitor.telegram_chat_id,
-      message: `${subject}\n\n${body}`
+    results.telegram = await dispatchOrSendUptime({
+      channel: 'telegram',
+      target: { botToken: tgToken, chatId: monitor.telegram_chat_id },
+      incidentId,
+      payload: {
+        botToken: tgToken,
+        chatId: monitor.telegram_chat_id,
+        message: `${subject}\n\n${body}`
+      },
+      sendNow: () => sendTelegram({
+        botToken: tgToken,
+        chatId: monitor.telegram_chat_id,
+        message: `${subject}\n\n${body}`
+      })
     });
   }
 
   // Webhook
   if (monitor.webhook_url) {
-    results.webhook = await sendWebhook({
-      webhookUrl: monitor.webhook_url,
-      payload: { event: 'uptime_alert', monitor_id: monitor.id, name: monitor.name, url: monitor.url, subject, body, timestamp: new Date().toISOString() }
+    const webhookPayload = {
+      event: 'uptime_alert',
+      monitor_id: monitor.id,
+      name: monitor.name,
+      url: monitor.url,
+      subject,
+      body,
+      timestamp: new Date().toISOString()
+    };
+    results.webhook = await dispatchOrSendUptime({
+      channel: 'webhook',
+      target: { webhookUrl: monitor.webhook_url },
+      incidentId,
+      payload: webhookPayload,
+      sendNow: () => sendWebhook({
+        webhookUrl: monitor.webhook_url,
+        payload: webhookPayload
+      })
     });
   }
 
   if (monitor.discord_webhook_url) {
-    results.discord = await sendDiscord({
-      webhookUrl: monitor.discord_webhook_url,
-      alert: {
-        type: 'uptime',
-        event: discordEvent,
-        name: monitor.name,
-        url: monitor.url,
-        body,
-        timestamp: new Date()
-      }
+    const discordAlert = {
+      type: 'uptime',
+      event: discordEvent,
+      name: monitor.name,
+      url: monitor.url,
+      body,
+      timestamp: new Date()
+    };
+    results.discord = await dispatchOrSendUptime({
+      channel: 'discord',
+      target: { webhookUrl: monitor.discord_webhook_url },
+      incidentId,
+      payload: { alert: discordAlert },
+      sendNow: () => sendDiscord({
+        webhookUrl: monitor.discord_webhook_url,
+        alert: discordAlert
+      })
     });
     await logNotification({
       monitorId: monitor.id,
@@ -233,11 +301,11 @@ async function checkMonitor(monitorId) {
       if (status === 'down') {
         subject = `🔴 ${monitor.name} is DOWN`;
         body = `URL: ${monitor.url}\nError: ${errorMessage || `HTTP ${statusCode}`}`;
-        await sendUptimeNotification({ monitor, subject, body, discordEvent: 'down' });
+        await sendUptimeNotification({ monitor, subject, body, discordEvent: 'down', incidentId: newIncident.id });
       } else {
         subject = `🟡 ${monitor.name} is SLOW (DEGRADED)`;
         body = `URL: ${monitor.url}\nResponse time: ${responseTimeMs}ms (threshold: ${monitor.threshold_ms}ms)`;
-        await sendUptimeNotification({ monitor, subject, body, discordEvent: 'degraded' });
+        await sendUptimeNotification({ monitor, subject, body, discordEvent: 'degraded', incidentId: newIncident.id });
       }
       await pool.query('UPDATE uptime_incidents SET alert_sent = true WHERE id = $1', [newIncident.id]);
     }
@@ -261,7 +329,8 @@ async function checkMonitor(monitorId) {
         monitor,
         subject: `🟢 ${monitor.name} is back UP`,
         body: `URL: ${monitor.url}\nDowntime: ${dur}`,
-        discordEvent: 'recovery'
+        discordEvent: 'recovery',
+        incidentId: incident.id
       });
     }
   }

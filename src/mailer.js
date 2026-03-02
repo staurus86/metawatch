@@ -126,7 +126,18 @@ async function sendAlert({ to, url, field, oldValue, newValue, timestamp, langua
   }
 }
 
-async function sendDigest({ to, frequency, periodLabel, alerts, incidents, sslExpirations, dateRange, language }) {
+async function sendDigest({
+  to,
+  frequency,
+  periodLabel,
+  alerts,
+  incidents,
+  sslExpirations,
+  dateRange,
+  language,
+  attachments,
+  subjectOverride
+}) {
   if (!isEmailConfigured()) return false;
 
   const lang = normalizeLanguage(language);
@@ -138,9 +149,10 @@ async function sendDigest({ to, frequency, periodLabel, alerts, incidents, sslEx
   const totalChanges = (alerts || []).length;
   const today = new Date().toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
   const changesWord = digestChangesWord(lang, totalChanges);
-  const subject = frequency === 'weekly'
+  const subjectDefault = frequency === 'weekly'
     ? translate(lang, 'emails.digest.weekly_subject', { date: dateRange || today })
     : translate(lang, 'emails.digest.daily_subject', { count: totalChanges, changes_word: changesWord, date: today });
+  const subject = subjectOverride || subjectDefault;
 
   const sevColor = { critical: '#e53e3e', warning: '#e53e3e', info: '#718096' };
   const sevLabel = { critical: '🔴 Critical', warning: '🟡 Warning', info: '🔵 Info' };
@@ -236,7 +248,8 @@ async function sendDigest({ to, frequency, periodLabel, alerts, incidents, sslEx
       from: process.env.SMTP_FROM || 'MetaWatch <alerts@metawatch.app>',
       to,
       subject,
-      html
+      html,
+      attachments: Array.isArray(attachments) && attachments.length > 0 ? attachments : undefined
     });
     console.log(`[Digest sent] ${frequency} → ${to}`);
     return true;
