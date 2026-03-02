@@ -5,59 +5,191 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title><%= page.title %> — Status</title>
   <style>
+    :root {
+      --brand: <%= (page.primary_color || '#4299e1') %>;
+      --bg: #f4f7fb;
+      --text: #1f2937;
+      --muted: #64748b;
+      --card: #ffffff;
+      --border: #e5e7eb;
+      --up: #22c55e;
+      --down: #ef4444;
+      --degraded: #f59e0b;
+      --unknown: #94a3b8;
+    }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f4f8; color: #2d3748; }
-    .container { max-width: 860px; margin: 0 auto; padding: 32px 16px 60px; }
-    .header { text-align: center; margin-bottom: 36px; }
-    .header h1 { font-size: 28px; font-weight: 800; margin-bottom: 8px; }
-    .header p { color: #718096; font-size: 15px; }
-    .overall { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 16px 24px; border-radius: 12px; margin-bottom: 28px; font-size: 18px; font-weight: 700; }
-    .overall--up { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
-    .overall--down { background: #fff5f5; color: #9b2c2c; border: 1px solid #fed7d7; }
-    .overall--degraded { background: #fffaf0; color: #7b341e; border: 1px solid #fbd38d; }
-    .card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 20px; overflow: hidden; }
-    .card-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: #718096; padding: 14px 20px 10px; border-bottom: 1px solid #e2e8f0; }
-    .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 14px; }
-    .summary-cell { background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; text-align: center; }
-    .summary-cell small { display: block; color: #718096; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background:
+        radial-gradient(circle at 10% 5%, color-mix(in srgb, var(--brand) 12%, #ffffff), transparent 42%),
+        radial-gradient(circle at 90% 0%, color-mix(in srgb, var(--brand) 8%, #ffffff), transparent 45%),
+        var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .container { max-width: 920px; margin: 0 auto; padding: 28px 16px 64px; }
+    .header { text-align: center; margin-bottom: 28px; }
+    .logo-wrap { margin-bottom: 10px; }
+    .logo-wrap img { max-height: 46px; max-width: 220px; object-fit: contain; }
+    .header h1 { font-size: 30px; font-weight: 800; line-height: 1.15; margin-bottom: 8px; }
+    .header p { color: var(--muted); font-size: 15px; }
+    .overall {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 16px 20px;
+      border-radius: 12px;
+      margin-bottom: 22px;
+      font-size: 18px;
+      font-weight: 700;
+      border: 1px solid var(--border);
+      background: #fff;
+    }
+    .overall--up { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--up) 38%, white); }
+    .overall--down { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--down) 34%, white); }
+    .overall--degraded { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--degraded) 34%, white); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 16px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+    }
+    .card-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+      background: #fafcff;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      padding: 14px;
+    }
+    .summary-cell {
+      border: 1px solid var(--border);
+      background: #fbfdff;
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+    }
+    .summary-cell small {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: .03em;
+      text-transform: uppercase;
+    }
     .summary-cell b { display: block; margin-top: 4px; font-size: 19px; }
-    .monitor-row { display: flex; align-items: center; padding: 14px 20px; border-bottom: 1px solid #f0f4f8; gap: 12px; }
+    .monitor-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 13px 18px;
+      border-bottom: 1px solid #f1f5f9;
+    }
     .monitor-row:last-child { border-bottom: none; }
-    .status-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
-    .dot-up { background: #48bb78; }
-    .dot-down { background: #e53e3e; }
-    .dot-degraded { background: #ed8936; }
-    .dot-unknown { background: #a0aec0; }
-    .monitor-name { font-weight: 600; font-size: 15px; flex: 1; }
-    .monitor-url { font-size: 12px; color: #718096; word-break: break-all; }
-    .monitor-meta { text-align: right; font-size: 12px; color: #718096; flex-shrink: 0; }
-    .badge { display: inline-flex; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
-    .badge-up { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
-    .badge-down { background: #fff5f5; color: #9b2c2c; border: 1px solid #fed7d7; }
-    .badge-degraded { background: #fffaf0; color: #7b341e; border: 1px solid #fbd38d; }
-    .badge-unknown { background: #edf2f7; color: #4a5568; border: 1px solid #cbd5e0; }
-    .incident-row { padding: 12px 20px; border-bottom: 1px solid #f0f4f8; font-size: 13px; }
+    .status-dot { width: 11px; height: 11px; border-radius: 999px; flex-shrink: 0; }
+    .dot-up { background: var(--up); }
+    .dot-down { background: var(--down); }
+    .dot-degraded { background: var(--degraded); }
+    .dot-unknown { background: var(--unknown); }
+    .monitor-name { font-weight: 650; font-size: 15px; }
+    .monitor-url { color: var(--muted); font-size: 12px; word-break: break-all; margin-top: 1px; }
+    .monitor-meta { margin-left: auto; text-align: right; color: var(--muted); font-size: 12px; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .03em;
+      text-transform: uppercase;
+      border: 1px solid transparent;
+    }
+    .badge-up { color: #166534; background: #ecfdf3; border-color: #86efac; }
+    .badge-down { color: #991b1b; background: #fef2f2; border-color: #fecaca; }
+    .badge-degraded { color: #92400e; background: #fffbeb; border-color: #fcd34d; }
+    .badge-unknown { color: #334155; background: #f1f5f9; border-color: #cbd5e1; }
+    .incident-row {
+      padding: 12px 18px;
+      border-bottom: 1px solid #f1f5f9;
+      font-size: 13px;
+    }
     .incident-row:last-child { border-bottom: none; }
-    .subscribe-section { text-align: center; padding: 28px; }
-    .subscribe-section input[type=email] { padding: 10px 14px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px; width: 260px; margin-right: 8px; }
-    .subscribe-section button { background: #4299e1; color: white; border: none; padding: 10px 18px; border-radius: 6px; font-size: 14px; cursor: pointer; }
-    .footer { text-align: center; margin-top: 40px; font-size: 12px; color: #a0aec0; }
-    .alert-banner { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; text-align: center; font-size: 14px; }
-    .alert-ok { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
-    @media (max-width: 740px) { .summary-grid { grid-template-columns: repeat(2, 1fr); } }
+    .subscribe-section { text-align: center; padding: 24px 18px; }
+    .subscribe-section input[type=email] {
+      width: min(280px, 86vw);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 14px;
+      margin-right: 8px;
+    }
+    .subscribe-section button {
+      border: none;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 14px;
+      font-weight: 650;
+      background: var(--brand);
+      color: #fff;
+      cursor: pointer;
+    }
+    .alert-banner {
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-bottom: 14px;
+      text-align: center;
+      font-size: 14px;
+      background: #ecfeff;
+      color: #0f766e;
+      border: 1px solid #99f6e4;
+    }
+    .footer {
+      margin-top: 26px;
+      text-align: center;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    .footer a {
+      color: var(--brand);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    @media (max-width: 760px) {
+      .summary-grid { grid-template-columns: repeat(2, 1fr); }
+      .monitor-row { align-items: flex-start; }
+      .monitor-meta { margin-left: 0; text-align: left; }
+      .subscribe-section input[type=email] { margin: 0 0 8px 0; }
+      .subscribe-section button { width: min(280px, 86vw); }
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
+      <% if (page.logo_url) { %>
+        <div class="logo-wrap">
+          <img src="<%= page.logo_url %>" alt="<%= page.title %> logo">
+        </div>
+      <% } %>
       <h1><%= page.title %></h1>
       <% if (page.description) { %><p><%= page.description %></p><% } %>
     </div>
 
-    <% if (message) { %><div class="alert-banner alert-ok"><%= message %></div><% } %>
-    <% if (subscribed) { %><div class="alert-banner alert-ok">✓ Check your email to confirm your subscription.</div><% } %>
+    <% if (message) { %><div class="alert-banner"><%= message %></div><% } %>
+    <% if (subscribed) { %><div class="alert-banner">✓ Check your email to confirm your subscription.</div><% } %>
 
-    <!-- Overall status -->
     <div class="overall overall--<%= overallStatus %>">
       <span><%= overallStatus === 'up' ? '✅' : overallStatus === 'degraded' ? '⚠️' : '🔴' %></span>
       <span><%= overallStatus === 'up' ? 'All Systems Operational' : overallStatus === 'degraded' ? 'Partial Degradation' : 'Service Disruption' %></span>
@@ -67,29 +199,27 @@
       <div class="card-title">Last 24 Hours Summary</div>
       <div class="summary-grid">
         <div class="summary-cell"><small>Total Checks</small><b><%= summary?.total_checks_24h || 0 %></b></div>
-        <div class="summary-cell"><small>Healthy</small><b style="color:#276749"><%= summary?.ok_checks_24h || 0 %></b></div>
-        <div class="summary-cell"><small>Degraded</small><b style="color:#7b341e"><%= summary?.degraded_checks_24h || 0 %></b></div>
-        <div class="summary-cell"><small>Down</small><b style="color:#9b2c2c"><%= summary?.down_checks_24h || 0 %></b></div>
+        <div class="summary-cell"><small>Healthy</small><b style="color:#15803d"><%= summary?.ok_checks_24h || 0 %></b></div>
+        <div class="summary-cell"><small>Degraded</small><b style="color:#b45309"><%= summary?.degraded_checks_24h || 0 %></b></div>
+        <div class="summary-cell"><small>Down</small><b style="color:#b91c1c"><%= summary?.down_checks_24h || 0 %></b></div>
       </div>
     </div>
 
-    <!-- Active incidents -->
     <% if (activeIncidents && activeIncidents.length > 0) { %>
-    <div class="card">
-      <div class="card-title">🔴 Active Incidents (<%= activeIncidents.length %>)</div>
-      <% activeIncidents.forEach(function(inc) { %>
-        <div class="incident-row">
-          <strong><%= inc.monitor_name %></strong> — <%= inc.cause || 'Service disruption' %>
-          <span style="color:#718096;font-size:11px;margin-left:8px">Started <%= new Date(inc.started_at).toUTCString().replace(' GMT','') %></span>
-          <% if (inc.postmortem_text) { %>
-            <div style="margin-top:6px;font-size:12px;color:#4a5568"><%= inc.postmortem_text %></div>
-          <% } %>
-        </div>
-      <% }) %>
-    </div>
+      <div class="card">
+        <div class="card-title">🔴 Active Incidents (<%= activeIncidents.length %>)</div>
+        <% activeIncidents.forEach(function(inc) { %>
+          <div class="incident-row">
+            <strong><%= inc.monitor_name %></strong> — <%= inc.cause || 'Service disruption' %>
+            <span style="color:var(--muted);font-size:11px;margin-left:8px">Started <%= new Date(inc.started_at).toUTCString().replace(' GMT','') %></span>
+            <% if (inc.postmortem_text) { %>
+              <div style="margin-top:6px;font-size:12px;color:#475569"><%= inc.postmortem_text %></div>
+            <% } %>
+          </div>
+        <% }) %>
+      </div>
     <% } %>
 
-    <!-- Monitors -->
     <div class="card">
       <div class="card-title">Monitors</div>
       <% monitors.forEach(function(m) { %>
@@ -109,40 +239,36 @@
         </div>
       <% }) %>
       <% if (monitors.length === 0) { %>
-        <div style="padding:24px;text-align:center;color:#718096">No monitors on this page.</div>
+        <div style="padding:24px;text-align:center;color:var(--muted)">No monitors on this page.</div>
       <% } %>
     </div>
 
-    <!-- Recent incidents -->
     <% if (recentIncidents && recentIncidents.length > 0) { %>
-    <div class="card">
-      <div class="card-title">Recent Incidents</div>
-      <% recentIncidents.forEach(function(inc) { %>
-        <div class="incident-row">
-          <div>
-            <strong><%= inc.monitor_name %></strong> —
-            <span style="color:<%= inc.resolved_at ? '#38a169' : '#e53e3e' %>">
-              <%= inc.resolved_at ? 'Resolved' : 'Ongoing' %>
-            </span>
-            <% if (inc.resolved_at && inc.duration_seconds) { %>
-              <span style="color:#718096;font-size:11px"> (downtime: <%= fmtDuration(inc.duration_seconds) %>)</span>
+      <div class="card">
+        <div class="card-title">Recent Incidents</div>
+        <% recentIncidents.forEach(function(inc) { %>
+          <div class="incident-row">
+            <div>
+              <strong><%= inc.monitor_name %></strong> —
+              <span style="color:<%= inc.resolved_at ? '#16a34a' : '#dc2626' %>"><%= inc.resolved_at ? 'Resolved' : 'Ongoing' %></span>
+              <% if (inc.resolved_at && inc.duration_seconds) { %>
+                <span style="color:var(--muted);font-size:11px"> (downtime: <%= fmtDuration(inc.duration_seconds) %>)</span>
+              <% } %>
+              <% if (inc.cause) { %><code style="font-size:11px;color:var(--muted);margin-left:6px"><%= inc.cause %></code><% } %>
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:3px"><%= new Date(inc.started_at).toUTCString().replace(' GMT','') %></div>
+            <% if (inc.postmortem_text) { %>
+              <div style="margin-top:6px;font-size:12px;padding:8px;background:#f8fafc;border-radius:4px"><%= inc.postmortem_text %></div>
             <% } %>
-            <% if (inc.cause) { %><code style="font-size:11px;color:#718096;margin-left:6px"><%= inc.cause %></code><% } %>
           </div>
-          <div style="font-size:11px;color:#718096;margin-top:3px"><%= new Date(inc.started_at).toUTCString().replace(' GMT','') %></div>
-          <% if (inc.postmortem_text) { %>
-            <div style="margin-top:6px;font-size:12px;padding:8px;background:#f7fafc;border-radius:4px"><%= inc.postmortem_text %></div>
-          <% } %>
-        </div>
-      <% }) %>
-    </div>
+        <% }) %>
+      </div>
     <% } %>
 
-    <!-- Subscribe -->
     <div class="card">
       <div class="subscribe-section">
-        <div style="font-size:15px;font-weight:600;margin-bottom:10px">Get Status Updates</div>
-        <div style="font-size:13px;color:#718096;margin-bottom:16px"><%= subscriberCount %> subscriber<%= subscriberCount !== 1 ? 's' : '' %></div>
+        <div style="font-size:15px;font-weight:650;margin-bottom:8px">Get Status Updates</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:14px"><%= subscriberCount %> subscriber<%= subscriberCount !== 1 ? 's' : '' %></div>
         <form action="/status/page/<%= page.slug %>/subscribe" method="POST">
           <input type="email" name="email" placeholder="your@email.com" required>
           <button type="submit">Subscribe</button>
@@ -150,7 +276,9 @@
       </div>
     </div>
 
-    <div class="footer">Powered by <strong>MetaWatch</strong></div>
+    <% if (!page.hide_powered_by) { %>
+      <div class="footer">Powered by <a href="<%= process.env.BASE_URL || '/' %>">MetaWatch</a></div>
+    <% } %>
   </div>
 </body>
 </html>

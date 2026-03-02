@@ -26,20 +26,58 @@
 
 <div class="card" style="margin-bottom:16px">
   <div class="card-header">
-    <h2 class="card-title">Scheduler</h2>
+    <h2 class="card-title">Runtime</h2>
   </div>
-  <div style="padding:16px 20px;font-size:14px;line-height:1.6">
-    <div><strong>Started:</strong> <%= system.scheduler.started ? 'yes' : 'no' %></div>
-    <div><strong>Leader lock held:</strong> <%= system.scheduler.hasLock ? 'yes' : 'no' %></div>
-    <div><strong>Queue backend:</strong> <%= system.scheduler.queueBackend %></div>
-    <div><strong>URL jobs:</strong> <%= system.scheduler.urlJobs %></div>
-    <div><strong>Uptime jobs:</strong> <%= system.scheduler.uptimeJobs %></div>
-    <div><strong>Running URL checks:</strong> <%= system.scheduler.runningUrlChecks %></div>
-    <div><strong>Running uptime checks:</strong> <%= system.scheduler.runningUptimeChecks %></div>
+  <div style="padding:14px 20px;font-size:13px;line-height:1.7;color:var(--text-muted)">
+    <div><strong style="color:var(--text)">Version:</strong> <%= system.appVersion %></div>
+    <div><strong style="color:var(--text)">Uptime:</strong> <%= system.uptimeSeconds %>s</div>
+    <div><strong style="color:var(--text)">Last check ran at:</strong> <%= system.lastCheckRanAt ? new Date(system.lastCheckRanAt).toISOString() : 'n/a' %></div>
+    <div><strong style="color:var(--text)">Snapshot generated:</strong> <%= system.generatedAt %></div>
+    <div><strong style="color:var(--text)">Collection time:</strong> <%= system.collectMs %>ms</div>
   </div>
 </div>
 
-<div class="card">
+<div class="card" style="margin-bottom:16px">
+  <div class="card-header">
+    <h2 class="card-title">Scheduler</h2>
+  </div>
+  <div style="padding:14px 20px;font-size:14px;line-height:1.6">
+    <div><strong>Started:</strong> <%= system.scheduler.started ? 'yes' : 'no' %></div>
+    <div><strong>Leader lock held:</strong> <%= system.scheduler.hasLock ? 'yes' : 'no' %></div>
+    <div><strong>Queue backend:</strong> <%= system.scheduler.queueBackend %></div>
+    <div><strong>URL jobs in memory:</strong> <%= system.scheduler.urlJobs %></div>
+    <div><strong>Uptime jobs in memory:</strong> <%= system.scheduler.uptimeJobs %></div>
+    <div><strong>Running URL checks:</strong> <%= system.scheduler.runningUrlChecks %></div>
+    <div><strong>Running uptime checks:</strong> <%= system.scheduler.runningUptimeChecks %></div>
+    <div><strong>Pending URL checks:</strong> <%= system.pendingChecks %></div>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Interval bucket (min)</th>
+          <th>URLs scheduled</th>
+          <th>Earliest next run</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (!system.schedulerBuckets || system.schedulerBuckets.length === 0) { %>
+          <tr><td colspan="3" style="color:var(--text-muted)">No active URL buckets.</td></tr>
+        <% } else { %>
+          <% system.schedulerBuckets.forEach(function(b) { %>
+            <tr>
+              <td><%= b.interval_min %></td>
+              <td><%= b.urls_scheduled %></td>
+              <td><%= b.next_run_at ? new Date(b.next_run_at).toISOString() : 'n/a' %></td>
+            </tr>
+          <% }) %>
+        <% } %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:16px">
   <div class="card-header">
     <h2 class="card-title">Events & Queue</h2>
   </div>
@@ -55,6 +93,57 @@
         <tr><th>Notification failures (24h)</th><td><%= system.notificationsFailed24h %></td></tr>
         <tr><th>Webhook queue pending</th><td><%= system.webhookPending %></td></tr>
         <tr><th>Webhook queue failed</th><td><%= system.webhookFailed %></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-header">
+    <h2 class="card-title">DB Table Sizes</h2>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr><th>Table</th><th>Size</th></tr>
+      </thead>
+      <tbody>
+        <% if (!system.tableSizes || system.tableSizes.length === 0) { %>
+          <tr><td colspan="2" style="color:var(--text-muted)">No data.</td></tr>
+        <% } else { %>
+          <% system.tableSizes.forEach(function(t) { %>
+            <tr>
+              <td><code><%= t.table_name %></code></td>
+              <td><%= t.size_pretty %></td>
+            </tr>
+          <% }) %>
+        <% } %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h2 class="card-title">Recent Slow Queries (&gt;= <%= system.slowQueryThreshold %>ms)</h2>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr><th>When</th><th>Duration</th><th>SQL (trimmed)</th></tr>
+      </thead>
+      <tbody>
+        <% if (!system.slowQueries || system.slowQueries.length === 0) { %>
+          <tr><td colspan="3" style="color:var(--text-muted)">No slow queries captured in this process yet.</td></tr>
+        <% } else { %>
+          <% system.slowQueries.forEach(function(q) { %>
+            <tr>
+              <td style="font-size:12px"><%= q.at %></td>
+              <td><%= q.ms %>ms</td>
+              <td><code style="font-size:11px"><%= q.sql %></code></td>
+            </tr>
+          <% }) %>
+        <% } %>
       </tbody>
     </table>
   </div>

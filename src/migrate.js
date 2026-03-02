@@ -421,6 +421,16 @@ async function migrate() {
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
     `);
+    const statusPageCols = [
+      'ALTER TABLE status_pages ADD COLUMN IF NOT EXISTS custom_domain VARCHAR(255)',
+      'ALTER TABLE status_pages ADD COLUMN IF NOT EXISTS logo_url TEXT',
+      "ALTER TABLE status_pages ADD COLUMN IF NOT EXISTS primary_color VARCHAR(7) NOT NULL DEFAULT '#4299e1'",
+      'ALTER TABLE status_pages ADD COLUMN IF NOT EXISTS hide_powered_by BOOLEAN NOT NULL DEFAULT false'
+    ];
+    for (const sql of statusPageCols) await client.query(sql);
+    await client.query(
+      'CREATE INDEX IF NOT EXISTS idx_status_pages_custom_domain ON status_pages(lower(custom_domain)) WHERE custom_domain IS NOT NULL'
+    );
 
     // ─── uptime_subscribers ───────────────────────────────────────────────────
     await client.query(`

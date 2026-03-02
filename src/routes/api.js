@@ -6,6 +6,7 @@ const { requireAuth, requireApiKey, hashApiKey } = require('../auth');
 const { scanEmitter, isScanRunning } = require('../scan-events');
 const { getSchedulerStatus } = require('../scheduler');
 const { ipKeyGenerator } = require('express-rate-limit');
+const { version: APP_VERSION } = require('../../package.json');
 
 const API_RATE_LIMIT_WINDOW_MS = Math.max(1000, parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || '60000', 10) || 60000);
 const API_RATE_LIMIT_MAX = Math.max(1, parseInt(process.env.API_RATE_LIMIT_MAX || '100', 10) || 100);
@@ -53,20 +54,71 @@ router.get('/health', async (req, res) => {
     const t0 = Date.now();
     await pool.query('SELECT 1');
     const dbLatencyMs = Date.now() - t0;
-    const { rows: [q] } = await pool.query(
-      `SELECT COUNT(*) FILTER (WHERE status = 'pending')::int AS pending_webhooks
-       FROM webhook_delivery_log`
-    );
+    const scheduler = getSchedulerStatus();
+
+    const [
+      { rows: [webhookRow] },
+      { rows: [queueRow] },
+      { rows: [lastCheckRow] }
+    ] = await Promise.all([
+      pool.query(
+        `SELECT COUNT(*) FILTER (WHERE status = 'pending')::int AS pending_webhooks
+         FROM webhook_delivery_log`
+      ),
+      pool.query(`
+        SELECT COUNT(*)::int AS pending_checks
+        FROM monitored_urls mu
+        LEFT JOIN LATERAL (
+          SELECT checked_at
+          FROM snapshots
+          WHERE url_id = mu.id
+          ORDER BY checked_at DESC
+          LIMIT 1
+        ) ls ON true
+        WHERE mu.is_active = true
+          AND (
+            ls.checked_at IS NULL
+            OR ls.checked_at < NOW() - make_interval(mins => mu.check_interval_minutes)
+          )
+      `),
+      pool.query(`
+        SELECT GREATEST(
+          (SELECT MAX(checked_at) FROM snapshots),
+          (SELECT MAX(checked_at) FROM uptime_checks)
+        ) AS last_check_ran_at
+      `)
+    ]);
+
+    const pendingWebhooks = webhookRow?.pending_webhooks || 0;
+    const pendingChecks = queueRow?.pending_checks || 0;
     res.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
+      db_connected: true,
+      scheduler_running: !!(scheduler.started && scheduler.hasLock),
+      last_check_ran_at: lastCheckRow?.last_check_ran_at || null,
+      queue_depth: {
+        pending_checks: pendingChecks,
+        pending_webhooks: pendingWebhooks
+      },
+      uptime_seconds: Math.round(process.uptime()),
+      version: APP_VERSION,
       uptime: process.uptime(),
       db_latency_ms: dbLatencyMs,
-      pending_webhooks: q?.pending_webhooks || 0,
-      scheduler: getSchedulerStatus()
+      pending_webhooks: pendingWebhooks,
+      scheduler
     });
   } catch (err) {
-    res.status(503).json({ status: 'error', error: err.message });
+    res.status(503).json({
+      status: 'error',
+      db_connected: false,
+      scheduler_running: false,
+      last_check_ran_at: null,
+      queue_depth: null,
+      uptime_seconds: Math.round(process.uptime()),
+      version: APP_VERSION,
+      error: err.message
+    });
   }
 });
 

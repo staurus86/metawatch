@@ -4,6 +4,7 @@ const ejsLayouts = require('express-ejs-layouts');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const path = require('path');
+const pool = require('./db');
 const migrate = require('./migrate');
 const { startScheduler } = require('./scheduler');
 const { loadUserMiddleware } = require('./auth');
@@ -11,6 +12,33 @@ const { loadUserPlanMiddleware } = require('./plans');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const CUSTOM_DOMAIN_CACHE_TTL_MS = 60 * 1000;
+const customDomainCache = new Map();
+
+function normalizeHostHeader(hostHeader) {
+  const raw = String(hostHeader || '').trim().toLowerCase();
+  if (!raw) return '';
+  return raw.replace(/:\d+$/, '').replace(/\.$/, '');
+}
+
+async function resolveStatusSlugByHost(host) {
+  const now = Date.now();
+  const cached = customDomainCache.get(host);
+  if (cached && cached.expiresAt > now) return cached.slug;
+
+  const { rows: [row] } = await pool.query(
+    `SELECT slug
+     FROM status_pages
+     WHERE is_public = true
+       AND custom_domain IS NOT NULL
+       AND lower(custom_domain) = lower($1)
+     LIMIT 1`,
+    [host]
+  );
+  const slug = row?.slug || null;
+  customDomainCache.set(host, { slug, expiresAt: now + CUSTOM_DOMAIN_CACHE_TTL_MS });
+  return slug;
+}
 
 // View engine
 app.set('view engine', 'ejs');
@@ -48,6 +76,25 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 // Load current user into req.user + res.locals.user for all routes
 app.use(loadUserMiddleware);
 app.use(loadUserPlanMiddleware);
+
+// Custom-domain status pages: rewrite root requests to matching status page.
+app.use(async (req, res, next) => {
+  if (!['GET', 'HEAD'].includes(req.method)) return next();
+  if (req.path !== '/') return next();
+
+  const host = normalizeHostHeader(req.headers.host);
+  if (!host || host === 'localhost' || host.endsWith('.localhost')) return next();
+
+  try {
+    const slug = await resolveStatusSlugByHost(host);
+    if (!slug) return next();
+    req.url = `/status/page/${slug}`;
+    return next();
+  } catch (err) {
+    console.error('[StatusDomain] Host lookup failed:', err.message);
+    return next();
+  }
+});
 
 // Routes — auth (no auth required)
 app.use('/', require('./routes/auth'));

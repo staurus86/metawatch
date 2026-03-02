@@ -23,7 +23,7 @@
     <div class="table-wrapper">
       <table class="data-table">
         <thead>
-          <tr><th>Title</th><th>Slug</th><th>Monitors</th><th>Subscribers</th><th>Public</th><th>Actions</th></tr>
+          <tr><th>Title</th><th>Slug</th><th>Monitors</th><th>Subscribers</th><th>Public</th><th>Domain</th><th>Actions</th></tr>
         </thead>
         <tbody>
           <% pages.forEach(function(page) { %>
@@ -33,6 +33,13 @@
               <td><%= page.monitor_ids ? page.monitor_ids.length : 0 %></td>
               <td><%= subMap[page.id] || 0 %></td>
               <td><span class="badge badge--<%= page.is_public ? 'ok' : 'paused' %>"><%= page.is_public ? 'Public' : 'Private' %></span></td>
+              <td>
+                <% if (page.custom_domain) { %>
+                  <code style="font-size:11px"><%= page.custom_domain %></code>
+                <% } else { %>
+                  <span style="font-size:12px;color:var(--text-muted)">—</span>
+                <% } %>
+              </td>
               <td style="display:flex;gap:6px;flex-wrap:wrap">
                 <% if (page.is_public) { %>
                   <a href="/status/page/<%= page.slug %>" target="_blank" class="btn btn-ghost" style="font-size:11px;padding:4px 10px">↗ View</a>
