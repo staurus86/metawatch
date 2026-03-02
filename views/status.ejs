@@ -6,92 +6,530 @@
   <title><%= monitor.name %> — <%= t('status.title_suffix') %></title>
   <link rel="stylesheet" href="/style.css">
   <style>
-    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
-    .status-page { max-width: 940px; margin: 0 auto; padding: 40px 20px 56px; }
-    .status-header { text-align: center; margin-bottom: 24px; }
-    .status-name { font-size: 30px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
-    .status-url { font-size: 13px; color: var(--text-muted); word-break: break-all; }
-    .status-grid { display: grid; grid-template-columns: 1.2fr .8fr; gap: 16px; margin-bottom: 16px; }
-    .status-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
-    .status-card-title { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); padding: 12px 14px; border-bottom: 1px solid var(--border); }
-    .status-big { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 26px 16px; min-height: 214px; }
-    .status-big--up { background: #f0fff4; }
-    .status-big--down { background: #fff5f5; }
-    .status-big--degraded { background: #fffaf0; }
-    .status-big--pending { background: var(--bg-secondary); }
-    .status-big-label { font-size: 34px; font-weight: 900; margin-top: 8px; }
-    .status-big--up .status-big-label { color: #276749; }
-    .status-big--down .status-big-label { color: #9b2c2c; }
-    .status-big--degraded .status-big-label { color: #7b341e; }
-    .status-big-sub { font-size: 13px; color: var(--text-muted); margin-top: 8px; text-align: center; }
-    .metric-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 14px; }
-    .metric { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
-    .metric-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
-    .metric-value { margin-top: 5px; font-size: 20px; font-weight: 800; color: var(--text); }
-    .metric-value--ok { color: #276749; }
-    .metric-value--warn { color: #7b341e; }
-    .metric-value--error { color: #9b2c2c; }
-    .simple-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 14px; }
-    .simple-cell { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 10px; text-align: center; }
-    .simple-cell b { display: block; font-size: 18px; margin-top: 4px; }
-    .status-section { margin-top: 16px; }
-    .uptime-bars { display: flex; gap: 3px; height: 34px; align-items: flex-end; padding: 14px; }
-    .uptime-bar { flex: 1; border-radius: 2px; min-height: 4px; cursor: default; }
-    .uptime-bar--up { background: #68d391; }
-    .uptime-bar--down { background: #fc8181; }
-    .uptime-bar--degraded { background: #f6ad55; }
-    .uptime-bar--empty { background: var(--border); }
-    .bar-legend { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); padding: 0 14px 14px; }
-    .incident-row { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--border); font-size: 13px; }
-    .incident-row:first-child { border-top: none; }
-    .incident-badge { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; }
-    .incident-badge--resolved { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
-    .incident-badge--open { background: #fff5f5; color: #9b2c2c; border: 1px solid #fed7d7; }
-    .checks-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    .checks-table th { text-align: left; padding: 9px 10px; font-size: 10px; letter-spacing: .05em; color: var(--text-muted); text-transform: uppercase; background: var(--bg-secondary); border-bottom: 1px solid var(--border); }
-    .checks-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); }
+    :root {
+      --page-bg: #f3f7ff;
+      --ink: #10223a;
+      --muted: #5f7290;
+      --card: #ffffff;
+      --line: #dbe5f4;
+      --up: #16a34a;
+      --down: #dc2626;
+      --degraded: #d97706;
+      --pending: #64748b;
+      --accent: #2563eb;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI Variable", "Trebuchet MS", "Lucida Sans Unicode", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 8% -5%, rgba(37, 99, 235, 0.18), transparent 30%),
+        radial-gradient(circle at 90% 0%, rgba(14, 165, 233, 0.16), transparent 35%),
+        linear-gradient(180deg, #f8fbff 0%, var(--page-bg) 70%);
+      min-height: 100vh;
+    }
+
+    .status-page { max-width: 1040px; margin: 0 auto; padding: 28px 16px 56px; }
+
+    .reveal { animation: reveal 0.55s ease both; }
+    .reveal:nth-of-type(2) { animation-delay: .05s; }
+    .reveal:nth-of-type(3) { animation-delay: .1s; }
+    .reveal:nth-of-type(4) { animation-delay: .15s; }
+    .reveal:nth-of-type(5) { animation-delay: .2s; }
+
+    @keyframes reveal {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .status-header {
+      display: grid;
+      grid-template-columns: 1.2fr .8fr;
+      gap: 14px;
+      align-items: center;
+      background: linear-gradient(145deg, #ffffff 0%, #f7fbff 100%);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 22px;
+      box-shadow: 0 8px 26px rgba(30, 58, 138, 0.08);
+    }
+
+    .kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--accent);
+      font-size: 11px;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .kicker::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.15);
+      animation: pulse 2s ease infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); opacity: 1; }
+      70% { transform: scale(1.28); opacity: .45; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    .status-name { margin: 0; font-size: clamp(26px, 4vw, 40px); line-height: 1.05; }
+    .status-url {
+      display: inline-block;
+      margin-top: 8px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 13px;
+      word-break: break-all;
+    }
+    .status-url:hover { color: var(--accent); text-decoration: underline; }
+
+    .chip-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 650;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: #274364;
+    }
+
+    .chip-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      display: inline-block;
+    }
+
+    .chip--up .chip-dot { background: var(--up); }
+    .chip--down .chip-dot { background: var(--down); }
+    .chip--degraded .chip-dot { background: var(--degraded); }
+    .chip--pending .chip-dot { background: var(--pending); }
+
+    .ring-shell {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px;
+    }
+
+    .uptime-ring {
+      --ring-deg: 0deg;
+      width: 150px;
+      height: 150px;
+      border-radius: 999px;
+      background: conic-gradient(var(--accent) var(--ring-deg), #d7e2f2 0deg);
+      display: grid;
+      place-items: center;
+      position: relative;
+      box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.1);
+    }
+
+    .uptime-ring::after {
+      content: "";
+      width: 116px;
+      height: 116px;
+      border-radius: 999px;
+      background: #ffffff;
+      border: 1px solid var(--line);
+      position: absolute;
+    }
+
+    .uptime-ring-value {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      font-size: 24px;
+      font-weight: 800;
+      color: var(--ink);
+      line-height: 1;
+    }
+
+    .uptime-ring-value small {
+      display: block;
+      margin-top: 5px;
+      font-size: 11px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .ring-caption { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+
+    .status-grid {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: 1.05fr .95fr;
+      gap: 14px;
+    }
+
+    .status-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+    }
+
+    .status-card-title {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 700;
+      background: linear-gradient(180deg, #fcfdff 0%, #f7faff 100%);
+    }
+
+    .status-big {
+      min-height: 216px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      padding: 20px;
+      text-align: center;
+    }
+
+    .status-big--up { background: linear-gradient(180deg, #f0fdf4 0%, #f8fffb 100%); }
+    .status-big--down { background: linear-gradient(180deg, #fef2f2 0%, #fff8f8 100%); }
+    .status-big--degraded { background: linear-gradient(180deg, #fffbeb 0%, #fffdf6 100%); }
+    .status-big--pending { background: linear-gradient(180deg, #f1f5f9 0%, #f8fafc 100%); }
+
+    .status-big-icon { font-size: 58px; line-height: 1; }
+    .status-big-label { margin-top: 8px; font-size: 34px; font-weight: 900; letter-spacing: -0.03em; }
+    .status-big--up .status-big-label { color: #166534; }
+    .status-big--down .status-big-label { color: #991b1b; }
+    .status-big--degraded .status-big-label { color: #92400e; }
+    .status-big--pending .status-big-label { color: #334155; }
+    .status-big-sub { margin-top: 10px; color: var(--muted); font-size: 13px; }
+
+    .metric-list {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      padding: 14px;
+    }
+
+    .metric {
+      background: #f8fbff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 11px 12px;
+      text-align: center;
+    }
+
+    .metric-label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      font-weight: 700;
+    }
+
+    .metric-value {
+      margin-top: 5px;
+      font-size: 22px;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+    }
+    .metric-value--ok { color: #15803d; }
+    .metric-value--warn { color: #a16207; }
+    .metric-value--error { color: #b91c1c; }
+
+    .status-section { margin-top: 14px; }
+
+    .simple-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      padding: 14px;
+    }
+
+    .simple-cell {
+      border: 1px solid var(--line);
+      background: #f8fbff;
+      border-radius: 10px;
+      padding: 11px 10px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--muted);
+      text-align: center;
+      font-weight: 700;
+    }
+
+    .simple-cell b {
+      display: block;
+      margin-top: 5px;
+      font-size: 19px;
+      letter-spacing: -0.01em;
+      color: var(--ink);
+      text-transform: none;
+    }
+
+    .context-note {
+      margin: 0 14px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fbfdff;
+      padding: 10px 12px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .context-note strong { color: #2f4f74; }
+
+    .error-note strong { color: #b91c1c; }
+
+    .uptime-bars {
+      display: flex;
+      gap: 3px;
+      height: 40px;
+      align-items: flex-end;
+      padding: 14px;
+    }
+
+    .uptime-bar {
+      flex: 1;
+      min-height: 4px;
+      border-radius: 3px;
+      position: relative;
+      cursor: default;
+      transition: transform .16s ease, filter .16s ease;
+    }
+
+    .uptime-bar:hover {
+      transform: translateY(-2px);
+      filter: brightness(0.95);
+    }
+
+    .uptime-bar--up { background: #4ade80; }
+    .uptime-bar--down { background: #f87171; }
+    .uptime-bar--degraded { background: #fbbf24; }
+    .uptime-bar--empty { background: #d0dbea; }
+
+    .bar-legend {
+      padding: 0 14px 14px;
+      display: flex;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .legend-dots {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .legend-dots span {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .legend-dots i {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      display: inline-block;
+    }
+
+    .incident-list { padding: 4px 14px 14px; }
+
+    .incident-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px dashed var(--line);
+      font-size: 13px;
+    }
+
+    .incident-row:last-child { border-bottom: none; }
+
+    .incident-title { font-weight: 700; color: #1f3a5d; }
+    .incident-meta { margin-top: 4px; color: var(--muted); font-size: 12px; }
+
+    .incident-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      padding: 3px 10px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      font-weight: 700;
+      height: fit-content;
+      margin-top: 2px;
+    }
+
+    .incident-badge--resolved { background: #ecfdf5; border-color: #86efac; color: #166534; }
+    .incident-badge--open { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+
+    .checks-wrap { overflow-x: auto; }
+
+    .checks-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      min-width: 640px;
+    }
+
+    .checks-table th {
+      text-align: left;
+      padding: 10px;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+      background: #f8fbff;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .checks-table td {
+      padding: 10px;
+      border-bottom: 1px solid #edf3fc;
+      color: #294668;
+      vertical-align: top;
+    }
+
     .checks-table tr:last-child td { border-bottom: none; }
-    .powered-by { text-align: center; margin-top: 30px; font-size: 12px; color: var(--text-muted); }
+    .checks-table tr:hover td { background: #f9fcff; }
+
+    .state-pill {
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      font-weight: 700;
+      border: 1px solid transparent;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .state-pill--up { color: #166534; background: #ecfdf5; border-color: #86efac; }
+    .state-pill--degraded { color: #92400e; background: #fffbeb; border-color: #fcd34d; }
+    .state-pill--down, .state-pill--pending { color: #991b1b; background: #fef2f2; border-color: #fecaca; }
+
+    .powered-by {
+      text-align: center;
+      margin-top: 22px;
+      font-size: 12px;
+      color: var(--muted);
+    }
     .powered-by a { color: inherit; text-decoration: none; }
     .powered-by a:hover { text-decoration: underline; }
-    @media (max-width: 800px) {
+
+    @media (max-width: 860px) {
+      .status-header { grid-template-columns: 1fr; }
+      .ring-shell { padding-top: 0; }
       .status-grid { grid-template-columns: 1fr; }
-      .simple-grid { grid-template-columns: repeat(2, 1fr); }
+      .metric-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .simple-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .incident-row { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 540px) {
+      .status-page { padding: 20px 12px 44px; }
+      .status-header { padding: 16px; border-radius: 14px; }
       .metric-list { grid-template-columns: 1fr; }
+      .simple-grid { grid-template-columns: 1fr; }
+      .chip { width: 100%; justify-content: center; }
+      .uptime-ring { width: 126px; height: 126px; }
+      .uptime-ring::after { width: 96px; height: 96px; }
+      .uptime-ring-value { font-size: 21px; }
     }
   </style>
 </head>
 <body>
-  <div class="status-page">
-    <div class="status-header">
-      <div class="status-name"><%= monitor.name %></div>
-      <div class="status-url"><%= monitor.url %></div>
-    </div>
+  <%
+    const st = latestCheck ? latestCheck.status : 'pending';
+    const statusMeta = st === 'up'
+      ? { label: 'Operational', icon: 'OK', cls: 'chip--up' }
+      : st === 'down'
+        ? { label: 'Outage', icon: 'DOWN', cls: 'chip--down' }
+        : st === 'degraded'
+          ? { label: 'Degraded', icon: 'WARN', cls: 'chip--degraded' }
+          : { label: 'Pending', icon: 'PENDING', cls: 'chip--pending' };
+    const uptime30 = uptimeWindows && uptimeWindows['30d'] != null ? Number(uptimeWindows['30d']) : null;
+    const ringDeg = uptime30 == null ? 0 : Math.max(0, Math.min(100, uptime30)) * 3.6;
+    const lastCheckedText = latestCheck ? new Date(latestCheck.checked_at).toUTCString() : '—';
+  %>
 
-    <% const st = latestCheck ? latestCheck.status : 'pending'; %>
-    <div class="status-grid">
-      <div class="status-card">
+  <div class="status-page">
+    <header class="status-header reveal">
+      <div>
+        <div class="kicker">Public Uptime Report</div>
+        <h1 class="status-name"><%= monitor.name %></h1>
+        <a href="<%= monitor.url %>" class="status-url" target="_blank" rel="noopener noreferrer"><%= monitor.url %></a>
+
+        <div class="chip-row">
+          <span class="chip <%= statusMeta.cls %>"><span class="chip-dot"></span><%= statusMeta.label %></span>
+          <span class="chip">Last check: <%= lastCheckedText %></span>
+          <span class="chip">Interval: <%= monitor.interval_minutes %>m</span>
+        </div>
+      </div>
+
+      <div class="ring-shell">
+        <div class="uptime-ring" style="--ring-deg:<%= ringDeg %>deg">
+          <div class="uptime-ring-value"><%= uptime30 == null ? '—' : (uptime30 + '%') %><small>30d uptime</small></div>
+        </div>
+        <div class="ring-caption">Availability Score</div>
+      </div>
+    </header>
+
+    <section class="status-grid reveal">
+      <article class="status-card">
         <div class="status-card-title"><%= t('status.current_status') %></div>
         <div class="status-big status-big--<%= st %>">
-          <% if (st === 'up') { %><div style="font-size:52px">✅</div>
-          <% } else if (st === 'down') { %><div style="font-size:52px">🔴</div>
-          <% } else if (st === 'degraded') { %><div style="font-size:52px">🟡</div>
-          <% } else { %><div style="font-size:52px">⏳</div>
-          <% } %>
+          <div class="status-big-icon"><%= statusMeta.icon %></div>
           <div class="status-big-label"><%= st.toUpperCase() %></div>
           <% if (openIncident) { %>
             <div class="status-big-sub"><%= t('status.incident_ongoing_since', { time: new Date(openIncident.started_at).toUTCString() }) %></div>
           <% } else if (latestCheck) { %>
             <div class="status-big-sub">
               <%= t('status.last_checked_at', { time: new Date(latestCheck.checked_at).toUTCString() }) %>
-              <% if (latestCheck.response_time_ms != null) { %>· <%= latestCheck.response_time_ms %>ms<% } %>
-              <% if (latestCheck.status_code != null) { %>· HTTP <%= latestCheck.status_code %><% } %>
+              <% if (latestCheck.response_time_ms != null) { %> · <%= latestCheck.response_time_ms %>ms<% } %>
+              <% if (latestCheck.status_code != null) { %> · HTTP <%= latestCheck.status_code %><% } %>
             </div>
           <% } %>
         </div>
-      </div>
+      </article>
 
-      <div class="status-card">
+      <article class="status-card">
         <div class="status-card-title"><%= t('status.uptime') %></div>
         <div class="metric-list">
           <% ['24h', '7d', '30d'].forEach(function(period) { const v = uptimeWindows && uptimeWindows[period]; %>
@@ -103,10 +541,10 @@
             </div>
           <% }) %>
         </div>
-      </div>
-    </div>
+      </article>
+    </section>
 
-    <div class="status-card status-section">
+    <section class="status-card status-section reveal">
       <div class="status-card-title"><%= t('status.performance_incidents') %></div>
       <div class="simple-grid">
         <div class="simple-cell"><%= t('status.avg_rt') %><b><%= responseStats?.avg_ms != null ? responseStats.avg_ms + 'ms' : '—' %></b></div>
@@ -116,88 +554,96 @@
         <div class="simple-cell"><%= t('status.check_interval') %><b><%= monitor.interval_minutes %>m</b></div>
         <div class="simple-cell"><%= t('status.threshold') %><b><%= monitor.threshold_ms %>ms</b></div>
       </div>
-      <div style="padding:0 14px 14px;font-size:12px;color:var(--text-muted)">
-        <%= t('status.downtime_30d') %>:
-        <strong><%= incidentSummary?.downtime_seconds_30d ? fmtDuration(incidentSummary.downtime_seconds_30d) : '0s' %></strong>
+      <div class="context-note">
+        <%= t('status.downtime_30d') %>: <strong><%= incidentSummary?.downtime_seconds_30d ? fmtDuration(incidentSummary.downtime_seconds_30d) : '0s' %></strong>
       </div>
       <% if (latestCheck && latestCheck.error_message) { %>
-        <div style="padding:0 14px 14px;font-size:12px;color:var(--text-muted)">
-          <%= t('status.last_error') %>:
-          <strong style="color:#c53030"><%= latestCheck.error_message.substring(0, 140) %></strong>
+        <div class="context-note error-note">
+          <%= t('status.last_error') %>: <strong><%= latestCheck.error_message.substring(0, 160) %></strong>
         </div>
       <% } %>
-    </div>
+    </section>
 
-    <div class="status-card status-section">
+    <section class="status-card status-section reveal">
       <div class="status-card-title"><%= t('status.last_90_days') %></div>
       <div class="uptime-bars">
         <% dayBuckets.forEach(function(bucket) { %>
-          <div class="uptime-bar uptime-bar--<%= bucket.status %>"
-               style="height:<%= Math.max(4, Math.min(34, bucket.count * 4)) %>px"
-               title="<%= bucket.date %>: <%= bucket.status %>"></div>
+          <div
+            class="uptime-bar uptime-bar--<%= bucket.status %>"
+            style="height:<%= Math.max(4, Math.min(38, bucket.count * 4)) %>px"
+            title="<%= bucket.date %>: <%= bucket.status %>">
+          </div>
         <% }) %>
       </div>
       <div class="bar-legend">
         <span>90 days ago</span>
+        <span class="legend-dots">
+          <span><i style="background:#4ade80"></i>Up</span>
+          <span><i style="background:#fbbf24"></i>Degraded</span>
+          <span><i style="background:#f87171"></i>Down</span>
+        </span>
         <span>Today</span>
       </div>
-    </div>
+    </section>
 
-    <div class="status-card status-section">
+    <section class="status-card status-section reveal">
+      <div class="status-card-title"><%= t('status.recent_incidents') %></div>
+      <% if (incidents.length === 0) { %>
+        <div class="context-note"><%= t('status.no_incidents') %></div>
+      <% } else { %>
+        <div class="incident-list">
+          <% incidents.forEach(function(inc) { %>
+            <div class="incident-row">
+              <div>
+                <div class="incident-title"><%= inc.cause || 'Outage' %></div>
+                <div class="incident-meta">
+                  <%= new Date(inc.started_at).toUTCString().replace(' GMT','') %>
+                  <% if (inc.duration_seconds) { %> · <%= t('status.duration') %>: <%= fmtDuration(inc.duration_seconds) %><% } %>
+                </div>
+              </div>
+              <span class="incident-badge incident-badge--<%= inc.resolved_at ? 'resolved' : 'open' %>">
+                <%= inc.resolved_at ? t('status.incident_resolved') : t('status.incident_ongoing') %>
+              </span>
+            </div>
+          <% }) %>
+        </div>
+      <% } %>
+    </section>
+
+    <section class="status-card status-section reveal">
       <div class="status-card-title"><%= t('status.recent_checks') %></div>
       <% if (!recentChecks || recentChecks.length === 0) { %>
-        <div style="padding:16px;color:var(--text-muted);font-size:13px"><%= t('status.no_checks') %></div>
+        <div class="context-note"><%= t('status.no_checks') %></div>
       <% } else { %>
-        <div style="overflow-x:auto">
+        <div class="checks-wrap">
           <table class="checks-table">
             <thead>
-                <tr>
-                  <th><%= t('status.time_utc') %></th>
-                  <th><%= t('dashboard.status') %></th>
-                  <th>HTTP</th>
-                  <th><%= t('status.response') %></th>
-                  <th>Error</th>
-                </tr>
+              <tr>
+                <th><%= t('status.time_utc') %></th>
+                <th><%= t('dashboard.status') %></th>
+                <th>HTTP</th>
+                <th><%= t('status.response') %></th>
+                <th>Error</th>
+              </tr>
             </thead>
             <tbody>
               <% recentChecks.forEach(function(chk) { %>
+                <% const pill = chk.status === 'up' ? 'state-pill--up' : chk.status === 'degraded' ? 'state-pill--degraded' : 'state-pill--down'; %>
                 <tr>
                   <td><%= new Date(chk.checked_at).toUTCString().replace(' GMT','') %></td>
-                  <td><span class="incident-badge incident-badge--<%= chk.status === 'up' ? 'resolved' : 'open' %>"><%= chk.status.toUpperCase() %></span></td>
+                  <td><span class="state-pill <%= pill %>"><%= chk.status.toUpperCase() %></span></td>
                   <td><%= chk.status_code != null ? chk.status_code : '—' %></td>
                   <td><%= chk.response_time_ms != null ? chk.response_time_ms + 'ms' : '—' %></td>
-                  <td style="color:var(--text-muted)"><%= chk.error_message ? chk.error_message.substring(0, 90) : '' %></td>
+                  <td><%= chk.error_message ? chk.error_message.substring(0, 100) : '' %></td>
                 </tr>
               <% }) %>
             </tbody>
           </table>
         </div>
       <% } %>
-    </div>
+    </section>
 
-    <div class="status-card status-section">
-      <div class="status-card-title"><%= t('status.recent_incidents') %></div>
-      <% if (incidents.length === 0) { %>
-        <div style="padding:16px;color:var(--text-muted);font-size:13px"><%= t('status.no_incidents') %></div>
-      <% } else { %>
-        <% incidents.forEach(function(inc) { %>
-          <div class="incident-row">
-            <div>
-              <div style="font-weight:600"><%= inc.cause || 'Outage' %></div>
-              <div style="font-size:12px;color:var(--text-muted);margin-top:3px">
-                <%= new Date(inc.started_at).toUTCString().replace(' GMT','') %>
-                <% if (inc.duration_seconds) { %> · <%= t('status.duration') %>: <%= fmtDuration(inc.duration_seconds) %><% } %>
-              </div>
-            </div>
-            <span class="incident-badge incident-badge--<%= inc.resolved_at ? 'resolved' : 'open' %>">
-              <%= inc.resolved_at ? t('status.incident_resolved') : t('status.incident_ongoing') %>
-            </span>
-          </div>
-        <% }) %>
-      <% } %>
-    </div>
-
-    <div class="powered-by">Powered by <a href="/" target="_blank">MetaWatch</a></div>
+    <div class="powered-by">Powered by <a href="/" target="_blank" rel="noopener noreferrer">MetaWatch</a></div>
   </div>
 </body>
 </html>
