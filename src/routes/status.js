@@ -44,18 +44,64 @@ router.get('/:slug', async (req, res) => {
       [monitor.id]
     );
 
-    // Uptime % last 30 days
-    const { rows: [pctRow] } = await pool.query(
+    // Uptime windows
+    const { rows: [windowRow] } = await pool.query(
       `SELECT
-         COUNT(*) AS total,
-         COUNT(*) FILTER (WHERE status IN ('up', 'degraded')) AS ok_count
+         COUNT(*) FILTER (WHERE checked_at > NOW() - INTERVAL '24 hours')::int AS total_24h,
+         COUNT(*) FILTER (WHERE checked_at > NOW() - INTERVAL '24 hours' AND status IN ('up', 'degraded'))::int AS ok_24h,
+         COUNT(*) FILTER (WHERE checked_at > NOW() - INTERVAL '7 days')::int AS total_7d,
+         COUNT(*) FILTER (WHERE checked_at > NOW() - INTERVAL '7 days' AND status IN ('up', 'degraded'))::int AS ok_7d,
+         COUNT(*) FILTER (WHERE checked_at > NOW() - INTERVAL '30 days')::int AS total_30d,
+         COUNT(*) FILTER (WHERE checked_at > NOW() - INTERVAL '30 days' AND status IN ('up', 'degraded'))::int AS ok_30d
        FROM uptime_checks
-       WHERE monitor_id = $1 AND checked_at > NOW() - INTERVAL '30 days'`,
+       WHERE monitor_id = $1`,
       [monitor.id]
     );
-    const pct30d = pctRow.total > 0
-      ? Math.round((parseInt(pctRow.ok_count) / parseInt(pctRow.total)) * 1000) / 10
-      : null;
+    const calcPct = (ok, total) => {
+      if (!total || Number(total) <= 0) return null;
+      return Math.round((Number(ok) / Number(total)) * 1000) / 10;
+    };
+    const uptimeWindows = {
+      '24h': calcPct(windowRow?.ok_24h, windowRow?.total_24h),
+      '7d': calcPct(windowRow?.ok_7d, windowRow?.total_7d),
+      '30d': calcPct(windowRow?.ok_30d, windowRow?.total_30d)
+    };
+    const pct30d = uptimeWindows['30d'];
+
+    // Response-time stats (24h)
+    const { rows: [responseStats] } = await pool.query(
+      `SELECT
+         ROUND(AVG(response_time_ms))::int AS avg_ms,
+         MIN(response_time_ms)::int AS min_ms,
+         MAX(response_time_ms)::int AS max_ms
+       FROM uptime_checks
+       WHERE monitor_id = $1
+         AND response_time_ms IS NOT NULL
+         AND checked_at > NOW() - INTERVAL '24 hours'`,
+      [monitor.id]
+    );
+
+    // Recent check log
+    const { rows: recentChecks } = await pool.query(
+      `SELECT checked_at, status, status_code, response_time_ms, error_message
+       FROM uptime_checks
+       WHERE monitor_id = $1
+       ORDER BY checked_at DESC
+       LIMIT 20`,
+      [monitor.id]
+    );
+
+    // Incident summary (30d)
+    const { rows: [incidentSummary] } = await pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE started_at > NOW() - INTERVAL '30 days')::int AS incidents_30d,
+         COALESCE(SUM(duration_seconds) FILTER (
+           WHERE started_at > NOW() - INTERVAL '30 days' AND duration_seconds IS NOT NULL
+         ), 0)::int AS downtime_seconds_30d
+       FROM uptime_incidents
+       WHERE monitor_id = $1`,
+      [monitor.id]
+    );
 
     // 90-day daily buckets for bar chart
     const { rows: dailyRows } = await pool.query(
@@ -97,6 +143,10 @@ router.get('/:slug', async (req, res) => {
       openIncident: openIncident || null,
       incidents,
       pct30d,
+      uptimeWindows,
+      responseStats: responseStats || {},
+      recentChecks,
+      incidentSummary: incidentSummary || { incidents_30d: 0, downtime_seconds_30d: 0 },
       dayBuckets,
       fmtDuration
     });
@@ -123,15 +173,34 @@ router.get('/page/:slug', async (req, res, next) => {
     const { rows: monitors } = await pool.query(
       `SELECT um.*,
               lc.status AS last_status, lc.response_time_ms AS last_rt, lc.checked_at AS last_checked,
-              ROUND((COUNT(uc.id) FILTER (WHERE uc.status IN ('up','degraded'))::float / NULLIF(COUNT(uc.id),0) * 100)::numeric, 1) AS uptime_pct
+              u24.uptime_24h,
+              u7.uptime_7d,
+              rt.avg_rt_24h
        FROM uptime_monitors um
        LEFT JOIN LATERAL (
          SELECT status, response_time_ms, checked_at
          FROM uptime_checks WHERE monitor_id = um.id ORDER BY checked_at DESC LIMIT 1
        ) lc ON true
-       LEFT JOIN uptime_checks uc ON uc.monitor_id = um.id AND uc.checked_at > NOW() - INTERVAL '24 hours'
+       LEFT JOIN LATERAL (
+         SELECT
+           ROUND((COUNT(*) FILTER (WHERE status IN ('up','degraded'))::float / NULLIF(COUNT(*),0) * 100)::numeric, 1) AS uptime_24h
+         FROM uptime_checks
+         WHERE monitor_id = um.id AND checked_at > NOW() - INTERVAL '24 hours'
+       ) u24 ON true
+       LEFT JOIN LATERAL (
+         SELECT
+           ROUND((COUNT(*) FILTER (WHERE status IN ('up','degraded'))::float / NULLIF(COUNT(*),0) * 100)::numeric, 1) AS uptime_7d
+         FROM uptime_checks
+         WHERE monitor_id = um.id AND checked_at > NOW() - INTERVAL '7 days'
+       ) u7 ON true
+       LEFT JOIN LATERAL (
+         SELECT ROUND(AVG(response_time_ms))::int AS avg_rt_24h
+         FROM uptime_checks
+         WHERE monitor_id = um.id
+           AND checked_at > NOW() - INTERVAL '24 hours'
+           AND response_time_ms IS NOT NULL
+       ) rt ON true
        WHERE um.id = ANY($1)
-       GROUP BY um.id, lc.status, lc.response_time_ms, lc.checked_at
        ORDER BY um.name`,
       [page.monitor_ids]
     );
@@ -160,6 +229,18 @@ router.get('/page/:slug', async (req, res, next) => {
       [page.monitor_ids]
     );
 
+    const { rows: [summary] } = await pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE status = 'down')::int AS down_checks_24h,
+         COUNT(*) FILTER (WHERE status = 'degraded')::int AS degraded_checks_24h,
+         COUNT(*) FILTER (WHERE status IN ('up','degraded'))::int AS ok_checks_24h,
+         COUNT(*)::int AS total_checks_24h
+       FROM uptime_checks
+       WHERE monitor_id = ANY($1)
+         AND checked_at > NOW() - INTERVAL '24 hours'`,
+      [page.monitor_ids]
+    );
+
     const { rows: [{ cnt: subscriberCount }] } = await pool.query(
       'SELECT COUNT(*) AS cnt FROM uptime_subscribers WHERE status_page_id = $1 AND confirmed_at IS NOT NULL',
       [page.id]
@@ -172,6 +253,7 @@ router.get('/page/:slug', async (req, res, next) => {
       overallStatus,
       activeIncidents,
       recentIncidents,
+      summary: summary || { down_checks_24h: 0, degraded_checks_24h: 0, ok_checks_24h: 0, total_checks_24h: 0 },
       subscriberCount: parseInt(subscriberCount, 10),
       fmtDuration,
       message: req.query.msg || null,

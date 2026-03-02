@@ -8,6 +8,7 @@
   <% } %>
 
   <form action="/urls/add" method="POST" class="form">
+    <% const projectsList = Array.isArray(projects) ? projects : []; %>
 
     <!-- Basic info -->
     <div class="form-section-title">URL & Email</div>
@@ -18,6 +19,22 @@
              placeholder="https://example.com/page"
              value="<%= values.url || '' %>" required>
       <p class="form-hint">Must include http:// or https://</p>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="project_id">Project</label>
+      <select id="project_id" name="project_id" class="form-select">
+        <option value="">No project</option>
+        <% projectsList.forEach(function(project) { %>
+          <option value="<%= project.id %>" <%= String(values.project_id || '') === String(project.id) ? 'selected' : '' %>>
+            <%= project.name %>
+          </option>
+        <% }) %>
+      </select>
+      <p class="form-hint">
+        Group meta-monitor URLs by site/project.
+        <a href="/projects">Manage projects</a>
+      </p>
     </div>
 
     <div class="form-row">

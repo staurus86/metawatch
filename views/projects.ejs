@@ -1,0 +1,93 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Projects</h1>
+    <div class="text-muted" style="font-size:13px;margin-top:4px">
+      Group meta-monitor URLs by site/project. Dashboard can be viewed by project.
+    </div>
+  </div>
+  <a href="/" class="btn btn-ghost">← Dashboard</a>
+</div>
+
+<% if (message) { %>
+  <div class="alert-banner alert-banner--info" style="margin-bottom:16px"><%= message %></div>
+<% } %>
+<% if (error) { %>
+  <div class="alert-banner alert-banner--error" style="margin-bottom:16px"><%= error %></div>
+<% } %>
+
+<div class="card" style="margin-bottom:18px;max-width:720px">
+  <div class="card-header">
+    <h2 class="card-title">Add Project</h2>
+  </div>
+  <form action="/projects/add" method="POST" class="form" style="padding:16px">
+    <div class="form-row" style="grid-template-columns:1fr auto">
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label" for="project-name">Project name</label>
+        <input id="project-name" type="text" name="name" class="form-input" maxlength="255" placeholder="example.com">
+      </div>
+      <div class="form-group" style="margin-bottom:0;align-self:end">
+        <button type="submit" class="btn btn-primary">+ Add</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h2 class="card-title">My Projects</h2>
+    <span class="text-muted" style="font-size:12px">
+      Unassigned URLs: <strong><%= unassignedCount %></strong>
+    </span>
+  </div>
+
+  <% if (!projects || projects.length === 0) { %>
+    <div class="empty-state" style="padding:30px">
+      <div class="empty-icon">📁</div>
+      <p>No projects yet.</p>
+    </div>
+  <% } else { %>
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Project</th>
+            <th>URLs</th>
+            <th>OK</th>
+            <th>Changed</th>
+            <th>Error</th>
+            <th>Pending</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% projects.forEach(function(project) { %>
+            <tr>
+              <td>
+                <strong><%= project.name %></strong><br>
+                <small class="text-muted">Created <%= new Date(project.created_at).toISOString().slice(0, 10) %></small>
+              </td>
+              <td><%= project.url_count || 0 %></td>
+              <td><span class="badge badge--ok"><%= project.ok_count || 0 %></span></td>
+              <td><span class="badge badge--changed"><%= project.changed_count || 0 %></span></td>
+              <td><span class="badge badge--error"><%= project.error_count || 0 %></span></td>
+              <td><span class="badge badge--pending"><%= project.pending_count || 0 %></span></td>
+              <td>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                  <a href="/?view=projects&project=<%= project.id %>" class="btn btn-ghost" style="font-size:12px;padding:5px 10px">Open</a>
+                  <a href="/urls/add?project_id=<%= project.id %>" class="btn btn-ghost" style="font-size:12px;padding:5px 10px">Add URL</a>
+                  <form action="/projects/<%= project.id %>/rename" method="POST" style="display:flex;gap:6px;align-items:center">
+                    <input type="text" name="name" value="<%= project.name %>" class="form-input" style="width:150px;padding:5px 8px;font-size:12px">
+                    <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:5px 10px">Rename</button>
+                  </form>
+                  <form action="/projects/<%= project.id %>/delete" method="POST" data-confirm="Delete this project? URLs will stay monitored but become unassigned.">
+                    <button type="submit" class="btn btn-danger" style="font-size:12px;padding:5px 10px">Delete</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>

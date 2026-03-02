@@ -55,6 +55,25 @@ async function collectBulkRecords({ source, urlsText, sitemapUrl, column, file }
   return [];
 }
 
+async function getProjectsForUser(userId) {
+  if (!userId) return [];
+  const { rows } = await pool.query(
+    'SELECT id, name FROM projects WHERE user_id = $1 ORDER BY name ASC',
+    [userId]
+  );
+  return rows;
+}
+
+async function resolveProjectIdForUser(rawProjectId, userId) {
+  const id = parseInt(String(rawProjectId || ''), 10);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const { rows: [project] } = await pool.query(
+    'SELECT id FROM projects WHERE id = $1 AND user_id = $2',
+    [id, userId]
+  );
+  return project?.id || null;
+}
+
 // Return SQL + params to fetch a URL with ownership check
 function ownedUrlQuery(urlId, req) {
   const isAdmin = req.user?.role === 'admin';
@@ -67,11 +86,15 @@ function ownedUrlQuery(urlId, req) {
 }
 
 // GET /urls/add
-router.get('/add', requireAuth, (req, res) => {
+router.get('/add', requireAuth, async (req, res) => {
+  const projects = await getProjectsForUser(req.user.id).catch(() => []);
+  const selectedProjectId = await resolveProjectIdForUser(req.query.project_id, req.user.id).catch(() => null);
   res.render('add-url', {
     title: 'Add URL',
     error: null,
+    projects,
     values: {
+      project_id: selectedProjectId ? String(selectedProjectId) : '',
       email: req.user.default_alert_email || '',
       telegram_bot_token: req.user.default_telegram_token || '',
       telegram_chat_id: req.user.default_telegram_chat_id || '',
@@ -102,30 +125,36 @@ router.post('/add', requireAuth, async (req, res) => {
     monitor_ssl,
     user_agent, ignore_numbers, custom_text,
     telegram_bot_token, telegram_chat_id, webhook_url,
+    project_id,
     tags, notes, response_time_threshold_ms,
     maintenance_cron, maintenance_duration_minutes
   } = req.body;
 
-  const renderError = (msg) => res.render('add-url', {
-    title: 'Add URL',
-    error: msg,
-    values: req.body
-  });
+  const renderError = async (msg) => {
+    const projects = await getProjectsForUser(req.user.id).catch(() => []);
+    return res.render('add-url', {
+      title: 'Add URL',
+      error: msg,
+      projects,
+      values: req.body
+    });
+  };
 
-  if (!url || !url.trim()) return renderError('URL is required.');
+  if (!url || !url.trim()) return await renderError('URL is required.');
   const trimmedUrl = url.trim();
   if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
-    return renderError('URL must start with http:// or https://');
+    return await renderError('URL must start with http:// or https://');
   }
   let safeUrl;
   try {
     safeUrl = await assertSafeOutboundUrl(trimmedUrl);
   } catch (e) {
-    return renderError(`URL is not allowed: ${e.message}`);
+    return await renderError(`URL is not allowed: ${e.message}`);
   }
 
   const interval = parseInt(check_interval_minutes, 10);
-  if (isNaN(interval) || interval < 1) return renderError('Invalid check interval.');
+  if (isNaN(interval) || interval < 1) return await renderError('Invalid check interval.');
+  const safeProjectId = await resolveProjectIdForUser(project_id, req.user.id).catch(() => null);
   const rtThreshold = parseInt(response_time_threshold_ms, 10) || null;
   const maintenanceDuration = parseInt(maintenance_duration_minutes, 10);
   const safeMaintenanceDuration = Number.isFinite(maintenanceDuration) && maintenanceDuration > 0
@@ -135,20 +164,21 @@ router.post('/add', requireAuth, async (req, res) => {
   try {
     const { rows: [newUrl] } = await pool.query(
       `INSERT INTO monitored_urls
-         (url, email, check_interval_minutes, user_id,
+         (url, email, check_interval_minutes, user_id, project_id,
           monitor_title, monitor_description, monitor_h1, monitor_body,
           monitor_status_code, monitor_noindex, monitor_redirect,
           monitor_canonical, monitor_robots, monitor_hreflang, monitor_og, monitor_ssl,
           user_agent, ignore_numbers, custom_text,
           telegram_bot_token, telegram_chat_id, webhook_url, tags, notes,
           response_time_threshold_ms, maintenance_cron, maintenance_duration_minutes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
         RETURNING *`,
       [
         safeUrl,
         email?.trim() || req.user.default_alert_email || null,
         interval || 60,
         req.user.id,
+        safeProjectId,
         !!monitor_title, !!monitor_description, !!monitor_h1, !!monitor_body,
         !!monitor_status_code, !!monitor_noindex, !!monitor_redirect,
         !!monitor_canonical, !!monitor_robots, !!monitor_hreflang, !!monitor_og, !!monitor_ssl,
@@ -180,39 +210,48 @@ router.post('/add', requireAuth, async (req, res) => {
     res.redirect(`/urls/${newUrl.id}`);
   } catch (err) {
     console.error(err);
-    renderError(err.message);
+    await renderError(err.message);
   }
 });
 
 // GET /urls/bulk
-router.get('/bulk', requireAuth, (req, res) => {
-  res.render('bulk-import', { title: 'Bulk Import', error: null, preview: null });
+router.get('/bulk', requireAuth, async (req, res) => {
+  const projects = await getProjectsForUser(req.user.id).catch(() => []);
+  const selectedProjectId = await resolveProjectIdForUser(req.query.project_id, req.user.id).catch(() => null);
+  res.render('bulk-import', {
+    title: 'Bulk Import',
+    error: null,
+    preview: null,
+    projects,
+    selectedProjectId: selectedProjectId ? String(selectedProjectId) : ''
+  });
 });
 
 // POST /urls/bulk
 router.post('/bulk', requireAuth, upload.single('file'), async (req, res) => {
   const { source, urls_text, sitemap_url, column } = req.body;
+  const projects = await getProjectsForUser(req.user.id).catch(() => []);
+  const selectedProjectId = await resolveProjectIdForUser(req.body.project_id, req.user.id).catch(() => null);
+  const renderBulk = ({ error, preview }) => res.render('bulk-import', {
+    title: 'Bulk Import',
+    error: error || null,
+    preview: preview || null,
+    projects,
+    selectedProjectId: selectedProjectId ? String(selectedProjectId) : ''
+  });
 
   try {
     if (req.body.confirm === '1') {
       const interval = parseInt(req.body.check_interval_minutes || '60', 10);
       if (isNaN(interval) || interval < 1) {
-        return res.render('bulk-import', {
-          title: 'Bulk Import',
-          error: 'Invalid check interval.',
-          preview: null
-        });
+        return renderBulk({ error: 'Invalid check interval.', preview: null });
       }
 
       let importableUrls = [];
       try {
         importableUrls = JSON.parse(req.body.preview_importable_json || '[]');
       } catch {
-        return res.render('bulk-import', {
-          title: 'Bulk Import',
-          error: 'Invalid import payload. Please generate preview again.',
-          preview: null
-        });
+        return renderBulk({ error: 'Invalid import payload. Please generate preview again.', preview: null });
       }
 
       if (!Array.isArray(importableUrls)) importableUrls = [];
@@ -224,11 +263,7 @@ router.post('/bulk', requireAuth, upload.single('file'), async (req, res) => {
       const selectedUrls = importableUrls.filter(u => selectedSet.has(u));
 
       if (selectedUrls.length === 0) {
-        return res.render('bulk-import', {
-          title: 'Bulk Import',
-          error: 'No URLs selected for import.',
-          preview: null
-        });
+        return renderBulk({ error: 'No URLs selected for import.', preview: null });
       }
 
       const importTag = `import-${new Date().toISOString().slice(0, 10)}`;
@@ -242,13 +277,13 @@ router.post('/bulk', requireAuth, upload.single('file'), async (req, res) => {
           }
           const { rows: [newRec] } = await pool.query(
             `INSERT INTO monitored_urls
-               (url, check_interval_minutes, user_id, tags,
+               (url, check_interval_minutes, user_id, project_id, tags,
                 monitor_title, monitor_description, monitor_h1, monitor_body,
                 monitor_status_code, monitor_noindex, monitor_redirect,
                 monitor_canonical, monitor_robots)
-             VALUES ($1,$2,$3,$4,true,true,true,true,true,true,true,true,true)
+             VALUES ($1,$2,$3,$4,$5,true,true,true,true,true,true,true,true,true)
              RETURNING *`,
-            [safeImportUrl, interval, req.user.id, importTag]
+            [safeImportUrl, interval, req.user.id, selectedProjectId, importTag]
           );
           scheduleUrl(newRec);
           checkUrl(newRec.id).catch(() => {});
@@ -271,11 +306,7 @@ router.post('/bulk', requireAuth, upload.single('file'), async (req, res) => {
     });
 
     if (rawRecords.length === 0) {
-      return res.render('bulk-import', {
-        title: 'Bulk Import',
-        error: 'No valid URLs found.',
-        preview: null
-      });
+      return renderBulk({ error: 'No valid URLs found.', preview: null });
     }
 
     const dedupMap = new Map();
@@ -331,8 +362,7 @@ router.post('/bulk', requireAuth, upload.single('file'), async (req, res) => {
     const existingCount = previewRows.filter(r => r.isExisting).length;
     const overLimitCount = previewRows.filter(r => r.overLimit).length;
 
-    res.render('bulk-import', {
-      title: 'Bulk Import',
+    renderBulk({
       error: null,
       preview: {
         all: rawRecords.length,
@@ -345,12 +375,13 @@ router.post('/bulk', requireAuth, upload.single('file'), async (req, res) => {
         importableUrls,
         source,
         urls_text,
-        sitemap_url
+        sitemap_url,
+        project_id: selectedProjectId ? String(selectedProjectId) : ''
       }
     });
   } catch (err) {
     console.error(err);
-    res.render('bulk-import', { title: 'Bulk Import', error: err.message, preview: null });
+    renderBulk({ error: err.message, preview: null });
   }
 });
 
@@ -454,8 +485,9 @@ router.get('/:id/edit', requireAuth, async (req, res) => {
     const { query, params } = ownedUrlQuery(urlId, req);
     const { rows: [urlRecord] } = await pool.query(query, params);
     if (!urlRecord) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
+    const projects = await getProjectsForUser(req.user.id).catch(() => []);
 
-    res.render('edit-url', { title: 'Edit URL', error: null, urlRecord, cloned: !!req.query.cloned });
+    res.render('edit-url', { title: 'Edit URL', error: null, urlRecord, projects, cloned: !!req.query.cloned });
   } catch (err) {
     console.error(err);
     res.status(500).render('error', { title: 'Error', error: err.message });
@@ -474,6 +506,7 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
     monitor_canonical, monitor_robots, monitor_hreflang, monitor_og, monitor_ssl,
     user_agent, ignore_numbers, custom_text,
     telegram_bot_token, telegram_chat_id, webhook_url,
+    project_id,
     silenced_until, tags, notes,
     maintenance_cron, maintenance_duration_minutes
   } = req.body;
@@ -482,31 +515,33 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
   if (isNaN(interval) || interval < 1) {
     const { query: q, params: p } = ownedUrlQuery(urlId, req);
     const { rows: [urlRecord] } = await pool.query(q, p);
-    return res.render('edit-url', { title: 'Edit URL', error: 'Invalid check interval.', urlRecord });
+    const projects = await getProjectsForUser(req.user.id).catch(() => []);
+    return res.render('edit-url', { title: 'Edit URL', error: 'Invalid check interval.', urlRecord, projects });
   }
 
   const maintenanceDuration = parseInt(maintenance_duration_minutes, 10);
   const safeMaintenanceDuration = Number.isFinite(maintenanceDuration) && maintenanceDuration > 0
     ? maintenanceDuration
     : null;
+  const safeProjectId = await resolveProjectIdForUser(project_id, req.user.id).catch(() => null);
 
   try {
     const { rows: [updated] } = await pool.query(
       `UPDATE monitored_urls SET
-         email = $1, check_interval_minutes = $2,
-         monitor_title = $3, monitor_description = $4, monitor_h1 = $5, monitor_body = $6,
-         monitor_status_code = $7, monitor_noindex = $8, monitor_redirect = $9,
-         monitor_canonical = $10, monitor_robots = $11, monitor_hreflang = $12, monitor_og = $13,
-         monitor_ssl = $14,
-         user_agent = $15, ignore_numbers = $16, custom_text = $17,
-         telegram_bot_token = $18, telegram_chat_id = $19, webhook_url = $20,
-         silenced_until = $21, tags = $22, notes = $23,
-         maintenance_cron = $24, maintenance_duration_minutes = $25
-       WHERE id = $26 ${req.user.role !== 'admin' ? 'AND user_id = $27' : ''}
+         email = $1, check_interval_minutes = $2, project_id = $3,
+         monitor_title = $4, monitor_description = $5, monitor_h1 = $6, monitor_body = $7,
+         monitor_status_code = $8, monitor_noindex = $9, monitor_redirect = $10,
+         monitor_canonical = $11, monitor_robots = $12, monitor_hreflang = $13, monitor_og = $14,
+         monitor_ssl = $15,
+         user_agent = $16, ignore_numbers = $17, custom_text = $18,
+         telegram_bot_token = $19, telegram_chat_id = $20, webhook_url = $21,
+         silenced_until = $22, tags = $23, notes = $24,
+         maintenance_cron = $25, maintenance_duration_minutes = $26
+       WHERE id = $27 ${req.user.role !== 'admin' ? 'AND user_id = $28' : ''}
        RETURNING *`,
       req.user.role !== 'admin'
         ? [
-            email?.trim() || null, interval,
+            email?.trim() || null, interval, safeProjectId,
             !!monitor_title, !!monitor_description, !!monitor_h1, !!monitor_body,
             !!monitor_status_code, !!monitor_noindex, !!monitor_redirect,
             !!monitor_canonical, !!monitor_robots, !!monitor_hreflang, !!monitor_og,
@@ -518,7 +553,7 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
             urlId, req.user.id
           ]
         : [
-            email?.trim() || null, interval,
+            email?.trim() || null, interval, safeProjectId,
             !!monitor_title, !!monitor_description, !!monitor_h1, !!monitor_body,
             !!monitor_status_code, !!monitor_noindex, !!monitor_redirect,
             !!monitor_canonical, !!monitor_robots, !!monitor_hreflang, !!monitor_og,
@@ -547,7 +582,8 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
     console.error(err);
     const { query: q, params: p } = ownedUrlQuery(urlId, req);
     const { rows: [urlRecord] } = await pool.query(q, p);
-    res.render('edit-url', { title: 'Edit URL', error: err.message, urlRecord });
+    const projects = await getProjectsForUser(req.user.id).catch(() => []);
+    res.render('edit-url', { title: 'Edit URL', error: err.message, urlRecord, projects });
   }
 });
 
@@ -832,16 +868,16 @@ router.post('/:id/clone', requireAuth, async (req, res) => {
 
     const { rows: [cloned] } = await pool.query(
       `INSERT INTO monitored_urls
-         (url, email, check_interval_minutes, user_id,
+         (url, email, check_interval_minutes, user_id, project_id,
           monitor_title, monitor_description, monitor_h1, monitor_body,
           monitor_status_code, monitor_noindex, monitor_redirect,
           monitor_canonical, monitor_robots, monitor_hreflang, monitor_og, monitor_ssl,
           user_agent, ignore_numbers, custom_text,
           telegram_bot_token, telegram_chat_id, webhook_url, tags, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
        RETURNING *`,
       [
-        src.url, src.email, src.check_interval_minutes, req.user.id,
+        src.url, src.email, src.check_interval_minutes, req.user.id, src.project_id || null,
         src.monitor_title, src.monitor_description, src.monitor_h1, src.monitor_body,
         src.monitor_status_code, src.monitor_noindex, src.monitor_redirect,
         src.monitor_canonical, src.monitor_robots, src.monitor_hreflang, src.monitor_og, src.monitor_ssl,

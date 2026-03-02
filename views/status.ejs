@@ -7,38 +7,58 @@
   <link rel="stylesheet" href="/style.css">
   <style>
     body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
-    .status-page { max-width: 700px; margin: 0 auto; padding: 48px 24px; }
-    .status-header { text-align: center; margin-bottom: 40px; }
-    .status-name { font-size: 28px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
-    .status-url { font-size: 14px; color: var(--text-muted); }
-    .status-big { display: flex; flex-direction: column; align-items: center; padding: 32px; border-radius: 12px; margin-bottom: 32px; }
-    .status-big--up { background: #f0fff4; border: 2px solid #9ae6b4; }
-    .status-big--down { background: #fff5f5; border: 2px solid #fed7d7; }
-    .status-big--degraded { background: #fffaf0; border: 2px solid #fbd38d; }
-    .status-big--pending { background: var(--bg-secondary); border: 2px solid var(--border); }
-    .status-big-label { font-size: 32px; font-weight: 800; margin-top: 12px; }
+    .status-page { max-width: 940px; margin: 0 auto; padding: 40px 20px 56px; }
+    .status-header { text-align: center; margin-bottom: 24px; }
+    .status-name { font-size: 30px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
+    .status-url { font-size: 13px; color: var(--text-muted); word-break: break-all; }
+    .status-grid { display: grid; grid-template-columns: 1.2fr .8fr; gap: 16px; margin-bottom: 16px; }
+    .status-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+    .status-card-title { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); padding: 12px 14px; border-bottom: 1px solid var(--border); }
+    .status-big { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 26px 16px; min-height: 214px; }
+    .status-big--up { background: #f0fff4; }
+    .status-big--down { background: #fff5f5; }
+    .status-big--degraded { background: #fffaf0; }
+    .status-big--pending { background: var(--bg-secondary); }
+    .status-big-label { font-size: 34px; font-weight: 900; margin-top: 8px; }
     .status-big--up .status-big-label { color: #276749; }
     .status-big--down .status-big-label { color: #9b2c2c; }
     .status-big--degraded .status-big-label { color: #7b341e; }
-    .status-big-sub { font-size: 14px; color: var(--text-muted); margin-top: 6px; }
-    .status-section { margin-bottom: 32px; }
-    .status-section-title { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 14px; }
-    .uptime-bars { display: flex; gap: 3px; height: 32px; align-items: flex-end; }
-    .uptime-bar { flex: 1; border-radius: 2px; min-height: 4px; cursor: default; transition: opacity .15s; }
-    .uptime-bar:hover { opacity: .75; }
+    .status-big-sub { font-size: 13px; color: var(--text-muted); margin-top: 8px; text-align: center; }
+    .metric-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 14px; }
+    .metric { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+    .metric-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
+    .metric-value { margin-top: 5px; font-size: 20px; font-weight: 800; color: var(--text); }
+    .metric-value--ok { color: #276749; }
+    .metric-value--warn { color: #7b341e; }
+    .metric-value--error { color: #9b2c2c; }
+    .simple-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 14px; }
+    .simple-cell { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 10px; text-align: center; }
+    .simple-cell b { display: block; font-size: 18px; margin-top: 4px; }
+    .status-section { margin-top: 16px; }
+    .uptime-bars { display: flex; gap: 3px; height: 34px; align-items: flex-end; padding: 14px; }
+    .uptime-bar { flex: 1; border-radius: 2px; min-height: 4px; cursor: default; }
     .uptime-bar--up { background: #68d391; }
     .uptime-bar--down { background: #fc8181; }
     .uptime-bar--degraded { background: #f6ad55; }
     .uptime-bar--empty { background: var(--border); }
-    .incident-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
-    .incident-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-    .incident-badge--resolved { background: #f0fff4; color: #276749; }
-    .incident-badge--open { background: #fff5f5; color: #9b2c2c; }
-    .powered-by { text-align: center; margin-top: 48px; font-size: 12px; color: var(--text-muted); }
-    .powered-by a { color: var(--text-muted); text-decoration: none; }
+    .bar-legend { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); padding: 0 14px 14px; }
+    .incident-row { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--border); font-size: 13px; }
+    .incident-row:first-child { border-top: none; }
+    .incident-badge { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+    .incident-badge--resolved { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
+    .incident-badge--open { background: #fff5f5; color: #9b2c2c; border: 1px solid #fed7d7; }
+    .checks-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .checks-table th { text-align: left; padding: 9px 10px; font-size: 10px; letter-spacing: .05em; color: var(--text-muted); text-transform: uppercase; background: var(--bg-secondary); border-bottom: 1px solid var(--border); }
+    .checks-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); }
+    .checks-table tr:last-child td { border-bottom: none; }
+    .powered-by { text-align: center; margin-top: 30px; font-size: 12px; color: var(--text-muted); }
+    .powered-by a { color: inherit; text-decoration: none; }
     .powered-by a:hover { text-decoration: underline; }
-    .pct-bar { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; margin-top: 8px; }
-    .pct-fill { height: 100%; border-radius: 4px; background: #68d391; }
+    @media (max-width: 800px) {
+      .status-grid { grid-template-columns: 1fr; }
+      .simple-grid { grid-template-columns: repeat(2, 1fr); }
+      .metric-list { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
@@ -49,67 +69,115 @@
     </div>
 
     <% const st = latestCheck ? latestCheck.status : 'pending'; %>
-    <div class="status-big status-big--<%= st %>">
-      <% if (st === 'up') { %><div style="font-size:48px">✅</div>
-      <% } else if (st === 'down') { %><div style="font-size:48px">🔴</div>
-      <% } else if (st === 'degraded') { %><div style="font-size:48px">🟡</div>
-      <% } else { %><div style="font-size:48px">⏳</div>
-      <% } %>
-      <div class="status-big-label"><%= st.toUpperCase() %></div>
-      <% if (openIncident) { %>
-        <div class="status-big-sub">Incident ongoing since <%= new Date(openIncident.started_at).toUTCString() %></div>
-      <% } else if (latestCheck) { %>
-        <div class="status-big-sub">
-          Last checked <%= new Date(latestCheck.checked_at).toUTCString() %>
-          <% if (latestCheck.response_time_ms != null) { %>· <%= latestCheck.response_time_ms %>ms<% } %>
+    <div class="status-grid">
+      <div class="status-card">
+        <div class="status-card-title">Current Status</div>
+        <div class="status-big status-big--<%= st %>">
+          <% if (st === 'up') { %><div style="font-size:52px">✅</div>
+          <% } else if (st === 'down') { %><div style="font-size:52px">🔴</div>
+          <% } else if (st === 'degraded') { %><div style="font-size:52px">🟡</div>
+          <% } else { %><div style="font-size:52px">⏳</div>
+          <% } %>
+          <div class="status-big-label"><%= st.toUpperCase() %></div>
+          <% if (openIncident) { %>
+            <div class="status-big-sub">Incident ongoing since <%= new Date(openIncident.started_at).toUTCString() %></div>
+          <% } else if (latestCheck) { %>
+            <div class="status-big-sub">
+              Last checked <%= new Date(latestCheck.checked_at).toUTCString() %>
+              <% if (latestCheck.response_time_ms != null) { %>· <%= latestCheck.response_time_ms %>ms<% } %>
+              <% if (latestCheck.status_code != null) { %>· HTTP <%= latestCheck.status_code %><% } %>
+            </div>
+          <% } %>
         </div>
-      <% } %>
+      </div>
+
+      <div class="status-card">
+        <div class="status-card-title">Uptime</div>
+        <div class="metric-list">
+          <% ['24h', '7d', '30d'].forEach(function(period) { const v = uptimeWindows && uptimeWindows[period]; %>
+            <div class="metric">
+              <div class="metric-label"><%= period %></div>
+              <div class="metric-value <%= v == null ? '' : v >= 99 ? 'metric-value--ok' : v >= 95 ? 'metric-value--warn' : 'metric-value--error' %>">
+                <%= v == null ? '—' : v + '%' %>
+              </div>
+            </div>
+          <% }) %>
+        </div>
+      </div>
     </div>
 
-    <!-- Uptime % -->
-    <div class="status-section">
-      <div class="status-section-title">Uptime (30 days)</div>
-      <% if (pct30d != null) { %>
-        <div style="display:flex;align-items:center;gap:12px">
-          <div style="font-size:28px;font-weight:700;color:<%= pct30d >= 99 ? '#276749' : pct30d >= 95 ? '#7b341e' : '#9b2c2c' %>">
-            <%= pct30d %>%
-          </div>
-          <div style="flex:1">
-            <div class="pct-bar"><div class="pct-fill" style="width:<%= pct30d %>%;background:<%= pct30d >= 99 ? '#68d391' : pct30d >= 95 ? '#f6ad55' : '#fc8181' %>"></div></div>
-          </div>
-        </div>
-      <% } else { %>
-        <p style="color:var(--text-muted);font-size:13px">Not enough data yet.</p>
-      <% } %>
+    <div class="status-card status-section">
+      <div class="status-card-title">Performance & Incidents (last 24h / 30d)</div>
+      <div class="simple-grid">
+        <div class="simple-cell">Avg RT<b><%= responseStats?.avg_ms != null ? responseStats.avg_ms + 'ms' : '—' %></b></div>
+        <div class="simple-cell">Min RT<b><%= responseStats?.min_ms != null ? responseStats.min_ms + 'ms' : '—' %></b></div>
+        <div class="simple-cell">Max RT<b><%= responseStats?.max_ms != null ? responseStats.max_ms + 'ms' : '—' %></b></div>
+        <div class="simple-cell">Incidents 30d<b><%= incidentSummary?.incidents_30d || 0 %></b></div>
+      </div>
+      <div style="padding:0 14px 14px;font-size:12px;color:var(--text-muted)">
+        Downtime in last 30 days:
+        <strong><%= incidentSummary?.downtime_seconds_30d ? fmtDuration(incidentSummary.downtime_seconds_30d) : '0s' %></strong>
+      </div>
     </div>
 
-    <!-- 90-day bar chart -->
-    <div class="status-section">
-      <div class="status-section-title">Last 90 days</div>
+    <div class="status-card status-section">
+      <div class="status-card-title">Last 90 Days</div>
       <div class="uptime-bars">
         <% dayBuckets.forEach(function(bucket) { %>
           <div class="uptime-bar uptime-bar--<%= bucket.status %>"
-               style="height:<%= Math.max(4, Math.min(32, bucket.count * 4)) %>px"
+               style="height:<%= Math.max(4, Math.min(34, bucket.count * 4)) %>px"
                title="<%= bucket.date %>: <%= bucket.status %>"></div>
         <% }) %>
       </div>
-      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px">
-        <span>90 days ago</span><span>Today</span>
+      <div class="bar-legend">
+        <span>90 days ago</span>
+        <span>Today</span>
       </div>
     </div>
 
-    <!-- Recent incidents -->
-    <div class="status-section">
-      <div class="status-section-title">Recent Incidents</div>
+    <div class="status-card status-section">
+      <div class="status-card-title">Recent Checks</div>
+      <% if (!recentChecks || recentChecks.length === 0) { %>
+        <div style="padding:16px;color:var(--text-muted);font-size:13px">No checks yet.</div>
+      <% } else { %>
+        <div style="overflow-x:auto">
+          <table class="checks-table">
+            <thead>
+              <tr>
+                <th>Time (UTC)</th>
+                <th>Status</th>
+                <th>HTTP</th>
+                <th>Response</th>
+                <th>Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% recentChecks.forEach(function(chk) { %>
+                <tr>
+                  <td><%= new Date(chk.checked_at).toUTCString().replace(' GMT','') %></td>
+                  <td><span class="incident-badge incident-badge--<%= chk.status === 'up' ? 'resolved' : 'open' %>"><%= chk.status.toUpperCase() %></span></td>
+                  <td><%= chk.status_code != null ? chk.status_code : '—' %></td>
+                  <td><%= chk.response_time_ms != null ? chk.response_time_ms + 'ms' : '—' %></td>
+                  <td style="color:var(--text-muted)"><%= chk.error_message ? chk.error_message.substring(0, 90) : '' %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </div>
+
+    <div class="status-card status-section">
+      <div class="status-card-title">Recent Incidents</div>
       <% if (incidents.length === 0) { %>
-        <p style="font-size:13px;color:var(--text-muted)">No incidents in the last 90 days.</p>
+        <div style="padding:16px;color:var(--text-muted);font-size:13px">No incidents in the last 90 days.</div>
       <% } else { %>
         <% incidents.forEach(function(inc) { %>
           <div class="incident-row">
             <div>
-              <div style="font-weight:500;font-size:13px"><%= inc.cause || 'Outage' %></div>
-              <div style="color:var(--text-muted);font-size:12px;margin-top:2px">
-                <%= new Date(inc.started_at).toLocaleDateString() %>
+              <div style="font-weight:600"><%= inc.cause || 'Outage' %></div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:3px">
+                <%= new Date(inc.started_at).toUTCString().replace(' GMT','') %>
                 <% if (inc.duration_seconds) { %> · Duration: <%= fmtDuration(inc.duration_seconds) %><% } %>
               </div>
             </div>

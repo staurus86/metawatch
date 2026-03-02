@@ -16,6 +16,7 @@
   </div>
 
   <form action="/urls/<%= urlRecord.id %>/edit" method="POST" class="form">
+    <% const projectsList = Array.isArray(projects) ? projects : []; %>
 
     <!-- Basic settings -->
     <div class="form-section-title">Monitoring Settings</div>
@@ -37,6 +38,22 @@
           <option value="1440"<%= urlRecord.check_interval_minutes == 1440 ? 'selected' : '' %>>Every 24 hours</option>
         </select>
       </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="project_id">Project</label>
+      <select id="project_id" name="project_id" class="form-select">
+        <option value="">No project</option>
+        <% projectsList.forEach(function(project) { %>
+          <option value="<%= project.id %>" <%= String(urlRecord.project_id || '') === String(project.id) ? 'selected' : '' %>>
+            <%= project.name %>
+          </option>
+        <% }) %>
+      </select>
+      <p class="form-hint">
+        Used for grouping meta-monitor URLs on the dashboard.
+        <a href="/projects">Manage projects</a>
+      </p>
     </div>
 
     <!-- Monitored fields -->

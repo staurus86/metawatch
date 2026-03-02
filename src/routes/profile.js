@@ -118,7 +118,9 @@ router.post('/preferences', requireAuth, async (req, res) => {
     pref_rows_per_page
   } = req.body;
 
-  const dashboardView = pref_dashboard_view === 'grouped' ? 'grouped' : 'list';
+  const dashboardView = (pref_dashboard_view === 'projects' || pref_dashboard_view === 'grouped')
+    ? 'projects'
+    : 'list';
   const timezone = sanitizeTimezone(pref_timezone);
   const rowsPerPage = sanitizeRowsPerPage(pref_rows_per_page);
 

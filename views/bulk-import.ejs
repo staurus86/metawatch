@@ -7,6 +7,9 @@
   <div class="alert-banner alert-banner--error" style="margin-bottom:16px"><%= error %></div>
 <% } %>
 
+<% const projectsList = Array.isArray(projects) ? projects : []; %>
+<% const selectedProject = projectsList.find(p => String(p.id) === String(selectedProjectId || '')); %>
+
 <% if (preview) { %>
   <!-- Preview mode -->
   <div class="card" style="margin-bottom:20px">
@@ -50,8 +53,15 @@
           <input type="hidden" name="source" value="<%= preview.source %>">
           <input type="hidden" name="urls_text" value="<%= preview.urls_text || '' %>">
           <input type="hidden" name="sitemap_url" value="<%= preview.sitemap_url || '' %>">
+          <input type="hidden" name="project_id" value="<%= preview.project_id || selectedProjectId || '' %>">
           <input type="hidden" name="preview_importable_json" value="<%= JSON.stringify(preview.importableUrls) %>">
           <input type="hidden" name="confirm" value="1">
+
+          <% if (selectedProject) { %>
+            <div class="alert-banner alert-banner--info" style="margin-bottom:12px">
+              URLs will be added to project: <strong><%= selectedProject.name %></strong>
+            </div>
+          <% } %>
 
           <div class="table-wrapper" style="margin-bottom:14px;max-height:360px;overflow:auto;border:1px solid var(--border);border-radius:8px">
             <table class="data-table">
@@ -146,6 +156,15 @@
       <form action="/urls/bulk" method="POST" class="form" style="padding:16px">
         <input type="hidden" name="source" value="text">
         <div class="form-group">
+          <label class="form-label">Project</label>
+          <select name="project_id" class="form-select">
+            <option value="">No project</option>
+            <% projectsList.forEach(function(project) { %>
+              <option value="<%= project.id %>" <%= String(selectedProjectId || '') === String(project.id) ? 'selected' : '' %>><%= project.name %></option>
+            <% }) %>
+          </select>
+        </div>
+        <div class="form-group">
           <label class="form-label">One URL per line</label>
           <textarea name="urls_text" class="form-input" rows="10"
                     placeholder="https://example.com&#10;https://example.com/page&#10;https://another.com"
@@ -160,6 +179,15 @@
       <div class="card-header"><h2 class="card-title">Upload CSV / XLSX</h2></div>
       <form action="/urls/bulk" method="POST" enctype="multipart/form-data" class="form" style="padding:16px">
         <input type="hidden" name="source" value="file">
+        <div class="form-group">
+          <label class="form-label">Project</label>
+          <select name="project_id" class="form-select">
+            <option value="">No project</option>
+            <% projectsList.forEach(function(project) { %>
+              <option value="<%= project.id %>" <%= String(selectedProjectId || '') === String(project.id) ? 'selected' : '' %>><%= project.name %></option>
+            <% }) %>
+          </select>
+        </div>
         <div class="form-group">
           <label class="form-label">File (CSV or XLSX)</label>
           <input type="file" name="file" class="form-input" accept=".csv,.xlsx,.xls" required>
@@ -177,6 +205,15 @@
       <div class="card-header"><h2 class="card-title">Sitemap URL</h2></div>
       <form action="/urls/bulk" method="POST" class="form" style="padding:16px">
         <input type="hidden" name="source" value="sitemap">
+        <div class="form-group">
+          <label class="form-label">Project</label>
+          <select name="project_id" class="form-select">
+            <option value="">No project</option>
+            <% projectsList.forEach(function(project) { %>
+              <option value="<%= project.id %>" <%= String(selectedProjectId || '') === String(project.id) ? 'selected' : '' %>><%= project.name %></option>
+            <% }) %>
+          </select>
+        </div>
         <div class="form-group">
           <label class="form-label">Sitemap URL</label>
           <input type="url" name="sitemap_url" class="form-input"

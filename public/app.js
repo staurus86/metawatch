@@ -65,7 +65,10 @@ if (urlSearch) {
       const q = value.trim().toLowerCase();
       document.querySelectorAll('.url-row').forEach(row => {
         const text = row.querySelector('.url-text')?.textContent?.toLowerCase() || '';
-        row.style.display = !q || text.includes(q) ? '' : 'none';
+        const visible = !q || text.includes(q);
+        const wrapper = row.closest('.url-row-wrap');
+        if (wrapper) wrapper.style.display = visible ? '' : 'none';
+        else row.style.display = visible ? '' : 'none';
       });
     }, 300);
   });

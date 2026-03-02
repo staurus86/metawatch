@@ -1,3 +1,31 @@
+<%
+  const paramsBase = {
+    tab: tab || 'all',
+    per_page: String(perPage || 25),
+    view: view || 'projects'
+  };
+  if (tagFilter) paramsBase.tag = tagFilter;
+  if (projectFilter) paramsBase.project = projectFilter;
+  if (fieldFilter) paramsBase.field = fieldFilter;
+
+  function queryWith(overrides) {
+    const data = { ...paramsBase, ...(overrides || {}) };
+    for (const key of Object.keys(data)) {
+      if (data[key] === null || data[key] === undefined || data[key] === '') delete data[key];
+    }
+    return '/?' + new URLSearchParams(data).toString();
+  }
+
+  const fieldBaseParams = new URLSearchParams({
+    tab: tab || 'all',
+    per_page: String(perPage || 25),
+    view: view || 'projects'
+  });
+  if (tagFilter) fieldBaseParams.set('tag', tagFilter);
+  if (projectFilter) fieldBaseParams.set('project', projectFilter);
+  const fieldNavBase = '/?' + fieldBaseParams.toString() + '&field=';
+%>
+
 <div class="page-header">
   <h1 class="page-title">Dashboard</h1>
   <div style="display:flex;gap:8px;align-items:center">
@@ -16,7 +44,7 @@
     <% } %>
     First checks are running in the background.
     <% if (importTag) { %>
-      <a href="/?tab=all&tag=<%= encodeURIComponent(importTag) %>" style="margin-left:8px">View imported URLs →</a>
+      <a href="<%= queryWith({ tab: 'all', tag: importTag }) %>" style="margin-left:8px">View imported URLs →</a>
     <% } %>
   </div>
 <% } %>
@@ -80,131 +108,231 @@
   </div>
 </div>
 
-<!-- Tabs + Tag filter -->
+<!-- Tabs + view + filters -->
 <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap">
   <div class="tabs" style="margin-bottom:0;flex:1">
-    <a href="/?tab=all<%= tagFilter ? '&tag=' + encodeURIComponent(tagFilter) : '' %>&per_page=<%= perPage %>"
-       class="tab-link <%= tab === 'all' ? 'tab-link--active' : '' %>">All URLs</a>
-    <a href="/?tab=problems<%= tagFilter ? '&tag=' + encodeURIComponent(tagFilter) : '' %>&per_page=<%= perPage %>"
-       class="tab-link <%= tab === 'problems' ? 'tab-link--active' : '' %>">
+    <a href="<%= queryWith({ tab: 'all', page: null }) %>" class="tab-link <%= tab === 'all' ? 'tab-link--active' : '' %>">All URLs</a>
+    <a href="<%= queryWith({ tab: 'problems', page: null }) %>" class="tab-link <%= tab === 'problems' ? 'tab-link--active' : '' %>">
       Problems
       <% if (stats.changed + stats.error > 0) { %>
         <span class="tab-badge"><%= stats.changed + stats.error %></span>
       <% } %>
     </a>
   </div>
-  <% if (allTags.length > 0) { %>
-  <div style="display:flex;align-items:center;gap:6px;padding:0 8px">
-    <span style="font-size:12px;color:var(--text-muted)">Tag:</span>
-    <a href="/?tab=<%= tab %>&per_page=<%= perPage %>" class="tag-chip <%= !tagFilter ? 'tag-chip--active' : '' %>">All</a>
-    <% allTags.forEach(function(t) { %>
-      <a href="/?tab=<%= tab %>&tag=<%= encodeURIComponent(t) %>&per_page=<%= perPage %>"
-         class="tag-chip <%= tagFilter === t ? 'tag-chip--active' : '' %>"><%= t %></a>
-    <% }) %>
+  <div class="tabs" style="margin:0;gap:4px">
+    <a href="<%= queryWith({ view: 'projects', page: null }) %>" class="tab-link <%= view === 'projects' ? 'tab-link--active' : '' %>">Projects</a>
+    <a href="<%= queryWith({ view: 'list', page: null }) %>" class="tab-link <%= view === 'list' ? 'tab-link--active' : '' %>">URLs</a>
   </div>
-  <% } %>
 </div>
 
-<!-- URL list -->
-<div class="card" style="border-top-left-radius:0">
-  <div class="card-header">
-    <h2 class="card-title">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
-        <input type="checkbox" id="select-all-urls" style="width:14px;height:14px">
-        <% if (tab === 'problems') { %>Problem URLs<% } else { %>Monitored URLs<% } %>
-      </label>
-    </h2>
-    <div style="display:flex;gap:8px;align-items:center">
-      <input id="url-search" type="search" class="form-input" style="width:220px;padding:5px 10px;font-size:13px"
-             placeholder="Filter URLs…" autocomplete="off">
-      <% if (tab === 'problems' && urls.length > 0) { %>
-        <form action="/urls/accept-all-changes" method="POST">
-          <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:4px 10px">
-            ✓ Accept All Changes
-          </button>
-        </form>
-      <% } %>
-    </div>
-  </div>
-
-  <!-- Bulk action bar (hidden until rows are selected) -->
-  <div id="bulk-action-bar" style="display:none;align-items:center;gap:8px;padding:8px 16px;background:var(--bg-secondary);border-bottom:1px solid var(--border);font-size:13px">
-    <span><strong id="bulk-count">0</strong> selected</span>
-    <form id="bulk-form" action="/urls/bulk-action" method="POST" style="display:flex;gap:6px">
-      <button type="submit" name="action" value="pause" class="btn btn-ghost" style="font-size:12px;padding:3px 10px">⏸ Pause</button>
-      <button type="submit" name="action" value="resume" class="btn btn-ghost" style="font-size:12px;padding:3px 10px">▶ Resume</button>
-      <button type="submit" name="action" value="accept" class="btn btn-ghost" style="font-size:12px;padding:3px 10px">✓ Accept</button>
-      <button type="submit" name="action" value="delete" class="btn btn-danger" style="font-size:12px;padding:3px 10px"
-              data-confirm-message="Delete selected URLs?">✕ Delete</button>
-    </form>
-  </div>
-  <% if (urls.length === 0) { %>
-    <div class="empty-state">
-      <div class="empty-icon"><% if (tab === 'problems') { %>✅<% } else { %>🔍<% } %></div>
-      <p><% if (tab === 'problems') { %>No problems detected!<% } else { %>No URLs monitored yet.<% } %></p>
-      <% if (tab !== 'problems') { %>
-        <a href="/urls/add" class="btn btn-primary">Add your first URL</a>
-      <% } %>
-    </div>
-  <% } else { %>
-    <div class="url-list">
-      <% urls.forEach(function(u) { %>
-        <div class="url-row-wrap">
-          <input type="checkbox" class="url-row-cb" value="<%= u.id %>" style="margin:0 4px 0 12px;flex-shrink:0">
-        <a href="/urls/<%= u.id %>" class="url-row">
-          <div class="url-row-left">
-            <span class="status-dot status-dot--<%= u.status.toLowerCase() %>"></span>
-            <div class="url-info">
-              <div class="url-text"><%= u.url %></div>
-              <div class="url-meta">
-                <% if (u.last_checked) { %>
-                  Last checked: <span class="time-ago" data-ts="<%= new Date(u.last_checked).toISOString() %>"></span>
-                <% } else { %>
-                  <span class="text-muted">Not checked yet</span>
-                <% } %>
-                &nbsp;·&nbsp; Every <%= u.check_interval_minutes >= 60 ? (u.check_interval_minutes / 60) + 'h' : u.check_interval_minutes + 'min' %>
-                <% if (!u.is_active) { %>&nbsp;·&nbsp; <span class="badge badge--paused">Paused</span><% } %>
-                <% if (u.tags) { u.tags.split(',').filter(Boolean).forEach(function(t) { %>
-                  &nbsp;<a href="/?tab=<%= tab %>&tag=<%= encodeURIComponent(t.trim()) %>&per_page=<%= perPage %>" class="tag-chip" data-stop-row-nav="1"><%= t.trim() %></a>
-                <% }) } %>
-              </div>
-            </div>
-          </div>
-          <div class="url-row-right">
-            <% if (u.uptime_pct != null) { %>
-              <span class="uptime-badge uptime-badge--<%= u.uptime_pct >= 99 ? 'great' : u.uptime_pct >= 95 ? 'ok' : 'warn' %>">
-                <%= u.uptime_pct %>%
-              </span>
-            <% } %>
-            <% if (u.last_status_code) { %>
-              <span class="badge <%= u.last_status_code === 200 ? 'badge--ok' : 'badge--error' %>">
-                <%= u.last_status_code === 0 ? 'ERR' : u.last_status_code %>
-              </span>
-            <% } %>
-            <span class="badge badge--<%= u.status.toLowerCase() %>"><%= u.status %></span>
-            <% if (u.recent_alert_count > 0) { %>
-              <span class="alert-count"><%= u.recent_alert_count %> alert<%= u.recent_alert_count !== 1 ? 's' : '' %></span>
-            <% } %>
-          </div>
-        </a>
-        </div>
+<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:10px 0 12px">
+  <% if (allTags.length > 0) { %>
+    <div style="display:flex;align-items:center;gap:6px">
+      <span style="font-size:12px;color:var(--text-muted)">Tag:</span>
+      <a href="<%= queryWith({ tag: null, page: null }) %>" class="tag-chip <%= !tagFilter ? 'tag-chip--active' : '' %>">All</a>
+      <% allTags.forEach(function(t) { %>
+        <a href="<%= queryWith({ tag: t, page: null }) %>" class="tag-chip <%= tagFilter === t ? 'tag-chip--active' : '' %>"><%= t %></a>
       <% }) %>
     </div>
+  <% } %>
 
-    <!-- Pagination -->
-    <% if (totalPages > 1) { %>
-    <div class="pagination">
-      <% if (page > 1) { %>
-        <a href="/?tab=<%= tab %>&page=<%= page - 1 %>&per_page=<%= perPage %>" class="btn btn-ghost btn-sm">← Prev</a>
-      <% } %>
-      <span class="pagination-info">Page <%= page %> of <%= totalPages %> &nbsp;·&nbsp; <%= totalCount %> URLs &nbsp;·&nbsp; <%= perPage %> / page</span>
-      <% if (page < totalPages) { %>
-        <a href="/?tab=<%= tab %>&page=<%= page + 1 %>&per_page=<%= perPage %>" class="btn btn-ghost btn-sm">Next →</a>
+  <% if (projectOptions && projectOptions.length > 0) { %>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--text-muted)">Project:</span>
+      <a href="<%= queryWith({ project: null, page: null }) %>" class="tag-chip <%= !projectFilter ? 'tag-chip--active' : '' %>">All</a>
+      <% projectOptions.forEach(function(p) { %>
+        <a href="<%= queryWith({ project: String(p.id), page: null }) %>" class="tag-chip <%= projectFilter === String(p.id) ? 'tag-chip--active' : '' %>"><%= p.name %></a>
+      <% }) %>
+      <% if (unassignedCount > 0 || projectFilter === 'none') { %>
+        <a href="<%= queryWith({ project: 'none', page: null }) %>" class="tag-chip <%= projectFilter === 'none' ? 'tag-chip--active' : '' %>">Unassigned</a>
       <% } %>
     </div>
-    <% } %>
   <% } %>
 </div>
+
+<!-- Projects view -->
+<% if (view === 'projects') { %>
+  <div class="card" style="border-top-left-radius:0">
+    <div class="card-header">
+      <h2 class="card-title">Meta Monitoring by Project</h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="url-search" type="search" class="form-input" style="width:220px;padding:5px 10px;font-size:13px"
+               placeholder="Filter URLs…" autocomplete="off">
+        <a href="/projects" class="btn btn-ghost" style="font-size:12px;padding:5px 10px">Manage Projects</a>
+      </div>
+    </div>
+
+    <% if (!projectGroups || projectGroups.length === 0) { %>
+      <div class="empty-state">
+        <div class="empty-icon">📁</div>
+        <p>No URLs found for current filters.</p>
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+          <a href="/projects" class="btn btn-ghost">Create Project</a>
+          <a href="/urls/add" class="btn btn-primary">Add URL</a>
+        </div>
+      </div>
+    <% } else { %>
+      <div style="padding:14px 16px">
+        <% projectGroups.forEach(function(group) { %>
+          <section class="group-section" style="margin-bottom:18px">
+            <div class="group-section-header" style="margin-bottom:0;padding:10px 0">
+              <div class="group-section-title"><%= group.name %></div>
+              <span class="badge badge--pending"><%= group.total %> URL<%= group.total !== 1 ? 's' : '' %></span>
+              <% if (group.ok > 0) { %><span class="badge badge--ok"><%= group.ok %> OK</span><% } %>
+              <% if (group.changed > 0) { %><span class="badge badge--changed"><%= group.changed %> Changed</span><% } %>
+              <% if (group.error > 0) { %><span class="badge badge--error"><%= group.error %> Error</span><% } %>
+              <% if (group.pending > 0) { %><span class="badge badge--pending"><%= group.pending %> Pending</span><% } %>
+              <span style="margin-left:auto"></span>
+              <a href="/urls/add<%= group.id ? '?project_id=' + group.id : '' %>" class="btn btn-ghost" style="font-size:12px;padding:4px 10px">+ Add URL</a>
+            </div>
+            <div class="url-list" style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
+              <% group.urls.forEach(function(u) { %>
+                <a href="/urls/<%= u.id %>" class="url-row project-url-row">
+                  <div class="url-row-left">
+                    <span class="status-dot status-dot--<%= u.status.toLowerCase() %>"></span>
+                    <div class="url-info">
+                      <div class="url-text"><%= u.url %></div>
+                      <div class="url-meta">
+                        <% if (u.last_checked) { %>
+                          Last checked: <span class="time-ago" data-ts="<%= new Date(u.last_checked).toISOString() %>"></span>
+                        <% } else { %>
+                          <span class="text-muted">Not checked yet</span>
+                        <% } %>
+                        &nbsp;·&nbsp; Every <%= u.check_interval_minutes >= 60 ? (u.check_interval_minutes / 60) + 'h' : u.check_interval_minutes + 'min' %>
+                        <% if (!u.is_active) { %>&nbsp;·&nbsp; <span class="badge badge--paused">Paused</span><% } %>
+                        <% if (u.tags) { u.tags.split(',').filter(Boolean).forEach(function(t) { %>
+                          &nbsp;<a href="<%= queryWith({ tag: t.trim(), page: null }) %>" class="tag-chip" data-stop-row-nav="1"><%= t.trim() %></a>
+                        <% }) } %>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="url-row-right">
+                    <% if (u.uptime_pct != null) { %>
+                      <span class="uptime-badge uptime-badge--<%= u.uptime_pct >= 99 ? 'great' : u.uptime_pct >= 95 ? 'ok' : 'warn' %>"><%= u.uptime_pct %>%</span>
+                    <% } %>
+                    <% if (u.last_status_code || u.last_status_code === 0) { %>
+                      <span class="badge <%= u.last_status_code === 200 ? 'badge--ok' : 'badge--error' %>">
+                        <%= u.last_status_code === 0 ? 'ERR' : u.last_status_code %>
+                      </span>
+                    <% } %>
+                    <span class="badge badge--<%= u.status.toLowerCase() %>"><%= u.status %></span>
+                    <% if (u.recent_alert_count > 0) { %>
+                      <span class="alert-count"><%= u.recent_alert_count %> alert<%= u.recent_alert_count !== 1 ? 's' : '' %></span>
+                    <% } %>
+                  </div>
+                </a>
+              <% }) %>
+            </div>
+          </section>
+        <% }) %>
+      </div>
+    <% } %>
+  </div>
+
+<!-- URL list view -->
+<% } else { %>
+  <div class="card" style="border-top-left-radius:0">
+    <div class="card-header">
+      <h2 class="card-title">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+          <input type="checkbox" id="select-all-urls" style="width:14px;height:14px">
+          <% if (tab === 'problems') { %>Problem URLs<% } else { %>Monitored URLs<% } %>
+        </label>
+      </h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="url-search" type="search" class="form-input" style="width:220px;padding:5px 10px;font-size:13px"
+               placeholder="Filter URLs…" autocomplete="off">
+        <% if (tab === 'problems' && urls.length > 0) { %>
+          <form action="/urls/accept-all-changes" method="POST">
+            <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:4px 10px">
+              ✓ Accept All Changes
+            </button>
+          </form>
+        <% } %>
+      </div>
+    </div>
+
+    <!-- Bulk action bar (hidden until rows are selected) -->
+    <div id="bulk-action-bar" style="display:none;align-items:center;gap:8px;padding:8px 16px;background:var(--bg-secondary);border-bottom:1px solid var(--border);font-size:13px">
+      <span><strong id="bulk-count">0</strong> selected</span>
+      <form id="bulk-form" action="/urls/bulk-action" method="POST" style="display:flex;gap:6px">
+        <button type="submit" name="action" value="pause" class="btn btn-ghost" style="font-size:12px;padding:3px 10px">⏸ Pause</button>
+        <button type="submit" name="action" value="resume" class="btn btn-ghost" style="font-size:12px;padding:3px 10px">▶ Resume</button>
+        <button type="submit" name="action" value="accept" class="btn btn-ghost" style="font-size:12px;padding:3px 10px">✓ Accept</button>
+        <button type="submit" name="action" value="delete" class="btn btn-danger" style="font-size:12px;padding:3px 10px"
+                data-confirm-message="Delete selected URLs?">✕ Delete</button>
+      </form>
+    </div>
+
+    <% if (urls.length === 0) { %>
+      <div class="empty-state">
+        <div class="empty-icon"><% if (tab === 'problems') { %>✅<% } else { %>🔍<% } %></div>
+        <p><% if (tab === 'problems') { %>No problems detected!<% } else { %>No URLs monitored yet.<% } %></p>
+        <% if (tab !== 'problems') { %>
+          <a href="/urls/add" class="btn btn-primary">Add your first URL</a>
+        <% } %>
+      </div>
+    <% } else { %>
+      <div class="url-list">
+        <% urls.forEach(function(u) { %>
+          <div class="url-row-wrap">
+            <input type="checkbox" class="url-row-cb" value="<%= u.id %>" style="margin:0 4px 0 12px;flex-shrink:0">
+            <a href="/urls/<%= u.id %>" class="url-row">
+              <div class="url-row-left">
+                <span class="status-dot status-dot--<%= u.status.toLowerCase() %>"></span>
+                <div class="url-info">
+                  <div class="url-text"><%= u.url %></div>
+                  <div class="url-meta">
+                    <% if (u.last_checked) { %>
+                      Last checked: <span class="time-ago" data-ts="<%= new Date(u.last_checked).toISOString() %>"></span>
+                    <% } else { %>
+                      <span class="text-muted">Not checked yet</span>
+                    <% } %>
+                    &nbsp;·&nbsp; Every <%= u.check_interval_minutes >= 60 ? (u.check_interval_minutes / 60) + 'h' : u.check_interval_minutes + 'min' %>
+                    <% if (u.project_name) { %>&nbsp;·&nbsp; <span class="badge badge--pending"><%= u.project_name %></span><% } %>
+                    <% if (!u.is_active) { %>&nbsp;·&nbsp; <span class="badge badge--paused">Paused</span><% } %>
+                    <% if (u.tags) { u.tags.split(',').filter(Boolean).forEach(function(t) { %>
+                      &nbsp;<a href="<%= queryWith({ tag: t.trim(), page: null }) %>" class="tag-chip" data-stop-row-nav="1"><%= t.trim() %></a>
+                    <% }) } %>
+                  </div>
+                </div>
+              </div>
+              <div class="url-row-right">
+                <% if (u.uptime_pct != null) { %>
+                  <span class="uptime-badge uptime-badge--<%= u.uptime_pct >= 99 ? 'great' : u.uptime_pct >= 95 ? 'ok' : 'warn' %>">
+                    <%= u.uptime_pct %>%
+                  </span>
+                <% } %>
+                <% if (u.last_status_code || u.last_status_code === 0) { %>
+                  <span class="badge <%= u.last_status_code === 200 ? 'badge--ok' : 'badge--error' %>">
+                    <%= u.last_status_code === 0 ? 'ERR' : u.last_status_code %>
+                  </span>
+                <% } %>
+                <span class="badge badge--<%= u.status.toLowerCase() %>"><%= u.status %></span>
+                <% if (u.recent_alert_count > 0) { %>
+                  <span class="alert-count"><%= u.recent_alert_count %> alert<%= u.recent_alert_count !== 1 ? 's' : '' %></span>
+                <% } %>
+              </div>
+            </a>
+          </div>
+        <% }) %>
+      </div>
+
+      <!-- Pagination -->
+      <% if (totalPages > 1) { %>
+      <div class="pagination">
+        <% if (page > 1) { %>
+          <a href="<%= queryWith({ page: page - 1 }) %>" class="btn btn-ghost btn-sm">← Prev</a>
+        <% } %>
+        <span class="pagination-info">Page <%= page %> of <%= totalPages %> &nbsp;·&nbsp; <%= totalCount %> URLs &nbsp;·&nbsp; <%= perPage %> / page</span>
+        <% if (page < totalPages) { %>
+          <a href="<%= queryWith({ page: page + 1 }) %>" class="btn btn-ghost btn-sm">Next →</a>
+        <% } %>
+      </div>
+      <% } %>
+    <% } %>
+  </div>
+<% } %>
 
 <!-- Recent Alerts -->
 <div class="card" style="margin-top:24px">
@@ -216,8 +344,7 @@
     <% if (alertFields.length > 0) { %>
       <div style="display:flex;align-items:center;gap:8px">
         <label style="font-size:12px;color:var(--text-muted)">Filter:</label>
-        <select data-nav-base="/?tab=<%= tab %>&per_page=<%= perPage %>&field="
-                class="form-select" style="padding:4px 8px;font-size:12px;width:auto">
+        <select data-nav-base="<%= fieldNavBase %>" class="form-select" style="padding:4px 8px;font-size:12px;width:auto">
           <option value="">All fields</option>
           <% alertFields.forEach(function(f) { %>
             <option value="<%= f %>" <%= fieldFilter === f ? 'selected' : '' %>><%= f %></option>

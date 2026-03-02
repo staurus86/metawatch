@@ -35,6 +35,7 @@ async function migrate() {
     await client.query(`
       CREATE TABLE IF NOT EXISTS projects (
         id SERIAL PRIMARY KEY,
+        user_id INT REFERENCES users(id) ON DELETE CASCADE,
         name VARCHAR(255) NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
@@ -397,6 +398,25 @@ async function migrate() {
 
     // ─── Sprint 7 additions ───────────────────────────────────────────────────
 
+    // projects: tenant ownership + lookup performance
+    await client.query(
+      'ALTER TABLE projects ADD COLUMN IF NOT EXISTS user_id INT REFERENCES users(id) ON DELETE CASCADE'
+    );
+    await client.query(`
+      UPDATE projects p
+      SET user_id = src.user_id
+      FROM (
+        SELECT project_id, MIN(user_id) AS user_id
+        FROM monitored_urls
+        WHERE project_id IS NOT NULL AND user_id IS NOT NULL
+        GROUP BY project_id
+      ) src
+      WHERE p.id = src.project_id AND p.user_id IS NULL
+    `);
+    await client.query(
+      'CREATE INDEX IF NOT EXISTS idx_projects_user_created ON projects(user_id, created_at DESC)'
+    );
+
     // monitored_urls: maintenance cron schedule
     const muSprint7 = [
       'ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS maintenance_cron TEXT',
@@ -522,6 +542,7 @@ async function migrate() {
     // ─── scale indexes ────────────────────────────────────────────────────────
     const scaleIndexes = [
       'CREATE INDEX IF NOT EXISTS idx_monitored_urls_user_active_created ON monitored_urls(user_id, is_active, created_at DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_monitored_urls_user_project_created ON monitored_urls(user_id, project_id, created_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_uptime_monitors_user_active_created ON uptime_monitors(user_id, is_active, created_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_snapshots_checked_at ON snapshots(checked_at)',
       'CREATE INDEX IF NOT EXISTS idx_alerts_detected_at ON alerts(detected_at DESC)',
