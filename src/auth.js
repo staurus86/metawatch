@@ -80,6 +80,14 @@ async function requireApiKey(req, res, next) {
     );
     if (!rows[0]) return res.status(401).json({ error: 'Invalid API key.' });
     req.user = rows[0];
+    try {
+      const { getUserPlanData } = require('./plans');
+      const { plan, subscription } = await getUserPlanData(req.user.id);
+      req.userPlan = plan;
+      req.userSubscription = subscription;
+    } catch {
+      // non-fatal for API auth
+    }
     next();
   } catch (err) {
     res.status(500).json({ error: err.message });

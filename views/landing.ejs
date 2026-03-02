@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MetaWatch — Monitor your website metadata automatically</title>
+  <script src="/theme-init.js"></script>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    body { margin: 0; background: linear-gradient(180deg, #f7fafc 0%, #edf2f7 100%); color: var(--text-primary); }
+    [data-theme="dark"] body { background: linear-gradient(180deg, #0f1117 0%, #171b25 100%); }
+    .lp-wrap { max-width: 1100px; margin: 0 auto; padding: 24px 18px 64px; }
+    .lp-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 36px; }
+    .lp-logo { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text-primary); font-weight: 800; font-size: 20px; }
+    .lp-hero { display: grid; grid-template-columns: 1.1fr .9fr; gap: 20px; align-items: center; margin-bottom: 36px; }
+    .lp-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); }
+    .lp-hero-main { padding: 34px; }
+    .lp-title { font-size: 42px; line-height: 1.05; letter-spacing: -0.02em; margin-bottom: 16px; }
+    .lp-sub { font-size: 16px; line-height: 1.6; color: var(--text-muted); margin-bottom: 22px; }
+    .lp-cta { display: flex; gap: 10px; flex-wrap: wrap; }
+    .lp-hero-side { padding: 24px; }
+    .lp-mini { display: grid; grid-template-columns: repeat(2,1fr); gap: 10px; }
+    .lp-mini-item { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 12px; font-size: 12px; color: var(--text-muted); }
+    .lp-mini-item b { display: block; color: var(--text-primary); font-size: 20px; margin-top: 4px; }
+    .lp-section { margin-top: 24px; }
+    .lp-section h2 { font-size: 22px; margin-bottom: 12px; }
+    .lp-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .lp-feature { padding: 16px; }
+    .lp-feature h3 { font-size: 15px; margin-bottom: 6px; }
+    .lp-feature p { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+    .lp-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .lp-step { padding: 16px; }
+    .lp-step-num { font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: .08em; }
+    .lp-step h3 { margin: 6px 0; font-size: 15px; }
+    .lp-pricing { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 12px; }
+    .lp-plan { padding: 16px; }
+    .lp-plan h3 { font-size: 17px; margin-bottom: 4px; }
+    .lp-price { font-size: 30px; font-weight: 800; margin-bottom: 10px; }
+    .lp-price small { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+    .lp-plan ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; color: var(--text-muted); }
+    .lp-testimonial { padding: 18px; font-size: 14px; color: var(--text-muted); line-height: 1.6; }
+    .lp-footer { margin-top: 34px; font-size: 13px; color: var(--text-muted); display: flex; gap: 12px; flex-wrap: wrap; }
+    .lp-footer a { color: var(--text-muted); text-decoration: none; }
+    .lp-footer a:hover { text-decoration: underline; }
+    @media (max-width: 960px) {
+      .lp-hero { grid-template-columns: 1fr; }
+      .lp-grid3, .lp-steps, .lp-pricing { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="lp-wrap">
+    <div class="lp-nav">
+      <a href="/" class="lp-logo"><span>👁</span><span>MetaWatch</span></a>
+      <div style="display:flex;gap:8px;align-items:center">
+        <a href="/login" class="btn btn-ghost">Sign in</a>
+        <a href="/register" class="btn btn-primary">Start free</a>
+      </div>
+    </div>
+
+    <section class="lp-hero">
+      <div class="lp-card lp-hero-main">
+        <h1 class="lp-title">Monitor your website metadata automatically</h1>
+        <p class="lp-sub">
+          Get alerted instantly when title, description, H1, canonical tags, robots rules or response codes change.
+        </p>
+        <div class="lp-cta">
+          <a href="/register" class="btn btn-primary">Start free — no credit card needed</a>
+          <a href="/login" class="btn btn-ghost">I already have an account</a>
+        </div>
+      </div>
+      <div class="lp-card lp-hero-side">
+        <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--text-muted)">Live Snapshot</div>
+        <div class="lp-mini">
+          <div class="lp-mini-item">Tracked URLs<b>128</b></div>
+          <div class="lp-mini-item">Incidents (30d)<b>4</b></div>
+          <div class="lp-mini-item">Changed today<b>9</b></div>
+          <div class="lp-mini-item">Uptime avg<b>99.7%</b></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="lp-section">
+      <h2>Features</h2>
+      <div class="lp-grid3">
+        <article class="lp-card lp-feature">
+          <h3>Meta Monitoring</h3>
+          <p>Track title, description, H1, canonical, robots, noindex and content hash changes for every URL.</p>
+        </article>
+        <article class="lp-card lp-feature">
+          <h3>Uptime Monitoring</h3>
+          <p>Run interval checks, detect incidents automatically, and keep a public status page for your clients.</p>
+        </article>
+        <article class="lp-card lp-feature">
+          <h3>Instant Alerts</h3>
+          <p>Send notifications to email, Telegram or webhook with severity and suppression rules.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="lp-section">
+      <h2>How it works</h2>
+      <div class="lp-steps">
+        <article class="lp-card lp-step">
+          <div class="lp-step-num">Step 1</div>
+          <h3>Add URLs</h3>
+          <p class="text-muted">Choose pages and fields you need to watch.</p>
+        </article>
+        <article class="lp-card lp-step">
+          <div class="lp-step-num">Step 2</div>
+          <h3>We monitor</h3>
+          <p class="text-muted">MetaWatch runs checks on your schedule in the background.</p>
+        </article>
+        <article class="lp-card lp-step">
+          <div class="lp-step-num">Step 3</div>
+          <h3>You get alerted</h3>
+          <p class="text-muted">Receive change and outage notifications instantly.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="lp-section">
+      <h2>Pricing</h2>
+      <div class="lp-pricing">
+        <% const visiblePlans = (plans && plans.length > 0 ? plans : [
+          { name: 'Free', price_usd: 0, max_urls: 10, max_uptime_monitors: 2, max_projects: 1, check_interval_min: 60 },
+          { name: 'Starter', price_usd: 19, max_urls: 50, max_uptime_monitors: 10, max_projects: 5, check_interval_min: 15 },
+          { name: 'Pro', price_usd: 49, max_urls: 200, max_uptime_monitors: 50, max_projects: null, check_interval_min: 5 }
+        ]).slice(0, 3); %>
+        <% visiblePlans.forEach(function(plan) { %>
+          <article class="lp-card lp-plan">
+            <h3><%= plan.name %></h3>
+            <div class="lp-price">
+              <%= Number(plan.price_usd || 0) === 0 ? '$0' : ('$' + Number(plan.price_usd || 0)) %>
+              <small>/month</small>
+            </div>
+            <ul>
+              <li>URLs: <%= plan.max_urls == null ? 'Unlimited' : plan.max_urls %></li>
+              <li>Uptime monitors: <%= plan.max_uptime_monitors == null ? 'Unlimited' : plan.max_uptime_monitors %></li>
+              <li>Projects: <%= plan.max_projects == null ? 'Unlimited' : plan.max_projects %></li>
+              <li>Min interval: <%= plan.check_interval_min %> min</li>
+            </ul>
+          </article>
+        <% }) %>
+      </div>
+    </section>
+
+    <section class="lp-section">
+      <div class="lp-card lp-testimonial">
+        “MetaWatch helped us catch unexpected title and noindex changes before they impacted search traffic.”
+      </div>
+    </section>
+
+    <footer class="lp-footer">
+      <a href="/api/docs">API Docs</a>
+      <a href="/login">Login</a>
+      <a href="/register">Register</a>
+    </footer>
+  </div>
+</body>
+</html>

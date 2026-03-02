@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../db');
 const { requireAuth } = require('../auth');
 const { auditFromRequest } = require('../audit');
+const { getUserUsage, isLimitReached, limitLabel } = require('../plans');
 
 function normalizeProjectName(raw) {
   return String(raw || '').trim().replace(/\s+/g, ' ');
@@ -68,17 +69,22 @@ async function listProjects(userId) {
   };
 }
 
+async function renderProjectsPage(req, res, { status = 200, message = null, error = null, upgradePrompt = null } = {}) {
+  const { projects, unassignedCount } = await listProjects(req.user.id);
+  return res.status(status).render('projects', {
+    title: 'Projects',
+    message,
+    error,
+    projects,
+    unassignedCount,
+    upgradePrompt
+  });
+}
+
 // GET /projects
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const { projects, unassignedCount } = await listProjects(req.user.id);
-    res.render('projects', {
-      title: 'Projects',
-      message: req.query.msg || null,
-      error: null,
-      projects,
-      unassignedCount
-    });
+    await renderProjectsPage(req, res, { message: req.query.msg || null });
   } catch (err) {
     console.error(err);
     res.status(500).render('error', { title: 'Error', error: err.message });
@@ -92,6 +98,19 @@ router.post('/add', requireAuth, async (req, res) => {
   if (name.length > 255) return res.redirect('/projects?msg=Project+name+is+too+long');
 
   try {
+    const usage = await getUserUsage(req.user.id);
+    const currentPlan = req.userPlan || { name: 'Free', max_projects: 1 };
+    if (isLimitReached(usage.projects, currentPlan.max_projects)) {
+      return await renderProjectsPage(req, res, {
+        status: 402,
+        error: 'Project limit reached for your current plan.',
+        upgradePrompt: {
+          title: 'Upgrade your plan',
+          message: `${currentPlan.name} plan allows up to ${limitLabel(currentPlan.max_projects)} project(s). You currently have ${usage.projects}.`
+        }
+      });
+    }
+
     const { rows: [existing] } = await pool.query(
       'SELECT id FROM projects WHERE user_id = $1 AND lower(name) = lower($2)',
       [req.user.id, name]

@@ -7,6 +7,7 @@ const path = require('path');
 const migrate = require('./migrate');
 const { startScheduler } = require('./scheduler');
 const { loadUserMiddleware } = require('./auth');
+const { loadUserPlanMiddleware } = require('./plans');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -40,14 +41,17 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // Load current user into req.user + res.locals.user for all routes
 app.use(loadUserMiddleware);
+app.use(loadUserPlanMiddleware);
 
 // Routes — auth (no auth required)
 app.use('/', require('./routes/auth'));
+app.use('/', require('./routes/landing'));
 
 // Routes — protected
 app.use('/', require('./routes/dashboard'));
 app.use('/urls', require('./routes/urls'));
 app.use('/projects', require('./routes/projects'));
+app.use('/billing', require('./routes/billing'));
 app.use('/uptime', require('./routes/uptime'));
 app.use('/export', require('./routes/export'));
 app.use('/notifications', require('./routes/notifications'));

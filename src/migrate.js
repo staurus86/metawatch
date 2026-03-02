@@ -31,6 +31,66 @@ async function migrate() {
       )
     `);
 
+    // ─── plans ───────────────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS plans (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(50) UNIQUE NOT NULL,
+        max_urls INTEGER,
+        max_uptime_monitors INTEGER,
+        max_projects INTEGER,
+        check_interval_min INTEGER NOT NULL DEFAULT 60,
+        price_usd INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`
+      INSERT INTO plans (name, max_urls, max_uptime_monitors, max_projects, check_interval_min, price_usd)
+      VALUES
+        ('Free', 10, 2, 1, 60, 0),
+        ('Starter', 50, 10, 5, 15, 19),
+        ('Pro', 200, 50, NULL, 5, 49),
+        ('Agency', NULL, NULL, NULL, 1, 99)
+      ON CONFLICT (name) DO UPDATE SET
+        max_urls = EXCLUDED.max_urls,
+        max_uptime_monitors = EXCLUDED.max_uptime_monitors,
+        max_projects = EXCLUDED.max_projects,
+        check_interval_min = EXCLUDED.check_interval_min,
+        price_usd = EXCLUDED.price_usd
+    `);
+
+    // ─── subscriptions ───────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS subscriptions (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        plan_id INT NOT NULL REFERENCES plans(id) ON DELETE RESTRICT,
+        status VARCHAR(20) NOT NULL DEFAULT 'trial',
+        trial_ends_at TIMESTAMPTZ,
+        current_period_end TIMESTAMPTZ,
+        stripe_customer_id TEXT,
+        stripe_subscription_id TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await client.query(
+      'CREATE INDEX IF NOT EXISTS idx_subscriptions_user_status ON subscriptions(user_id, status, created_at DESC)'
+    );
+
+    // Backfill all users with Free plan if no active/trial subscription exists
+    await client.query(`
+      INSERT INTO subscriptions (user_id, plan_id, status, current_period_end)
+      SELECT u.id, p.id, 'active', NOW() + INTERVAL '100 years'
+      FROM users u
+      JOIN plans p ON lower(p.name) = 'free'
+      LEFT JOIN subscriptions s
+        ON s.user_id = u.id
+       AND s.status IN ('active', 'trial')
+      WHERE s.id IS NULL
+    `);
+
     // ─── projects ────────────────────────────────────────────────────────────
     await client.query(`
       CREATE TABLE IF NOT EXISTS projects (

@@ -246,6 +246,26 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .alert-banner--info  { background: #ebf8ff; color: #2c5282; border: 1px solid #bee3f8; }
 .alert-banner--ok    { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
 
+/* ─── Upgrade modal ─── */
+.upgrade-modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(15,17,23,.55);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1200;
+  padding: 16px;
+}
+.upgrade-modal {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0,0,0,.28);
+  max-width: 520px;
+  width: 100%;
+  padding: 18px;
+}
+.upgrade-modal h3 { font-size: 20px; margin-bottom: 8px; }
+.upgrade-modal p { font-size: 14px; color: var(--text-muted); line-height: 1.55; }
+
 /* Uptime timeline dots */
 .uptime-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; cursor: default; }
 .uptime-dot--ok  { background: #68d391; }

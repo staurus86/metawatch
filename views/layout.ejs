@@ -17,9 +17,13 @@
         <span class="logo-text">MetaWatch</span>
       </a>
       <nav class="sidebar-nav">
-        <a href="/" class="nav-link <%= typeof title !== 'undefined' && title === 'Dashboard' ? 'active' : '' %>">
+        <a href="/dashboard" class="nav-link <%= typeof title !== 'undefined' && title === 'Dashboard' ? 'active' : '' %>">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
           Dashboard
+        </a>
+        <a href="/billing" class="nav-link <%= typeof title !== 'undefined' && title === 'Billing & Plan' ? 'active' : '' %>">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+          Billing
         </a>
         <a href="/projects" class="nav-link <%= typeof title !== 'undefined' && title === 'Projects' ? 'active' : '' %>">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h7v10H3z"/><path d="M14 3h7v6h-7z"/><path d="M14 13h7v8h-7z"/></svg>

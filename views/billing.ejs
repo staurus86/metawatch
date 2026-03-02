@@ -1,0 +1,101 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Billing & Plan</h1>
+    <div class="text-muted" style="font-size:13px;margin-top:4px">
+      Current plan limits, usage and upgrade options.
+    </div>
+  </div>
+  <a href="/dashboard" class="btn btn-ghost">← Dashboard</a>
+</div>
+
+<div class="card" style="margin-bottom:18px">
+  <div class="card-header">
+    <h2 class="card-title">Current Plan</h2>
+    <span class="badge badge--ok"><%= plan.name %></span>
+  </div>
+  <div style="padding:16px">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+      <div class="text-muted" style="font-size:13px">
+        Status:
+        <strong><%= subscription?.status || 'active' %></strong>
+      </div>
+      <% if (trialEndsAt) { %>
+        <div class="badge badge--changed">
+          Trial ends: <%= new Date(trialEndsAt).toISOString().slice(0, 10) %>
+        </div>
+      <% } %>
+      <div class="text-muted" style="font-size:13px">
+        Min check interval: <strong><%= plan.check_interval_min %> min</strong>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:18px">
+  <div class="card-header">
+    <h2 class="card-title">Usage</h2>
+  </div>
+  <div style="padding:16px;display:grid;gap:14px">
+    <% usageRows.forEach(function(row) { %>
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;font-size:13px">
+          <span><%= row.label %></span>
+          <div style="display:flex;gap:8px;align-items:center">
+            <strong><%= row.used %>/<%= row.limit == null ? '∞' : row.limit %></strong>
+            <% if (row.limit != null && row.used >= row.limit) { %>
+              <a href="/billing?upgrade=1" class="btn btn-ghost" style="font-size:11px;padding:3px 8px">Upgrade</a>
+            <% } %>
+          </div>
+        </div>
+        <div style="height:10px;border-radius:999px;background:var(--bg-secondary);border:1px solid var(--border);overflow:hidden">
+          <div style="height:100%;width:<%= row.percent == null ? 8 : row.percent %>%;background:<%= row.percent == null ? 'var(--accent)' : row.percent >= 90 ? 'var(--error)' : row.percent >= 70 ? 'var(--changed)' : 'var(--ok)' %>"></div>
+        </div>
+      </div>
+    <% }) %>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h2 class="card-title">Plan Comparison</h2>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Plan</th>
+          <th>Price</th>
+          <th>URLs</th>
+          <th>Uptime Monitors</th>
+          <th>Projects</th>
+          <th>Min Interval</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% plans.forEach(function(p) { %>
+          <tr>
+            <td><strong><%= p.name %></strong></td>
+            <td><%= Number(p.price_usd || 0) === 0 ? '$0' : ('$' + p.price_usd + '/mo') %></td>
+            <td><%= limitLabel(p.max_urls) %></td>
+            <td><%= limitLabel(p.max_uptime_monitors) %></td>
+            <td><%= limitLabel(p.max_projects) %></td>
+            <td><%= p.check_interval_min %> min</td>
+            <td>
+              <% if (String(p.name).toLowerCase() === String(plan.name).toLowerCase()) { %>
+                <span class="badge badge--ok">Current</span>
+              <% } else { %>
+                <a href="/billing?upgrade=<%= encodeURIComponent(p.name) %>" class="btn btn-ghost" style="font-size:12px;padding:4px 10px">Upgrade</a>
+              <% } %>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+<% if (requestedUpgrade) { %>
+  <div class="alert-banner alert-banner--info" style="margin:14px">
+      Upgrade flow is prepared on UI; checkout integration will be enabled in the next step.
+  </div>
+<% } %>
+</div>

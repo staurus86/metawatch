@@ -190,3 +190,16 @@
     </div>
   </form>
 </div>
+
+<% if (locals.upgradePrompt) { %>
+  <div class="upgrade-modal-backdrop">
+    <div class="upgrade-modal">
+      <h3><%= upgradePrompt.title || 'Upgrade your plan' %></h3>
+      <p><%= upgradePrompt.message %></p>
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+        <a href="/billing" class="btn btn-primary">View plans</a>
+        <a href="/urls/<%= urlRecord.id %>" class="btn btn-ghost">Close</a>
+      </div>
+    </div>
+  </div>
+<% } %>

@@ -10,6 +10,13 @@ const { sendTelegram, sendWebhook } = require('../notifier');
 const { sendAlert: sendEmail } = require('../mailer');
 const { assertSafeOutboundUrl } = require('../net-safety');
 const { auditFromRequest } = require('../audit');
+const {
+  getUserUsage,
+  isLimitReached,
+  isIntervalAllowed,
+  minIntervalForPlan,
+  limitLabel
+} = require('../plans');
 
 function generateSlug() {
   return crypto.randomBytes(6).toString('hex'); // 12-char hex slug
@@ -121,6 +128,7 @@ router.get('/add', requireAuth, (req, res) => {
   res.render('uptime-add', {
     title: 'Add Monitor',
     error: null,
+    upgradePrompt: null,
     values: {
       alert_email: req.user.default_alert_email || '',
       telegram_token: req.user.default_telegram_token || '',
@@ -138,12 +146,42 @@ router.post('/add', requireAuth, async (req, res) => {
     is_public, maintenance_cron, maintenance_duration_minutes
   } = req.body;
 
-  if (!name?.trim()) return res.render('uptime-add', { title: 'Add Monitor', error: 'Name is required.', values: req.body });
+  const renderAddError = (error, { status = 200, upgradePrompt = null } = {}) => res.status(status).render('uptime-add', {
+    title: 'Add Monitor',
+    error,
+    values: req.body,
+    upgradePrompt
+  });
+
+  if (!name?.trim()) return renderAddError('Name is required.');
   if (!url?.trim() || (!url.startsWith('http://') && !url.startsWith('https://'))) {
-    return res.render('uptime-add', { title: 'Add Monitor', error: 'Valid URL is required (http:// or https://).', values: req.body });
+    return renderAddError('Valid URL is required (http:// or https://).');
   }
 
   try {
+    const currentPlan = req.userPlan || { name: 'Free', max_uptime_monitors: 2, check_interval_min: 60 };
+    const usage = await getUserUsage(req.user.id).catch(() => ({ urls: 0, uptimeMonitors: 0, projects: 0 }));
+    if (isLimitReached(usage.uptimeMonitors, currentPlan.max_uptime_monitors)) {
+      return renderAddError('Uptime monitor limit reached for your current plan.', {
+        status: 402,
+        upgradePrompt: {
+          title: 'Upgrade your plan',
+          message: `${currentPlan.name} plan allows up to ${limitLabel(currentPlan.max_uptime_monitors)} uptime monitor(s). You currently have ${usage.uptimeMonitors}.`
+        }
+      });
+    }
+
+    const intervalValue = parseInt(interval_minutes || '5', 10);
+    if (!isIntervalAllowed(currentPlan, intervalValue)) {
+      return renderAddError(`Your current plan requires interval >= ${minIntervalForPlan(currentPlan)} minutes.`, {
+        status: 402,
+        upgradePrompt: {
+          title: 'Upgrade your plan',
+          message: `${currentPlan.name} plan minimum interval is ${minIntervalForPlan(currentPlan)} minutes.`
+        }
+      });
+    }
+
     const safeUrl = await assertSafeOutboundUrl(url.trim());
     const maintenanceDuration = parseInt(maintenance_duration_minutes, 10);
     const safeMaintenanceDuration = Number.isFinite(maintenanceDuration) && maintenanceDuration > 0
@@ -160,7 +198,7 @@ router.post('/add', requireAuth, async (req, res) => {
        RETURNING *`,
       [
         req.user.id, name.trim(), safeUrl, slug,
-        parseInt(interval_minutes || '5', 10),
+        intervalValue,
         parseInt(threshold_ms || '3000', 10),
         alert_email?.trim() || req.user.default_alert_email || null,
         telegram_token?.trim() || req.user.default_telegram_token || null,
@@ -183,7 +221,7 @@ router.post('/add', requireAuth, async (req, res) => {
     res.redirect(`/uptime/${monitor.id}`);
   } catch (err) {
     console.error(err);
-    res.render('uptime-add', { title: 'Add Monitor', error: err.message, values: req.body });
+    renderAddError(err.message);
   }
 });
 
@@ -280,7 +318,7 @@ router.get('/:id/edit', requireAuth, async (req, res) => {
     const { query, params } = ownedMonitorQuery(monitorId, req);
     const { rows: [monitor] } = await pool.query(query, params);
     if (!monitor) return res.status(404).render('error', { title: 'Not Found', error: 'Monitor not found' });
-    res.render('uptime-edit', { title: 'Edit Monitor', error: null, monitor });
+    res.render('uptime-edit', { title: 'Edit Monitor', error: null, monitor, upgradePrompt: null });
   } catch (err) {
     res.status(500).render('error', { title: 'Error', error: err.message });
   }
@@ -296,6 +334,21 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
   } = req.body;
 
   try {
+    const currentPlan = req.userPlan || { name: 'Free', check_interval_min: 60 };
+    const intervalValue = parseInt(interval_minutes || '5', 10);
+    if (!isIntervalAllowed(currentPlan, intervalValue)) {
+      const { rows: [monitor] } = await pool.query('SELECT * FROM uptime_monitors WHERE id = $1', [monitorId]);
+      return res.status(402).render('uptime-edit', {
+        title: 'Edit Monitor',
+        error: `Your current plan requires interval >= ${minIntervalForPlan(currentPlan)} minutes.`,
+        monitor: monitor || {},
+        upgradePrompt: {
+          title: 'Upgrade your plan',
+          message: `${currentPlan.name} plan minimum interval is ${minIntervalForPlan(currentPlan)} minutes.`
+        }
+      });
+    }
+
     const safeUrl = await assertSafeOutboundUrl(url?.trim() || '');
     const maintenanceDuration = parseInt(maintenance_duration_minutes, 10);
     const safeMaintenanceDuration = Number.isFinite(maintenanceDuration) && maintenanceDuration > 0
@@ -312,13 +365,13 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
        WHERE id = $13 ${!isAdmin ? 'AND user_id = $14' : ''}
        RETURNING *`,
       !isAdmin
-        ? [name?.trim(), safeUrl, parseInt(interval_minutes || '5', 10),
+        ? [name?.trim(), safeUrl, intervalValue,
           parseInt(threshold_ms || '3000', 10), alert_email?.trim() || null,
           telegram_token?.trim() || null, telegram_chat_id?.trim() || null,
           webhook_url?.trim() || null, !!is_public, silenced_until?.trim() || null,
           maintenance_cron?.trim() || null, safeMaintenanceDuration,
           monitorId, req.user.id]
-        : [name?.trim(), safeUrl, parseInt(interval_minutes || '5', 10),
+        : [name?.trim(), safeUrl, intervalValue,
           parseInt(threshold_ms || '3000', 10), alert_email?.trim() || null,
           telegram_token?.trim() || null, telegram_chat_id?.trim() || null,
           webhook_url?.trim() || null, !!is_public, silenced_until?.trim() || null,
@@ -337,7 +390,7 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     const { rows: [monitor] } = await pool.query('SELECT * FROM uptime_monitors WHERE id = $1', [monitorId]);
-    res.render('uptime-edit', { title: 'Edit Monitor', error: err.message, monitor: monitor || {} });
+    res.render('uptime-edit', { title: 'Edit Monitor', error: err.message, monitor: monitor || {}, upgradePrompt: null });
   }
 });
 

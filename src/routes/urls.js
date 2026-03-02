@@ -13,6 +13,13 @@ const { checkSemaphore, domainRateLimit } = require('../queue');
 const { scanEmitter, isScanRunning, setScanRunning } = require('../scan-events');
 const { assertSafeOutboundUrl } = require('../net-safety');
 const { auditFromRequest } = require('../audit');
+const {
+  getUserUsage,
+  isLimitReached,
+  isIntervalAllowed,
+  minIntervalForPlan,
+  limitLabel
+} = require('../plans');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 const MAX_BULK_IMPORT_URLS = 500;
@@ -130,12 +137,13 @@ router.post('/add', requireAuth, async (req, res) => {
     maintenance_cron, maintenance_duration_minutes
   } = req.body;
 
-  const renderError = async (msg) => {
+  const renderError = async (msg, { status = 200, upgradePrompt = null } = {}) => {
     const projects = await getProjectsForUser(req.user.id).catch(() => []);
-    return res.render('add-url', {
+    return res.status(status).render('add-url', {
       title: 'Add URL',
       error: msg,
       projects,
+      upgradePrompt,
       values: req.body
     });
   };
@@ -154,6 +162,26 @@ router.post('/add', requireAuth, async (req, res) => {
 
   const interval = parseInt(check_interval_minutes, 10);
   if (isNaN(interval) || interval < 1) return await renderError('Invalid check interval.');
+  const currentPlan = req.userPlan || { name: 'Free', max_urls: 10, check_interval_min: 60 };
+  const usage = await getUserUsage(req.user.id).catch(() => ({ urls: 0, uptimeMonitors: 0, projects: 0 }));
+  if (isLimitReached(usage.urls, currentPlan.max_urls)) {
+    return await renderError('URL limit reached for your current plan.', {
+      status: 402,
+      upgradePrompt: {
+        title: 'Upgrade your plan',
+        message: `${currentPlan.name} plan allows up to ${limitLabel(currentPlan.max_urls)} URL(s). You currently have ${usage.urls}.`
+      }
+    });
+  }
+  if (!isIntervalAllowed(currentPlan, interval)) {
+    return await renderError(`Your current plan requires interval >= ${minIntervalForPlan(currentPlan)} minutes.`, {
+      status: 402,
+      upgradePrompt: {
+        title: 'Upgrade your plan',
+        message: `${currentPlan.name} plan minimum interval is ${minIntervalForPlan(currentPlan)} minutes.`
+      }
+    });
+  }
   const safeProjectId = await resolveProjectIdForUser(project_id, req.user.id).catch(() => null);
   const rtThreshold = parseInt(response_time_threshold_ms, 10) || null;
   const maintenanceDuration = parseInt(maintenance_duration_minutes, 10);
@@ -223,7 +251,8 @@ router.get('/bulk', requireAuth, async (req, res) => {
     error: null,
     preview: null,
     projects,
-    selectedProjectId: selectedProjectId ? String(selectedProjectId) : ''
+    selectedProjectId: selectedProjectId ? String(selectedProjectId) : '',
+    upgradePrompt: null
   });
 });
 
@@ -232,12 +261,13 @@ router.post('/bulk', requireAuth, upload.single('file'), async (req, res) => {
   const { source, urls_text, sitemap_url, column } = req.body;
   const projects = await getProjectsForUser(req.user.id).catch(() => []);
   const selectedProjectId = await resolveProjectIdForUser(req.body.project_id, req.user.id).catch(() => null);
-  const renderBulk = ({ error, preview }) => res.render('bulk-import', {
+  const renderBulk = ({ error, preview, status = 200, upgradePrompt = null }) => res.status(status).render('bulk-import', {
     title: 'Bulk Import',
     error: error || null,
     preview: preview || null,
     projects,
-    selectedProjectId: selectedProjectId ? String(selectedProjectId) : ''
+    selectedProjectId: selectedProjectId ? String(selectedProjectId) : '',
+    upgradePrompt
   });
 
   try {
@@ -245,6 +275,18 @@ router.post('/bulk', requireAuth, upload.single('file'), async (req, res) => {
       const interval = parseInt(req.body.check_interval_minutes || '60', 10);
       if (isNaN(interval) || interval < 1) {
         return renderBulk({ error: 'Invalid check interval.', preview: null });
+      }
+      const currentPlan = req.userPlan || { name: 'Free', max_urls: 10, check_interval_min: 60 };
+      if (!isIntervalAllowed(currentPlan, interval)) {
+        return renderBulk({
+          status: 402,
+          error: `Your current plan requires interval >= ${minIntervalForPlan(currentPlan)} minutes.`,
+          preview: null,
+          upgradePrompt: {
+            title: 'Upgrade your plan',
+            message: `${currentPlan.name} plan minimum interval is ${minIntervalForPlan(currentPlan)} minutes.`
+          }
+        });
       }
 
       let importableUrls = [];
@@ -264,6 +306,21 @@ router.post('/bulk', requireAuth, upload.single('file'), async (req, res) => {
 
       if (selectedUrls.length === 0) {
         return renderBulk({ error: 'No URLs selected for import.', preview: null });
+      }
+
+      const usage = await getUserUsage(req.user.id).catch(() => ({ urls: 0, uptimeMonitors: 0, projects: 0 }));
+      const planUrlLimit = parseInt(currentPlan.max_urls, 10);
+      const hasFiniteLimit = Number.isFinite(planUrlLimit) && planUrlLimit >= 0;
+      if (hasFiniteLimit && usage.urls + selectedUrls.length > planUrlLimit) {
+        return renderBulk({
+          status: 402,
+          error: 'Bulk import exceeds your URL limit.',
+          preview: null,
+          upgradePrompt: {
+            title: 'Upgrade your plan',
+            message: `${currentPlan.name} plan allows up to ${limitLabel(currentPlan.max_urls)} URL(s). Current usage: ${usage.urls}. Selected: ${selectedUrls.length}.`
+          }
+        });
       }
 
       const importTag = `import-${new Date().toISOString().slice(0, 10)}`;
@@ -487,7 +544,7 @@ router.get('/:id/edit', requireAuth, async (req, res) => {
     if (!urlRecord) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
     const projects = await getProjectsForUser(req.user.id).catch(() => []);
 
-    res.render('edit-url', { title: 'Edit URL', error: null, urlRecord, projects, cloned: !!req.query.cloned });
+    res.render('edit-url', { title: 'Edit URL', error: null, urlRecord, projects, cloned: !!req.query.cloned, upgradePrompt: null });
   } catch (err) {
     console.error(err);
     res.status(500).render('error', { title: 'Error', error: err.message });
@@ -516,7 +573,7 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
     const { query: q, params: p } = ownedUrlQuery(urlId, req);
     const { rows: [urlRecord] } = await pool.query(q, p);
     const projects = await getProjectsForUser(req.user.id).catch(() => []);
-    return res.render('edit-url', { title: 'Edit URL', error: 'Invalid check interval.', urlRecord, projects });
+    return res.render('edit-url', { title: 'Edit URL', error: 'Invalid check interval.', urlRecord, projects, upgradePrompt: null });
   }
 
   const maintenanceDuration = parseInt(maintenance_duration_minutes, 10);
@@ -524,6 +581,22 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
     ? maintenanceDuration
     : null;
   const safeProjectId = await resolveProjectIdForUser(project_id, req.user.id).catch(() => null);
+  const currentPlan = req.userPlan || { name: 'Free', check_interval_min: 60 };
+  if (!isIntervalAllowed(currentPlan, interval)) {
+    const { query: q, params: p } = ownedUrlQuery(urlId, req);
+    const { rows: [urlRecord] } = await pool.query(q, p);
+    const projects = await getProjectsForUser(req.user.id).catch(() => []);
+    return res.status(402).render('edit-url', {
+      title: 'Edit URL',
+      error: `Your current plan requires interval >= ${minIntervalForPlan(currentPlan)} minutes.`,
+      urlRecord,
+      projects,
+      upgradePrompt: {
+        title: 'Upgrade your plan',
+        message: `${currentPlan.name} plan minimum interval is ${minIntervalForPlan(currentPlan)} minutes.`
+      }
+    });
+  }
 
   try {
     const { rows: [updated] } = await pool.query(
@@ -583,7 +656,7 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
     const { query: q, params: p } = ownedUrlQuery(urlId, req);
     const { rows: [urlRecord] } = await pool.query(q, p);
     const projects = await getProjectsForUser(req.user.id).catch(() => []);
-    res.render('edit-url', { title: 'Edit URL', error: err.message, urlRecord, projects });
+    res.render('edit-url', { title: 'Edit URL', error: err.message, urlRecord, projects, upgradePrompt: null });
   }
 });
 

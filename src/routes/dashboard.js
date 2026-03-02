@@ -46,7 +46,7 @@ function buildProjectGroups(urls) {
   });
 }
 
-router.get('/', requireAuth, async (req, res) => {
+router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
   try {
     const tab = req.query.tab || 'all';
     const fieldFilter = req.query.field || null;

@@ -73,7 +73,7 @@
               <td><span class="badge badge--pending"><%= project.pending_count || 0 %></span></td>
               <td>
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                  <a href="/?view=projects&project=<%= project.id %>" class="btn btn-ghost" style="font-size:12px;padding:5px 10px">Open</a>
+                  <a href="/dashboard?view=projects&project=<%= project.id %>" class="btn btn-ghost" style="font-size:12px;padding:5px 10px">Open</a>
                   <a href="/urls/add?project_id=<%= project.id %>" class="btn btn-ghost" style="font-size:12px;padding:5px 10px">Add URL</a>
                   <form action="/projects/<%= project.id %>/rename" method="POST" style="display:flex;gap:6px;align-items:center">
                     <input type="text" name="name" value="<%= project.name %>" class="form-input" style="width:150px;padding:5px 8px;font-size:12px">
@@ -91,3 +91,16 @@
     </div>
   <% } %>
 </div>
+
+<% if (locals.upgradePrompt) { %>
+  <div class="upgrade-modal-backdrop">
+    <div class="upgrade-modal">
+      <h3><%= upgradePrompt.title || 'Upgrade your plan' %></h3>
+      <p><%= upgradePrompt.message %></p>
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+        <a href="/billing" class="btn btn-primary">View plans</a>
+        <a href="/projects" class="btn btn-ghost">Close</a>
+      </div>
+    </div>
+  </div>
+<% } %>

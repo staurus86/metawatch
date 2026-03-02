@@ -13,7 +13,7 @@
     for (const key of Object.keys(data)) {
       if (data[key] === null || data[key] === undefined || data[key] === '') delete data[key];
     }
-    return '/?' + new URLSearchParams(data).toString();
+    return '/dashboard?' + new URLSearchParams(data).toString();
   }
 
   const fieldBaseParams = new URLSearchParams({
@@ -23,7 +23,7 @@
   });
   if (tagFilter) fieldBaseParams.set('tag', tagFilter);
   if (projectFilter) fieldBaseParams.set('project', projectFilter);
-  const fieldNavBase = '/?' + fieldBaseParams.toString() + '&field=';
+  const fieldNavBase = '/dashboard?' + fieldBaseParams.toString() + '&field=';
 %>
 
 <div class="page-header">
