@@ -1,3 +1,14 @@
+<%
+  function reportsLabel(planName) {
+    const key = String(planName || '').toLowerCase();
+    if (key === 'free') return 'PDF + CSV (30d)';
+    if (key === 'starter') return 'PDF/XLSX/CSV (90d)';
+    if (key === 'pro') return 'PDF/XLSX/CSV (365d)';
+    if (key === 'agency') return 'All reports + white-label';
+    return '—';
+  }
+%>
+
 <div class="page-header">
   <div>
     <h1 class="page-title">Billing & Plan</h1>
@@ -83,6 +94,7 @@
           <th>URLs</th>
           <th>Uptime Monitors</th>
           <th>Projects</th>
+          <th>Reports</th>
           <th>Min Interval</th>
           <th>Action</th>
         </tr>
@@ -95,6 +107,7 @@
             <td><%= limitLabel(p.max_urls) %></td>
             <td><%= limitLabel(p.max_uptime_monitors) %></td>
             <td><%= limitLabel(p.max_projects) %></td>
+            <td><%= reportsLabel(p.name) %></td>
             <td><%= p.check_interval_min %> min</td>
             <td>
               <% if (String(p.name).toLowerCase() === String(plan.name).toLowerCase()) { %>

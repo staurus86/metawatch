@@ -1,6 +1,10 @@
 <div class="page-header">
   <h1 class="page-title">Uptime Monitors</h1>
-  <a href="/uptime/add" class="btn btn-primary">+ Add Monitor</a>
+  <div style="display:flex;gap:8px;align-items:center">
+    <a href="/export/uptime-report.pdf" class="btn btn-ghost">Export PDF</a>
+    <a href="/export/uptime-report.xlsx" class="btn btn-ghost">Export XLSX</a>
+    <a href="/uptime/add" class="btn btn-primary">+ Add Monitor</a>
+  </div>
 </div>
 
 <!-- Summary bar -->
@@ -79,6 +83,7 @@
             <span style="font-size:11px;color:var(--text-muted)">Not checked yet</span>
           <% } %>
           <div style="display:flex;gap:6px">
+            <a href="/export/uptime/<%= m.id %>.pdf" class="badge badge--pending" style="text-decoration:none;font-size:10px">Report PDF</a>
             <% if (!m.is_active) { %>
               <span class="badge badge--paused">Paused</span>
             <% } %>

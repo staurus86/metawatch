@@ -19,6 +19,8 @@
   <form action="/uptime/<%= monitor.id %>/check-now" method="POST" style="display:inline">
     <button type="submit" class="btn btn-primary">▶ Check Now</button>
   </form>
+  <a href="/export/uptime/<%= monitor.id %>.pdf" class="btn btn-ghost">PDF Report</a>
+  <a href="/export/uptime/<%= monitor.id %>.xlsx" class="btn btn-ghost">XLSX Report</a>
   <form action="/uptime/<%= monitor.id %>/toggle" method="POST" style="display:inline">
     <button type="submit" class="btn btn-ghost">
       <%= monitor.is_active ? '⏸ Pause' : '▶ Resume' %>

@@ -3,6 +3,17 @@ const pool = require('./db');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+const COLORS = {
+  ink: '#0f172a',
+  muted: '#475569',
+  border: '#d7e3f4',
+  soft: '#f8fbff',
+  accent: '#2563eb',
+  ok: '#16a34a',
+  warn: '#d97706',
+  error: '#dc2626'
+};
+
 function truncate(value, max = 120) {
   const str = String(value ?? '');
   if (str.length <= max) return str;
@@ -23,65 +34,17 @@ function fmtDateTime(value) {
   return d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
 }
 
-function fmtNumber(value) {
+function fmtNumber(value, digits = 1) {
   const n = Number(value);
   if (!Number.isFinite(n)) return '0';
-  return String(Math.round(n * 10) / 10);
+  const p = Math.pow(10, digits);
+  return String(Math.round(n * p) / p);
 }
 
 function ensureSpace(doc, needed = 40) {
   const bottom = doc.page.height - doc.page.margins.bottom;
   if (doc.y + needed > bottom) {
     doc.addPage();
-  }
-}
-
-function drawSectionTitle(doc, text) {
-  ensureSpace(doc, 28);
-  doc.moveDown(0.5);
-  doc.font('Helvetica-Bold').fontSize(14).fillColor('#111').text(text);
-  doc.moveDown(0.2);
-}
-
-function drawTable(doc, headers, rows, colWidths) {
-  const startX = doc.page.margins.left;
-  const totalWidth = colWidths.reduce((a, b) => a + b, 0);
-  const rowHeight = 20;
-
-  function drawRow(cells, isHeader = false) {
-    ensureSpace(doc, rowHeight + 8);
-
-    const y = doc.y;
-    let x = startX;
-
-    if (isHeader) {
-      doc.save();
-      doc.rect(startX, y, totalWidth, rowHeight).fill('#f1f5f9');
-      doc.restore();
-    }
-
-    for (let i = 0; i < colWidths.length; i++) {
-      const width = colWidths[i];
-      const text = truncate(cells[i] == null ? '' : String(cells[i]), isHeader ? 80 : 140);
-      doc.rect(x, y, width, rowHeight).stroke('#d1d5db');
-      doc.font(isHeader ? 'Helvetica-Bold' : 'Helvetica')
-        .fontSize(9)
-        .fillColor('#111')
-        .text(text, x + 3, y + 6, { width: width - 6, height: rowHeight - 6, ellipsis: true });
-      x += width;
-    }
-
-    doc.y = y + rowHeight;
-  }
-
-  drawRow(headers, true);
-
-  for (const row of rows) {
-    if (doc.y + rowHeight + 8 > doc.page.height - doc.page.margins.bottom) {
-      doc.addPage();
-      drawRow(headers, true);
-    }
-    drawRow(row, false);
   }
 }
 
@@ -321,14 +284,177 @@ async function collectReportData({ userId, isAdmin, fromDate, toDate }) {
   };
 }
 
+function drawHeaderBand(doc, title, subtitle, accent = COLORS.accent) {
+  const x = doc.page.margins.left;
+  const y = doc.y;
+  const w = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+
+  doc.save();
+  doc.roundedRect(x, y, w, 84, 10).fill(COLORS.soft);
+  doc.roundedRect(x, y, 7, 84, 7).fill(accent);
+  doc.restore();
+
+  doc.font('Helvetica-Bold').fontSize(22).fillColor(COLORS.ink).text(title, x + 18, y + 14);
+  doc.font('Helvetica').fontSize(10).fillColor(COLORS.muted).text(subtitle, x + 18, y + 44, {
+    width: w - 24,
+    lineGap: 1
+  });
+
+  doc.y = y + 98;
+}
+
+function drawCover(doc, { userEmail, fromDate, toDate, generatedAt }) {
+  const x = doc.page.margins.left;
+  const w = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const y = doc.y;
+
+  doc.save();
+  doc.roundedRect(x, y, w, 220, 14).fill('#f6faff');
+  doc.roundedRect(x, y, w, 74, 14).fill('#dbeafe');
+  doc.restore();
+
+  doc.font('Helvetica-Bold').fontSize(32).fillColor('#1e3a8a').text('MetaWatch', x + 20, y + 16);
+  doc.font('Helvetica-Bold').fontSize(22).fillColor(COLORS.ink).text('Monitoring Report', x + 20, y + 50);
+
+  doc.font('Helvetica').fontSize(11).fillColor(COLORS.muted).text('Executive summary of metadata and uptime monitoring.', x + 20, y + 84);
+
+  const metaX = x + 20;
+  let lineY = y + 128;
+  const rows = [
+    ['Period', `${fmtDate(fromDate)} - ${fmtDate(toDate)}`],
+    ['Generated', fmtDateTime(generatedAt)],
+    ['User', userEmail || '-'],
+    ['Report Type', 'Portfolio overview (Meta + Uptime)']
+  ];
+  for (const [label, value] of rows) {
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#1d4ed8').text(label, metaX, lineY, { width: 120 });
+    doc.font('Helvetica').fontSize(10).fillColor(COLORS.ink).text(value, metaX + 124, lineY, { width: w - 170 });
+    lineY += 22;
+  }
+
+  doc.y = y + 244;
+}
+
+function drawKpiCards(doc, items) {
+  const cols = 2;
+  const gap = 10;
+  const usableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const cardWidth = (usableWidth - gap) / cols;
+  const cardHeight = 58;
+
+  for (let i = 0; i < items.length; i += cols) {
+    ensureSpace(doc, cardHeight + 8);
+    const y = doc.y;
+    for (let c = 0; c < cols; c++) {
+      const item = items[i + c];
+      if (!item) continue;
+      const x = doc.page.margins.left + c * (cardWidth + gap);
+      doc.save();
+      doc.roundedRect(x, y, cardWidth, cardHeight, 8).fillAndStroke('#ffffff', COLORS.border);
+      doc.restore();
+
+      doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text(item.label, x + 10, y + 9, {
+        width: cardWidth - 20,
+        ellipsis: true
+      });
+
+      const valueColor = item.tone === 'ok'
+        ? COLORS.ok
+        : item.tone === 'warn'
+        ? COLORS.warn
+        : item.tone === 'error'
+        ? COLORS.error
+        : COLORS.ink;
+
+      doc.font('Helvetica-Bold').fontSize(16).fillColor(valueColor).text(item.value, x + 10, y + 26, {
+        width: cardWidth - 20,
+        ellipsis: true
+      });
+    }
+    doc.y = y + cardHeight + 8;
+  }
+}
+
+function drawSummaryNarrative(doc, text) {
+  ensureSpace(doc, 60);
+  const x = doc.page.margins.left;
+  const y = doc.y;
+  const w = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  doc.save();
+  doc.roundedRect(x, y, w, 56, 8).fill('#eff6ff');
+  doc.restore();
+
+  doc.font('Helvetica-Bold').fontSize(10).fillColor('#1d4ed8').text('Key Takeaway', x + 10, y + 10);
+  doc.font('Helvetica').fontSize(10).fillColor(COLORS.ink).text(text, x + 10, y + 24, {
+    width: w - 20,
+    lineGap: 1
+  });
+  doc.y = y + 66;
+}
+
+function drawSectionTitle(doc, title) {
+  ensureSpace(doc, 26);
+  doc.moveDown(0.2);
+  doc.font('Helvetica-Bold').fontSize(13).fillColor(COLORS.ink).text(title);
+  doc.moveDown(0.2);
+}
+
+function drawTable(doc, headers, rows, colWidths) {
+  const startX = doc.page.margins.left;
+  const totalWidth = colWidths.reduce((a, b) => a + b, 0);
+  const rowHeight = 20;
+
+  function drawHeader() {
+    const y = doc.y;
+    doc.save();
+    doc.roundedRect(startX, y, totalWidth, rowHeight, 4).fill(COLORS.ink);
+    doc.restore();
+    let x = startX;
+    for (let i = 0; i < colWidths.length; i++) {
+      const width = colWidths[i];
+      doc.font('Helvetica-Bold').fontSize(8).fillColor('#ffffff')
+        .text(String(headers[i] || ''), x + 4, y + 6, { width: width - 8, ellipsis: true });
+      x += width;
+    }
+    doc.y = y + rowHeight;
+  }
+
+  drawHeader();
+
+  for (let rIdx = 0; rIdx < rows.length; rIdx++) {
+    if (doc.y + rowHeight > doc.page.height - doc.page.margins.bottom) {
+      doc.addPage();
+      drawHeader();
+    }
+
+    const y = doc.y;
+    if (rIdx % 2 === 0) {
+      doc.save();
+      doc.rect(startX, y, totalWidth, rowHeight).fill('#f8fafc');
+      doc.restore();
+    }
+
+    let x = startX;
+    const row = rows[rIdx];
+    for (let i = 0; i < colWidths.length; i++) {
+      const width = colWidths[i];
+      doc.font('Helvetica').fontSize(8).fillColor(COLORS.ink)
+        .text(truncate(row[i] == null ? '' : String(row[i]), 70), x + 4, y + 6, { width: width - 8, ellipsis: true });
+      x += width;
+    }
+
+    doc.y = y + rowHeight;
+  }
+}
+
 function addFooterToBufferedPages(doc) {
   const range = doc.bufferedPageRange();
   for (let i = 0; i < range.count; i++) {
     doc.switchToPage(i);
     const y = doc.page.height - doc.page.margins.bottom + 14;
     doc.font('Helvetica')
-      .fontSize(9)
-      .fillColor('#666')
+      .fontSize(8)
+      .fillColor(COLORS.muted)
       .text(
         `Generated by MetaWatch • Page ${i + 1} of ${range.count}`,
         doc.page.margins.left,
@@ -346,80 +472,88 @@ async function buildPdfReportBuffer({ userId, isAdmin = false, userEmail, fromDa
   const now = new Date();
 
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 44, bufferPages: true });
+    const doc = new PDFDocument({ size: 'A4', margin: 42, bufferPages: true });
     const chunks = [];
 
     doc.on('data', c => chunks.push(c));
     doc.on('error', reject);
     doc.on('end', () => resolve(Buffer.concat(chunks)));
 
-    // Page 1: Cover
-    doc.font('Helvetica-Bold').fontSize(28).fillColor('#0f172a').text('MetaWatch', { align: 'center' });
-    doc.moveDown(0.4);
-    doc.font('Helvetica-Bold').fontSize(20).fillColor('#111').text('Monitoring Report', { align: 'center' });
-    doc.moveDown(1.3);
-    doc.font('Helvetica').fontSize(12).fillColor('#374151')
-      .text(`Period: ${fmtDate(fromDate)} - ${fmtDate(toDate)}`, { align: 'center' });
-    doc.moveDown(0.2);
-    doc.text(`Generated: ${fmtDateTime(now)}`, { align: 'center' });
-    doc.moveDown(0.2);
-    doc.text(`User: ${userEmail || '-'}`, { align: 'center' });
+    // Cover
+    drawCover(doc, {
+      userEmail,
+      fromDate,
+      toDate,
+      generatedAt: now
+    });
 
-    // Page 2: Executive Summary
+    // Executive summary
     doc.addPage();
-    doc.font('Helvetica-Bold').fontSize(18).fillColor('#111').text('Executive Summary');
-    doc.moveDown(0.7);
-    doc.font('Helvetica').fontSize(12);
-    doc.text(`Total URLs: ${fmtNumber(data.summary.totalUrls)}`);
-    doc.text(`Checks Run: ${fmtNumber(data.summary.checksRun)}`);
-    doc.text(`Changes Detected: ${fmtNumber(data.summary.changesDetected)}`);
-    doc.text(`Errors: ${fmtNumber(data.summary.errors)}`);
-    doc.moveDown(0.6);
-    doc.text(`Uptime Monitors: ${fmtNumber(data.summary.totalMonitors)}`);
-    doc.text(`Avg Uptime %: ${data.summary.avgUptimePct == null ? '-' : fmtNumber(data.summary.avgUptimePct) + '%'}`);
-    doc.text(`Incidents: ${fmtNumber(data.summary.incidents)}`);
-    doc.text(`Total Downtime: ${fmtNumber((data.summary.totalDowntimeSeconds || 0) / 60)} min`);
-    doc.moveDown(0.8);
-    doc.text(
-      `During this period, ${fmtNumber(data.summary.checksRun)} checks were performed across ` +
-      `${fmtNumber(data.summary.totalUrls)} monitored URLs.`,
-      { lineGap: 2 }
+    drawHeaderBand(
+      doc,
+      'Executive Summary',
+      `Scope: ${fmtDate(fromDate)} - ${fmtDate(toDate)} • Portfolio-wide performance snapshot`,
+      '#1d4ed8'
     );
 
-    // Page 3: Meta Monitoring
+    drawKpiCards(doc, [
+      { label: 'Total URLs', value: fmtNumber(data.summary.totalUrls, 0) },
+      { label: 'Checks run', value: fmtNumber(data.summary.checksRun, 0) },
+      { label: 'Changes detected', value: fmtNumber(data.summary.changesDetected, 0), tone: data.summary.changesDetected > 0 ? 'warn' : 'ok' },
+      { label: 'Errors (non-200)', value: fmtNumber(data.summary.errors, 0), tone: data.summary.errors > 0 ? 'error' : 'ok' },
+      { label: 'Uptime monitors', value: fmtNumber(data.summary.totalMonitors, 0) },
+      { label: 'Avg uptime %', value: data.summary.avgUptimePct == null ? '-' : `${fmtNumber(data.summary.avgUptimePct)}%`, tone: data.summary.avgUptimePct != null && Number(data.summary.avgUptimePct) < 99 ? 'warn' : 'ok' },
+      { label: 'Incidents', value: fmtNumber(data.summary.incidents, 0), tone: data.summary.incidents > 0 ? 'warn' : 'ok' },
+      { label: 'Total downtime', value: `${fmtNumber((data.summary.totalDowntimeSeconds || 0) / 60)} min`, tone: (data.summary.totalDowntimeSeconds || 0) > 0 ? 'warn' : 'ok' }
+    ]);
+
+    const narrative =
+      `During this period, ${fmtNumber(data.summary.checksRun, 0)} checks were executed across ` +
+      `${fmtNumber(data.summary.totalUrls, 0)} URLs. ` +
+      `${fmtNumber(data.summary.changesDetected, 0)} metadata changes and ${fmtNumber(data.summary.incidents, 0)} uptime incidents were recorded.`;
+    drawSummaryNarrative(doc, narrative);
+
+    // Meta section
     doc.addPage();
-    doc.font('Helvetica-Bold').fontSize(18).fillColor('#111').text('Meta Monitoring');
+    drawHeaderBand(doc, 'Meta Monitoring', 'Top changes, field distribution, and URLs with response issues.', '#2563eb');
+
     drawSectionTitle(doc, 'Top 10 Most Changed URLs');
     drawTable(
       doc,
-      ['URL', 'Changes', 'Last Changed', 'Health Score'],
-      data.topChangedUrls.map(r => [r.url, r.changes_count, fmtDateTime(r.last_changed_at), r.health_score ?? '-']),
-      [250, 70, 120, 70]
+      ['URL', 'Changes', 'Last Changed', 'Health'],
+      data.topChangedUrls.map(r => [
+        r.url,
+        r.changes_count,
+        fmtDateTime(r.last_changed_at),
+        r.health_score == null ? '-' : r.health_score
+      ]),
+      [245, 70, 130, 65]
     );
 
     drawSectionTitle(doc, 'Changes by Field Type');
     const totalFieldChanges = data.changesByField.reduce((sum, r) => sum + Number(r.count || 0), 0);
     drawTable(
       doc,
-      ['Field', 'Count', '% of total'],
+      ['Field', 'Count', 'Share'],
       data.changesByField.map(r => {
-        const pct = totalFieldChanges > 0 ? ((Number(r.count || 0) / totalFieldChanges) * 100) : 0;
+        const pct = totalFieldChanges > 0 ? (Number(r.count || 0) / totalFieldChanges) * 100 : 0;
         return [r.field, r.count, `${fmtNumber(pct)}%`];
       }),
-      [280, 90, 90]
+      [270, 80, 90]
     );
 
     drawSectionTitle(doc, 'Error URLs (non-200)');
     drawTable(
       doc,
-      ['URL', 'Status Code', 'Last Checked'],
+      ['URL', 'Status', 'Last Checked'],
       data.errorUrls.map(r => [r.url, r.status_code ?? '-', fmtDateTime(r.checked_at)]),
-      [280, 90, 90]
+      [280, 80, 100]
     );
 
-    // Page 4+: Uptime
+    // Uptime section
     doc.addPage();
-    doc.font('Helvetica-Bold').fontSize(18).fillColor('#111').text('Uptime Monitoring');
+    drawHeaderBand(doc, 'Uptime Monitoring', 'Current monitor health, uptime, incidents, and response profile.', '#0ea5e9');
+
     drawSectionTitle(doc, 'Monitor Summary');
     drawTable(
       doc,
@@ -427,12 +561,12 @@ async function buildPdfReportBuffer({ userId, isAdmin = false, userEmail, fromDa
       data.monitorSummary.map(r => [
         r.name,
         r.url,
-        r.current_status || 'unknown',
+        String(r.current_status || 'unknown').toUpperCase(),
         r.uptime_pct == null ? '-' : `${fmtNumber(r.uptime_pct)}%`,
         r.incidents_count || 0,
         r.avg_response_ms == null ? '-' : `${r.avg_response_ms} ms`
       ]),
-      [95, 180, 60, 60, 60, 65]
+      [90, 170, 70, 70, 60, 75]
     );
 
     drawSectionTitle(doc, 'Incident Log');
@@ -446,7 +580,7 @@ async function buildPdfReportBuffer({ userId, isAdmin = false, userEmail, fromDa
         r.duration_seconds == null ? '-' : `${fmtNumber(r.duration_seconds / 60)} min`,
         r.cause || '-'
       ]),
-      [120, 110, 110, 70, 80]
+      [115, 105, 105, 75, 95]
     );
 
     addFooterToBufferedPages(doc);

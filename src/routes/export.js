@@ -4,6 +4,22 @@ const ExcelJS = require('exceljs');
 const pool = require('../db');
 const { requireAuth } = require('../auth');
 const { buildPdfReportBuffer, defaultPdfDateRange } = require('../pdf-report');
+const {
+  buildUptimeMonitorPdfBuffer,
+  defaultUptimeReportDateRange,
+  getUptimeMonitorReportData
+} = require('../pdf-uptime-report');
+const {
+  buildUrlPdfBuffer,
+  defaultUrlReportDateRange,
+  getUrlReportData
+} = require('../pdf-url-report');
+const {
+  buildUptimePortfolioPdfBuffer,
+  defaultUptimePortfolioDateRange,
+  getUptimePortfolioReportData
+} = require('../pdf-uptime-portfolio-report');
+const { enforceReportAccess } = require('../report-access');
 
 function csvCell(val) {
   const str = String(val ?? '');
@@ -30,6 +46,16 @@ function resolvePdfRange(fromRaw, toRaw) {
   if (from && !to) return { fromDate: from, toDate: new Date() };
   if (!from && to) return { fromDate: new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000), toDate: to };
   return defaultPdfDateRange();
+}
+
+function resolveRange(fromRaw, toRaw, fallbackRangeFactory = null) {
+  const from = parseDate(fromRaw);
+  const to = parseDate(toRaw);
+  if (from && to) return { fromDate: from, toDate: to };
+  if (from && !to) return { fromDate: from, toDate: new Date() };
+  if (!from && to) return { fromDate: new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000), toDate: to };
+  if (typeof fallbackRangeFactory === 'function') return fallbackRangeFactory();
+  return { fromDate: null, toDate: null };
 }
 
 function addDateRangeFilters({ columnSql, fromDate, toDate, whereParts, params }) {
@@ -71,6 +97,14 @@ router.get('/report.xlsx', requireAuth, async (req, res) => {
     if (fromDate && toDate && fromDate > toDate) {
       return res.status(400).send('Invalid date range: "from" must be <= "to".');
     }
+    const access = enforceReportAccess({
+      req,
+      res,
+      featureKey: 'globalXlsx',
+      fromDate,
+      toDate
+    });
+    if (!access.allowed) return;
 
     const userParam = isAdmin ? [] : [userId];
     const userWhere = isAdmin ? '' : 'AND mu.user_id = $1';
@@ -248,6 +282,14 @@ router.get('/report.pdf', requireAuth, async (req, res) => {
     if (fromDate > toDate) {
       return res.status(400).send('Invalid date range: "from" must be <= "to".');
     }
+    const access = enforceReportAccess({
+      req,
+      res,
+      featureKey: 'globalPdf',
+      fromDate,
+      toDate
+    });
+    if (!access.allowed) return;
 
     const pdfBuffer = await buildPdfReportBuffer({
       userId: req.user.id,
@@ -267,10 +309,67 @@ router.get('/report.pdf', requireAuth, async (req, res) => {
   }
 });
 
+// GET /export/url/:id.pdf — single URL summary report
+router.get('/url/:id.pdf', requireAuth, async (req, res) => {
+  const urlId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(urlId) || urlId <= 0) {
+    return res.status(400).send('Invalid URL ID');
+  }
+
+  try {
+    const isAdmin = req.user?.role === 'admin';
+    const { fromDate, toDate } = resolveRange(req.query.from, req.query.to, defaultUrlReportDateRange);
+    if (fromDate && toDate && fromDate > toDate) {
+      return res.status(400).send('Invalid date range: "from" must be <= "to".');
+    }
+    const access = enforceReportAccess({
+      req,
+      res,
+      featureKey: 'urlPdf',
+      fromDate,
+      toDate
+    });
+    if (!access.allowed) return;
+
+    const data = await getUrlReportData({
+      urlId,
+      userId: req.user.id,
+      isAdmin,
+      fromDate,
+      toDate
+    });
+    if (!data) return res.status(404).send('URL not found');
+
+    const pdfBuffer = await buildUrlPdfBuffer({
+      data,
+      userEmail: req.user.email,
+      generatedAt: new Date()
+    });
+
+    const safeName = String(data.urlRecord.url || `url-${urlId}`)
+      .replace(/^https?:\/\//i, '')
+      .replace(/[^a-zA-Z0-9_-]/g, '-')
+      .slice(0, 50);
+    const filename = `url-report-${safeName}-${formatDate(new Date())}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(pdfBuffer);
+  } catch (err) {
+    console.error('[Export URL PDF] Failed:', err.message);
+    return res.status(500).send('PDF export failed: ' + err.message);
+  }
+});
+
 // GET /export/url/:id.xlsx — single URL full history
 router.get('/url/:id.xlsx', requireAuth, async (req, res) => {
   const urlId = parseInt(req.params.id, 10);
   if (isNaN(urlId)) return res.status(400).send('Invalid URL ID');
+  const access = enforceReportAccess({
+    req,
+    res,
+    featureKey: 'urlXlsx'
+  });
+  if (!access.allowed) return;
 
   try {
     const isAdmin = req.user?.role === 'admin';
@@ -338,6 +437,45 @@ router.get('/url/:id.xlsx', requireAuth, async (req, res) => {
 });
 
 // GET /export/uptime-report.xlsx — uptime monitors multi-sheet report
+router.get('/uptime-report.pdf', requireAuth, async (req, res) => {
+  try {
+    const isAdmin = req.user?.role === 'admin';
+    const { fromDate, toDate } = resolveRange(req.query.from, req.query.to, defaultUptimePortfolioDateRange);
+    if (fromDate && toDate && fromDate > toDate) {
+      return res.status(400).send('Invalid date range: "from" must be <= "to".');
+    }
+
+    const access = enforceReportAccess({
+      req,
+      res,
+      featureKey: 'uptimeGlobalPdf',
+      fromDate,
+      toDate
+    });
+    if (!access.allowed) return;
+
+    const data = await getUptimePortfolioReportData({
+      userId: req.user.id,
+      isAdmin,
+      fromDate,
+      toDate
+    });
+    const pdfBuffer = await buildUptimePortfolioPdfBuffer({
+      data,
+      userEmail: req.user.email,
+      generatedAt: new Date()
+    });
+
+    const filename = `uptime-portfolio-${formatDate(new Date())}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(pdfBuffer);
+  } catch (err) {
+    console.error('[Export Uptime Portfolio PDF] Failed:', err.message);
+    return res.status(500).send('PDF export failed: ' + err.message);
+  }
+});
+
 router.get('/uptime-report.xlsx', requireAuth, async (req, res) => {
   try {
     const isAdmin = req.user?.role === 'admin';
@@ -347,6 +485,14 @@ router.get('/uptime-report.xlsx', requireAuth, async (req, res) => {
     if (fromDate && toDate && fromDate > toDate) {
       return res.status(400).send('Invalid date range: "from" must be <= "to".');
     }
+    const access = enforceReportAccess({
+      req,
+      res,
+      featureKey: 'uptimeGlobalXlsx',
+      fromDate,
+      toDate
+    });
+    if (!access.allowed) return;
 
     const userParam = isAdmin ? [] : [userId];
     const userWhere = isAdmin ? '' : 'WHERE um.user_id = $1';
@@ -474,6 +620,196 @@ router.get('/uptime-report.xlsx', requireAuth, async (req, res) => {
   }
 });
 
+// GET /export/uptime/:id.pdf — single uptime monitor PDF report
+router.get('/uptime/:id.pdf', requireAuth, async (req, res) => {
+  const monitorId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(monitorId) || monitorId <= 0) {
+    return res.status(400).send('Invalid monitor ID');
+  }
+
+  try {
+    const isAdmin = req.user?.role === 'admin';
+    const { fromDate, toDate } = resolveRange(req.query.from, req.query.to, defaultUptimeReportDateRange);
+    if (fromDate && toDate && fromDate > toDate) {
+      return res.status(400).send('Invalid date range: "from" must be <= "to".');
+    }
+    const access = enforceReportAccess({
+      req,
+      res,
+      featureKey: 'uptimeSitePdf',
+      fromDate,
+      toDate
+    });
+    if (!access.allowed) return;
+
+    const data = await getUptimeMonitorReportData({
+      monitorId,
+      userId: req.user.id,
+      isAdmin,
+      fromDate,
+      toDate
+    });
+    if (!data) return res.status(404).send('Monitor not found');
+
+    const pdfBuffer = await buildUptimeMonitorPdfBuffer({
+      data,
+      userEmail: req.user.email,
+      generatedAt: new Date()
+    });
+
+    const safeName = String(data.monitor.name || `monitor-${monitorId}`)
+      .replace(/[^a-zA-Z0-9_-]/g, '-')
+      .slice(0, 40);
+    const filename = `uptime-${safeName}-${formatDate(new Date())}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(pdfBuffer);
+  } catch (err) {
+    console.error('[Export Uptime PDF] Failed:', err.message);
+    return res.status(500).send('Export failed: ' + err.message);
+  }
+});
+
+// GET /export/uptime/:id.xlsx — single uptime monitor XLSX report
+router.get('/uptime/:id.xlsx', requireAuth, async (req, res) => {
+  const monitorId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(monitorId) || monitorId <= 0) {
+    return res.status(400).send('Invalid monitor ID');
+  }
+
+  try {
+    const isAdmin = req.user?.role === 'admin';
+    const { fromDate, toDate } = resolveRange(req.query.from, req.query.to, defaultUptimeReportDateRange);
+    if (fromDate && toDate && fromDate > toDate) {
+      return res.status(400).send('Invalid date range: "from" must be <= "to".');
+    }
+    const access = enforceReportAccess({
+      req,
+      res,
+      featureKey: 'uptimeSiteXlsx',
+      fromDate,
+      toDate
+    });
+    if (!access.allowed) return;
+
+    const data = await getUptimeMonitorReportData({
+      monitorId,
+      userId: req.user.id,
+      isAdmin,
+      fromDate,
+      toDate
+    });
+    if (!data) return res.status(404).send('Monitor not found');
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'MetaWatch';
+    workbook.created = new Date();
+
+    const summarySheet = workbook.addWorksheet('Summary');
+    summarySheet.getColumn(1).width = 34;
+    summarySheet.getColumn(2).width = 40;
+    const summaryRows = [
+      ['Monitor', data.monitor.name || '-'],
+      ['URL', data.monitor.url || '-'],
+      ['Generated At', new Date().toISOString()],
+      ['Date Range From', fromDate ? fromDate.toISOString().slice(0, 10) : '-'],
+      ['Date Range To', toDate ? toDate.toISOString().slice(0, 10) : '-'],
+      ['Last Status', String(data.summary.lastStatus || 'unknown').toUpperCase()],
+      ['Last Checked', data.summary.lastCheckedAt ? new Date(data.summary.lastCheckedAt).toISOString() : '-'],
+      ['Uptime (range)', data.summary.rangePct == null ? '-' : `${data.summary.rangePct}%`],
+      ['Checks (range)', data.summary.totalChecks],
+      ['Down checks (range)', data.summary.downChecks],
+      ['Incidents (range)', data.summary.totalIncidents],
+      ['Downtime (range, min)', data.summary.totalDowntimeMinutes],
+      ['Avg response (range, ms)', data.summary.avgResponseMs == null ? '-' : data.summary.avgResponseMs],
+      ['Uptime 1h', data.summary.windows['1h'] == null ? '-' : `${data.summary.windows['1h']}%`],
+      ['Uptime 24h', data.summary.windows['24h'] == null ? '-' : `${data.summary.windows['24h']}%`],
+      ['Uptime 7d', data.summary.windows['7d'] == null ? '-' : `${data.summary.windows['7d']}%`],
+      ['Uptime 30d', data.summary.windows['30d'] == null ? '-' : `${data.summary.windows['30d']}%`],
+      ['Uptime 90d', data.summary.windows['90d'] == null ? '-' : `${data.summary.windows['90d']}%`]
+    ];
+    summaryRows.forEach(([label, value]) => {
+      const row = summarySheet.addRow([label, value]);
+      row.getCell(1).font = { bold: true };
+    });
+
+    const incidentsSheet = workbook.addWorksheet('Incidents');
+    styleHeader(incidentsSheet, ['Started', 'Resolved', 'Duration (min)', 'Cause', 'Post-mortem'], {
+      0: 22, 1: 22, 2: 16, 3: 22, 4: 50
+    });
+    for (const inc of data.incidents) {
+      incidentsSheet.addRow([
+        inc.started_at ? new Date(inc.started_at).toISOString() : '',
+        inc.resolved_at ? new Date(inc.resolved_at).toISOString() : 'Open',
+        inc.duration_seconds ? Math.round(Number(inc.duration_seconds || 0) / 60) : '',
+        inc.cause || '',
+        inc.postmortem_text || ''
+      ]);
+    }
+
+    const checksSheet = workbook.addWorksheet('Checks');
+    styleHeader(checksSheet, ['Checked At', 'Status', 'HTTP', 'Response (ms)', 'Error'], {
+      0: 22, 1: 12, 2: 10, 3: 14, 4: 60
+    });
+    for (const c of data.checks) {
+      const row = checksSheet.addRow([
+        c.checked_at ? new Date(c.checked_at).toISOString() : '',
+        c.status || 'unknown',
+        c.status_code || '',
+        c.response_time_ms || '',
+        c.error_message || ''
+      ]);
+      if (c.status === 'down') row.eachCell(cell => { cell.fill = RED; });
+      else if (c.status === 'degraded') row.eachCell(cell => { cell.fill = ORANGE; });
+    }
+
+    const weekSheet = workbook.addWorksheet('Last 7 Days');
+    styleHeader(weekSheet, ['Date', 'Health', 'Checks'], { 0: 16, 1: 16, 2: 12 });
+    for (const d of data.weekBuckets) {
+      const row = weekSheet.addRow([
+        d.date,
+        d.status === 'up' ? 'UP' : d.status === 'degraded' ? 'DEGRADED' : d.status === 'down' ? 'DOWN' : 'NO DATA',
+        d.count || 0
+      ]);
+      if (d.status === 'down') row.eachCell(cell => { cell.fill = RED; });
+      else if (d.status === 'degraded') row.eachCell(cell => { cell.fill = ORANGE; });
+      else if (d.status === 'up') row.eachCell(cell => { cell.fill = GREEN; });
+    }
+
+    const hourSheet = workbook.addWorksheet('Last 24 Hours');
+    styleHeader(hourSheet, ['Hour UTC', 'Health', 'Checks', 'p95 (ms)', 'Latency Level'], {
+      0: 14, 1: 14, 2: 12, 3: 12, 4: 16
+    });
+    for (let i = 0; i < data.hourBuckets.length; i++) {
+      const h = data.hourBuckets[i];
+      const latency = data.latencyBuckets[i] || null;
+      const row = hourSheet.addRow([
+        h.hour_label,
+        h.status === 'up' ? 'UP' : h.status === 'degraded' ? 'DEGRADED' : h.status === 'down' ? 'DOWN' : 'NO DATA',
+        h.count || 0,
+        latency?.p95_ms == null ? '' : latency.p95_ms,
+        latency?.level || 'empty'
+      ]);
+      if (h.status === 'down') row.eachCell(cell => { cell.fill = RED; });
+      else if (h.status === 'degraded') row.eachCell(cell => { cell.fill = ORANGE; });
+    }
+
+    const safeName = String(data.monitor.name || `monitor-${monitorId}`)
+      .replace(/[^a-zA-Z0-9_-]/g, '-')
+      .slice(0, 40);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="uptime-${safeName}-${formatDate(new Date())}.xlsx"`
+    );
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error('[Export Uptime XLSX] Failed:', err.message);
+    return res.status(500).send('Export failed: ' + err.message);
+  }
+});
+
 // GET /export/alerts.csv — all alerts as CSV
 router.get('/alerts.csv', requireAuth, async (req, res) => {
   try {
@@ -483,6 +819,14 @@ router.get('/alerts.csv', requireAuth, async (req, res) => {
     if (fromDate && toDate && fromDate > toDate) {
       return res.status(400).send('Invalid date range: "from" must be <= "to".');
     }
+    const access = enforceReportAccess({
+      req,
+      res,
+      featureKey: 'alertsCsv',
+      fromDate,
+      toDate
+    });
+    if (!access.allowed) return;
 
     const alertParams = isAdmin ? [] : [req.user.id];
     const alertWhere = ['true'];
