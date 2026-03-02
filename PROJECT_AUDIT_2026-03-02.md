@@ -56,21 +56,16 @@
 | Queue dashboard | Env-dependent | `/admin/queues` works only when `REDIS_URL` available on that service | `src/routes/admin-queues.js`, `views/admin-queues-unavailable.ejs` |
 | Headless JS rendering | Implemented, env-dependent | Per-URL render mode, plan gating (Pro/Agency), fallback warning when disabled | `src/headless-scraper.js`, `src/checker.js`, `src/routes/urls.js`, `views/url-detail.ejs` |
 | PWA base | Implemented | Manifest link in layout, service worker and offline page in `public` | `views/layout.ejs`, `public/sw.js`, `public/offline.html` |
+| Browser Web Push | Implemented (env-dependent) | Push subscriptions in profile, test push, service worker push handling, critical push dispatch for meta/uptime | `src/push.js`, `src/routes/profile.js`, `views/profile.ejs`, `public/sw.js`, `src/notifier.js`, `src/uptime-checker.js` |
 | Admin system telemetry | Implemented | `/admin/system` with DB/queue/scheduler/slow query stats | `src/routes/admin.js`, `views/admin-system.ejs` |
 
 ## What Is Not Fully Implemented (or intentionally optional)
 
-1. Web Push notifications (Phase 2)
-- Not implemented in this repository.
-- No `web-push` package or push subscription flow found.
+1. End-to-end integration tests
+- Basic test harness/smoke checks exist, but no full E2E browser flow yet.
 
-2. Automated tests/CI verification
-- No test suite/scripts found in `package.json`.
-- Deploy safety currently relies on runtime smoke checks.
-
-3. Documentation drift
-- `README.md` and `.env.example` do not fully document all newer queue/worker vars (`REDIS_URL`, `ENABLE_WEB`, `ENABLE_QUEUE_WORKERS`, worker concurrency/lock vars, etc.).
-- Functionality exists in code, but docs are behind.
+2. Production observability polish
+- Useful metrics exist, but alerting/SLI thresholds are still mostly manual.
 
 ## Current Ops Checklist (recommended baseline)
 
@@ -88,6 +83,7 @@
 - Stripe: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID_*`
 - Slack: `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_REDIRECT_URI`
 - Telegram fallback: `TELEGRAM_BOT_TOKEN`
+- Web Push: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `WEB_PUSH_SUBJECT`
 - SMTP: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`
 - Headless: `ENABLE_HEADLESS=true` (and environment that can run Chromium/Puppeteer)
 

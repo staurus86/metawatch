@@ -340,6 +340,28 @@ async function migrate() {
       `CREATE INDEX IF NOT EXISTS idx_notification_log_sent ON notification_log(sent_at DESC)`
     );
 
+    // ─── push_subscriptions (Web Push) ───────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        endpoint TEXT NOT NULL,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        user_agent TEXT,
+        disabled BOOLEAN NOT NULL DEFAULT false,
+        last_success_at TIMESTAMPTZ,
+        last_error_at TIMESTAMPTZ,
+        last_error_message TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(user_id, endpoint)
+      )
+    `);
+    await client.query(
+      'CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_active ON push_subscriptions(user_id, disabled, updated_at DESC)'
+    );
+
     // ─── integrations: Slack + PagerDuty ───────────────────────────────────
     await client.query(`
       CREATE TABLE IF NOT EXISTS slack_integrations (

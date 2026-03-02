@@ -51,6 +51,7 @@ Key production flags (see `.env.example` for full list):
 - `ENABLE_SCHEDULER=true` controls cron startup (useful for web/worker split).
 - `ENABLE_WEB` and `ENABLE_QUEUE_WORKERS` control split runtime roles.
 - `REDIS_URL` enables BullMQ queues and `/admin/queues`.
+- `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` enable browser push notifications.
 - `API_RATE_LIMIT_WINDOW_MS` and `API_RATE_LIMIT_MAX` tune `/api` rate limiting.
 - `ALERT_RETENTION_DAYS`, `NOTIFICATION_LOG_RETENTION_DAYS`, `WEBHOOK_LOG_RETENTION_DAYS` control data retention.
 
@@ -67,6 +68,7 @@ Detailed docs:
 - `OPS_RUNBOOK_RAILWAY.md`
 - `PLAN_FEATURE_MATRIX.md`
 - `REPORTS_REFERENCE.md`
+- `WEB_PUSH_SETUP.md`
 
 ## Browser Extension
 

@@ -1,5 +1,5 @@
 const { sendEmail, sendAlert } = require('../mailer');
-const { sendWebhook, sendTelegram, sendDiscord, sendSlack, sendPagerDuty } = require('../notifier');
+const { sendWebhook, sendTelegram, sendDiscord, sendSlack, sendPagerDuty, sendPushToUser } = require('../notifier');
 const { isQueueEnabled, getRedisConnection, QUEUE_NAMES } = require('../queue');
 
 function getWorkerCtor() {
@@ -89,6 +89,16 @@ async function handleNotificationJob(data) {
       alert: payload?.alert || payload
     });
     return { sent: !!ok, channel };
+  }
+
+  if (channel === 'push') {
+    const userId = parseInt(target?.userId || payload?.userId, 10);
+    if (!Number.isFinite(userId) || userId <= 0) return { skipped: true, reason: 'missing_push_user' };
+    const result = await sendPushToUser({
+      userId,
+      notification: payload?.notification || payload
+    });
+    return { sent: result.sent > 0, channel, result };
   }
 
   return { skipped: true, reason: 'unsupported_channel', channel };

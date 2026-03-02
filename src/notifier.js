@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const { sendAlert: sendEmailAlert } = require('./mailer');
 const { enqueueNotification, isQueueEnabled } = require('./queue');
 const { assertSafeOutboundUrl } = require('./net-safety');
+const { sendPushToUser } = require('./push');
 
 function buildWebhookSignature(payload, secret) {
   const raw = JSON.stringify(payload || {});
@@ -347,7 +348,15 @@ async function dispatchOrSend({ channel, target, payload, alertId, sendNow }) {
  *   - send_webhook:  value = webhook URL
  */
 async function notify({ urlRecord, field, oldValue, newValue, severity, timestamp, ruleActions, alertId = null }) {
-  const results = { email: false, telegram: false, webhook: false, discord: false, slack: false, pagerduty: false };
+  const results = {
+    email: false,
+    telegram: false,
+    webhook: false,
+    discord: false,
+    slack: false,
+    pagerduty: false,
+    push: false
+  };
 
   const hasRuleOverride = Array.isArray(ruleActions) && ruleActions.length > 0;
   const normalizedActions = hasRuleOverride
@@ -593,7 +602,40 @@ async function notify({ urlRecord, field, oldValue, newValue, severity, timestam
     }
   }
 
+  // ─── Web Push (critical only, user-level) ─────────────────────────────────
+  if (!hasRuleOverride && String(severity || '').toLowerCase() === 'critical' && urlRecord.user_id) {
+    const pushNotification = {
+      title: 'MetaWatch Critical Alert',
+      body: `${field} changed on ${getDomainFromUrl(urlRecord.url)}`,
+      url: detailsUrl || `/urls/${urlRecord.id}`,
+      tag: `metawatch-url-${urlRecord.id}`,
+      severity: 'critical'
+    };
+    const sent = await dispatchOrSend({
+      channel: 'push',
+      target: { userId: urlRecord.user_id },
+      alertId,
+      payload: { userId: urlRecord.user_id, notification: pushNotification },
+      sendNow: async () => {
+        const result = await sendPushToUser({
+          userId: urlRecord.user_id,
+          notification: pushNotification
+        });
+        return result.sent > 0;
+      }
+    });
+    results.push = results.push || sent;
+  }
+
   return results;
 }
 
-module.exports = { notify, sendTelegram, sendWebhook, sendDiscord, sendSlack, sendPagerDuty };
+module.exports = {
+  notify,
+  sendTelegram,
+  sendWebhook,
+  sendDiscord,
+  sendSlack,
+  sendPagerDuty,
+  sendPushToUser
+};

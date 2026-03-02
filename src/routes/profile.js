@@ -5,6 +5,13 @@ const { requireAuth, generateApiKey, hashApiKey, hashPassword, comparePassword, 
 const { auditFromRequest } = require('../audit');
 const { normalizeLanguage } = require('../i18n');
 const { getReportPlanCaps } = require('../report-access');
+const {
+  getPushDiagnostics,
+  getUserPushStats,
+  storePushSubscription,
+  removePushSubscription,
+  sendPushToUser
+} = require('../push');
 
 function sanitizeRowsPerPage(val) {
   const n = parseInt(val, 10);
@@ -24,17 +31,23 @@ function sanitizeTimezone(tz) {
 
 // GET /profile
 router.get('/', requireAuth, async (req, res) => {
-  const { rows: [digestSettings] } = await pool.query(
-    'SELECT * FROM digest_settings WHERE user_id = $1',
-    [req.user.id]
-  );
+  const [{ rows: [digestSettings] }, pushStats] = await Promise.all([
+    pool.query(
+      'SELECT * FROM digest_settings WHERE user_id = $1',
+      [req.user.id]
+    ),
+    getUserPushStats(req.user.id).catch(() => ({ activeCount: 0, totalCount: 0, lastUpdatedAt: null }))
+  ]);
   const reportCaps = getReportPlanCaps(req.userPlan?.name);
+  const pushDiagnostics = getPushDiagnostics();
   res.render('profile', {
     title: 'My Profile',
     message: req.query.msg || null,
     error: null,
     digestSettings: digestSettings || null,
-    reportCaps
+    reportCaps,
+    pushDiagnostics,
+    pushStats
   });
 });
 
@@ -129,6 +142,115 @@ router.post('/digest/test', requireAuth, async (req, res) => {
     res.redirect('/profile?msg=Test+digest+sent+to+' + encodeURIComponent(to));
   } catch (err) {
     res.redirect('/profile?msg=Error:+' + encodeURIComponent(err.message));
+  }
+});
+
+// GET /profile/push/public-key
+router.get('/push/public-key', requireAuth, async (req, res) => {
+  const diagnostics = getPushDiagnostics();
+  if (!diagnostics.enabled || !diagnostics.publicKey) {
+    return res.status(503).json({
+      ok: false,
+      error: 'Web Push is not configured on this server.'
+    });
+  }
+  return res.json({
+    ok: true,
+    publicKey: diagnostics.publicKey
+  });
+});
+
+// POST /profile/push/subscribe
+router.post('/push/subscribe', requireAuth, async (req, res) => {
+  try {
+    const diagnostics = getPushDiagnostics();
+    if (!diagnostics.enabled) {
+      return res.status(503).json({ ok: false, error: 'Web Push is not configured on this server.' });
+    }
+
+    const subscription = req.body?.subscription || req.body;
+    const result = await storePushSubscription({
+      userId: req.user.id,
+      subscription,
+      userAgent: req.headers['user-agent'] || null
+    });
+    if (!result.ok) {
+      return res.status(400).json({ ok: false, error: result.reason || 'invalid_subscription_payload' });
+    }
+
+    await auditFromRequest(req, {
+      action: 'profile.push.subscribe',
+      entityType: 'user',
+      entityId: req.user.id
+    });
+
+    return res.json({
+      ok: true,
+      active_count: result.activeCount,
+      total_count: result.totalCount
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /profile/push/unsubscribe
+router.post('/push/unsubscribe', requireAuth, async (req, res) => {
+  try {
+    const endpoint = String(req.body?.endpoint || '').trim();
+    if (!endpoint) {
+      return res.status(400).json({ ok: false, error: 'missing_endpoint' });
+    }
+
+    const result = await removePushSubscription({
+      userId: req.user.id,
+      endpoint
+    });
+    await auditFromRequest(req, {
+      action: 'profile.push.unsubscribe',
+      entityType: 'user',
+      entityId: req.user.id
+    });
+
+    return res.json({
+      ok: true,
+      removed: result.removed || 0,
+      active_count: result.activeCount,
+      total_count: result.totalCount
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /profile/push/test
+router.post('/push/test', requireAuth, async (req, res) => {
+  try {
+    const diagnostics = getPushDiagnostics();
+    if (!diagnostics.enabled) {
+      return res.redirect('/profile?msg=Web+Push+is+not+configured+on+this+server');
+    }
+
+    const result = await sendPushToUser({
+      userId: req.user.id,
+      notification: {
+        title: 'MetaWatch Test Push',
+        body: 'Push notifications are enabled for this browser.',
+        url: '/profile',
+        tag: 'metawatch-test',
+        severity: 'info'
+      }
+    });
+
+    if (result.sent > 0) {
+      return res.redirect(`/profile?msg=Test+push+sent+to+${result.sent}+subscription(s)`);
+    }
+    return res.redirect(`/profile?msg=No+active+push+subscriptions+(${encodeURIComponent(result.reason || 'none')})`);
+  } catch (err) {
+    console.error(err);
+    return res.redirect('/profile?msg=Error:+failed+to+send+test+push');
   }
 });
 
@@ -236,7 +358,9 @@ router.post('/change-password', requireAuth, async (req, res) => {
     message: null,
     error: msg,
     digestSettings: null,
-    reportCaps: getReportPlanCaps(req.userPlan?.name)
+    reportCaps: getReportPlanCaps(req.userPlan?.name),
+    pushDiagnostics: getPushDiagnostics(),
+    pushStats: { activeCount: 0, totalCount: 0, lastUpdatedAt: null }
   });
 
   if (!current_password || !new_password) return renderErr('All fields are required.');

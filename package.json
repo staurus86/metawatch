@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test": "node --test",
+    "test": "node --test --test-isolation=none",
     "smoke:code": "node scripts/smoke-code.js",
     "doctor:web": "node scripts/env-doctor.js --mode=web",
     "doctor:worker": "node scripts/env-doctor.js --mode=worker",
@@ -40,6 +40,7 @@
     "pdfkit": "^0.17.2",
     "pg": "^8.11.3",
     "stripe": "^17.4.0",
+    "web-push": "^3.6.7",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

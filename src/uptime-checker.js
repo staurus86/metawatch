@@ -2,7 +2,7 @@ const axios = require('axios');
 const cron = require('node-cron');
 const pool = require('./db');
 const { checkSsl } = require('./scraper');
-const { sendTelegram, sendWebhook, sendDiscord } = require('./notifier');
+const { sendTelegram, sendWebhook, sendDiscord, sendPushToUser } = require('./notifier');
 const { sendAlert: sendEmail } = require('./mailer');
 const { enqueueNotification, isQueueEnabled } = require('./queue');
 const { assertSafeOutboundUrl } = require('./net-safety');
@@ -191,6 +191,38 @@ async function sendUptimeNotification({ monitor, subject, body, discordEvent = '
       severity: severityForUptimeEvent(discordEvent),
       status: results.discord ? 'sent' : 'failed',
       errorMessage: results.discord ? null : 'discord_send_failed'
+    });
+  }
+
+  const pushSeverity = severityForUptimeEvent(discordEvent);
+  if (monitor.user_id && pushSeverity === 'critical') {
+    const pushNotification = {
+      title: `MetaWatch: ${monitor.name || 'Monitor'} is DOWN`,
+      body: body || `${monitor.url} is unreachable`,
+      url: `/uptime/${monitor.id}`,
+      tag: `metawatch-uptime-${monitor.id}`,
+      severity: 'critical'
+    };
+    results.push = await dispatchOrSendUptime({
+      channel: 'push',
+      target: { userId: monitor.user_id },
+      incidentId,
+      payload: { userId: monitor.user_id, notification: pushNotification },
+      sendNow: async () => {
+        const pushResult = await sendPushToUser({
+          userId: monitor.user_id,
+          notification: pushNotification
+        });
+        return pushResult.sent > 0;
+      }
+    });
+    await logNotification({
+      monitorId: monitor.id,
+      channel: 'push',
+      fieldChanged: subject,
+      severity: 'critical',
+      status: results.push ? 'sent' : 'failed',
+      errorMessage: results.push ? null : 'push_send_failed'
     });
   }
 

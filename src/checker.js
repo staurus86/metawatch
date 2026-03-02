@@ -84,7 +84,7 @@ async function logNotification({ urlId, monitorId, channel, fieldChanged, severi
 
 async function logChannelResults({ urlId, fieldChanged, severity, notifyResults }) {
   if (!notifyResults || typeof notifyResults !== 'object') return;
-  for (const channel of ['discord', 'slack', 'pagerduty']) {
+  for (const channel of ['discord', 'slack', 'pagerduty', 'push']) {
     if (notifyResults[channel] !== true) continue;
     await logNotification({
       urlId,

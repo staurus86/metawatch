@@ -31,6 +31,7 @@ expectFile('src/workers/index.js');
 expectFile('src/routes/api-v2.js');
 expectFile('src/routes/export.js');
 expectFile('src/report-access.js');
+expectFile('src/push.js');
 
 // Core route registrations
 expectContains('src/index.js', "app.use('/api/v2', require('./routes/api-v2'))");
@@ -38,6 +39,7 @@ expectContains('src/index.js', "app.use('/export', require('./routes/export'))")
 expectContains('src/index.js', "app.use('/reports', require('./routes/reports'))");
 expectContains('src/index.js', "app.use('/integrations', require('./routes/integrations'))");
 expectContains('src/index.js', "app.use('/admin/queues', require('./routes/admin-queues'))");
+expectContains('src/index.js', "app.use('/profile', require('./routes/profile'))");
 
 // API v2 must include required endpoints
 expectContains('src/routes/api-v2.js', "router.get('/urls'");
@@ -55,6 +57,9 @@ expectContains('src/routes/export.js', "router.get('/project/:id.pdf'");
 expectContains('src/routes/export.js', "router.get('/uptime-report.pdf'");
 expectContains('src/routes/export.js', "router.get('/uptime/:id.pdf'");
 expectContains('src/routes/export.js', "router.get('/alerts.csv'");
+expectContains('src/routes/profile.js', "router.post('/push/subscribe'");
+expectContains('src/routes/profile.js', "router.post('/push/unsubscribe'");
+expectContains('src/routes/profile.js', "router.post('/push/test'");
 
 // Tariff caps should include all tiers
 expectContains('src/report-access.js', 'free:');
@@ -69,4 +74,3 @@ if (failures.length > 0) {
 }
 
 console.log('[smoke-code] OK');
-

@@ -50,4 +50,4 @@ Source of truth:
 | White-label status page branding | Agency |
 | Custom status page domain | Agency |
 | Hide "Powered by MetaWatch" | Agency |
-
+| Browser push critical alerts (opt-in) | All plans (requires VAPID config) |
