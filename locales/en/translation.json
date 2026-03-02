@@ -109,7 +109,17 @@
     "longest_incident": "Longest incident",
     "resolved_30d": "Resolved 30d",
     "incident_rate": "Incident rate",
-    "per_week": "per week"
+    "per_week": "per week",
+    "latency_24h": "Latency (Last 24h)",
+    "p50": "p50",
+    "p95": "p95",
+    "slow_hours": "Slow hours",
+    "worst_hour": "Worst hour",
+    "no_latency_data": "No latency samples in the last 24 hours.",
+    "latency_threshold": "Threshold",
+    "latency_ok": "OK",
+    "latency_warn": "Warning",
+    "latency_hot": "Critical"
   },
   "emails": {
     "alert": {

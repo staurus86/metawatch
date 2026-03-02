@@ -286,13 +286,16 @@ router.get('/:slug', async (req, res) => {
     // Response-time stats (24h)
     const { rows: [responseStats] } = await pool.query(
       `SELECT
+         COUNT(*)::int AS samples_24h,
          ROUND(AVG(response_time_ms))::int AS avg_ms,
          MIN(response_time_ms)::int AS min_ms,
-         MAX(response_time_ms)::int AS max_ms
+         MAX(response_time_ms)::int AS max_ms,
+         ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY response_time_ms))::int AS p50_ms,
+         ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY response_time_ms))::int AS p95_ms
        FROM uptime_checks
        WHERE monitor_id = $1
-         AND response_time_ms IS NOT NULL
-         AND checked_at > NOW() - INTERVAL '24 hours'`,
+          AND response_time_ms IS NOT NULL
+          AND checked_at > NOW() - INTERVAL '24 hours'`,
       [monitor.id]
     );
 
@@ -360,7 +363,29 @@ router.get('/:slug', async (req, res) => {
       [monitor.id]
     );
     const hourMap = new Map(hourlyRows.map(r => [Number(r.hour_epoch), r]));
+
+    // 24-hour latency distribution (p50/p95 per hour)
+    const { rows: hourlyLatencyRows } = await pool.query(
+      `SELECT
+         EXTRACT(EPOCH FROM DATE_TRUNC('hour', checked_at AT TIME ZONE 'UTC'))::bigint AS hour_epoch,
+         COUNT(*)::int AS samples,
+         ROUND(AVG(response_time_ms))::int AS avg_ms,
+         ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY response_time_ms))::int AS p50_ms,
+         ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY response_time_ms))::int AS p95_ms
+       FROM uptime_checks
+       WHERE monitor_id = $1
+         AND response_time_ms IS NOT NULL
+         AND checked_at > NOW() - INTERVAL '24 hours'
+       GROUP BY DATE_TRUNC('hour', checked_at AT TIME ZONE 'UTC')
+       ORDER BY hour_epoch ASC`,
+      [monitor.id]
+    );
+    const latencyMap = new Map(hourlyLatencyRows.map(r => [Number(r.hour_epoch), r]));
+    const thresholdMs = Number.isFinite(Number(monitor.threshold_ms)) && Number(monitor.threshold_ms) > 0
+      ? Number(monitor.threshold_ms)
+      : null;
     const hourBuckets = [];
+    const latencyBuckets = [];
     const nowHourUtc = new Date();
     nowHourUtc.setUTCMinutes(0, 0, 0);
     for (let i = 23; i >= 0; i--) {
@@ -373,7 +398,38 @@ router.get('/:slug', async (req, res) => {
         hour_label: hourDate.toISOString().slice(11, 16),
         ...normalized
       });
+
+      const latency = latencyMap.get(hourEpoch);
+      const p95 = latency?.p95_ms != null ? Number(latency.p95_ms) : null;
+      let latencyLevel = 'empty';
+      if (p95 != null) {
+        if (thresholdMs != null && p95 > thresholdMs * 1.5) latencyLevel = 'hot';
+        else if (thresholdMs != null && p95 > thresholdMs) latencyLevel = 'warn';
+        else latencyLevel = 'ok';
+      }
+      latencyBuckets.push({
+        hour_epoch: hourEpoch,
+        hour_label: hourDate.toISOString().slice(11, 16),
+        samples: latency?.samples != null ? Number(latency.samples) : 0,
+        avg_ms: latency?.avg_ms != null ? Number(latency.avg_ms) : null,
+        p50_ms: latency?.p50_ms != null ? Number(latency.p50_ms) : null,
+        p95_ms: p95,
+        level: latencyLevel
+      });
     }
+    const filledLatency = latencyBuckets.filter(b => b.p95_ms != null);
+    const maxP95 = filledLatency.reduce((max, b) => Math.max(max, Number(b.p95_ms || 0)), 0);
+    const slowHours = thresholdMs == null ? 0 : filledLatency.filter(b => Number(b.p95_ms) > thresholdMs).length;
+    const worstHour = filledLatency.reduce((worst, b) => {
+      if (!worst) return b;
+      return Number(b.p95_ms) > Number(worst.p95_ms) ? b : worst;
+    }, null);
+    const latencyOverview = {
+      thresholdMs,
+      slowHours,
+      maxP95: maxP95 || thresholdMs || 1000,
+      worstHour: worstHour ? { hour_label: worstHour.hour_label, p95_ms: worstHour.p95_ms } : null
+    };
 
     // SLA/SLO snapshot (informational)
     const monthlyTarget = Number(process.env.PUBLIC_SLO_TARGET_30D || 99.9);
@@ -439,6 +495,8 @@ router.get('/:slug', async (req, res) => {
       dayBuckets,
       weekBuckets,
       hourBuckets,
+      latencyBuckets,
+      latencyOverview,
       slo30d,
       slo7d,
       timeline,

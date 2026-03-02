@@ -109,7 +109,17 @@
     "longest_incident": "Самый длинный инцидент",
     "resolved_30d": "Решено за 30д",
     "incident_rate": "Частота инцидентов",
-    "per_week": "в неделю"
+    "per_week": "в неделю",
+    "latency_24h": "Латентность (последние 24 часа)",
+    "p50": "p50",
+    "p95": "p95",
+    "slow_hours": "Медленные часы",
+    "worst_hour": "Худший час",
+    "no_latency_data": "За последние 24 часа нет данных по латентности.",
+    "latency_threshold": "Порог",
+    "latency_ok": "Норма",
+    "latency_warn": "Риск",
+    "latency_hot": "Критично"
   },
   "emails": {
     "alert": {
