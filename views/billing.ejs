@@ -1,10 +1,10 @@
 <%
   function reportsLabel(planName) {
     const key = String(planName || '').toLowerCase();
-    if (key === 'free') return 'PDF + CSV (30d)';
-    if (key === 'starter') return 'PDF/XLSX/CSV (90d)';
-    if (key === 'pro') return 'PDF/XLSX/CSV (365d)';
-    if (key === 'agency') return 'All reports + white-label';
+    if (key === 'free') return 'Portfolio PDF/CSV + URL/Uptime PDF (30d)';
+    if (key === 'starter') return 'All PDF/XLSX/CSV + Project reports (90d)';
+    if (key === 'pro') return 'All PDF/XLSX/CSV + Project reports (365d)';
+    if (key === 'agency') return 'All reports + white-label + unlimited range';
     return '—';
   }
 %>
@@ -17,6 +17,7 @@
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
+    <a href="/reports" class="btn btn-ghost">Reports Center</a>
     <a href="/export/report.pdf" class="btn btn-ghost">Download PDF Report</a>
     <a href="/dashboard" class="btn btn-ghost">← Dashboard</a>
   </div>

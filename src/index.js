@@ -118,6 +118,7 @@ app.use('/', require('./routes/dashboard'));
 app.use('/urls', require('./routes/urls'));
 app.use('/projects', require('./routes/projects'));
 app.use('/billing', require('./routes/billing'));
+app.use('/reports', require('./routes/reports'));
 app.use('/uptime', require('./routes/uptime'));
 app.use('/export', require('./routes/export'));
 app.use('/notifications', require('./routes/notifications'));

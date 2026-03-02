@@ -1,0 +1,150 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Reports Center</h1>
+    <div class="text-muted" style="font-size:13px;margin-top:4px">
+      Generate portfolio, project, URL and uptime reports from one place.
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <span class="badge badge--ok"><%= currentPlan?.name || 'Free' %> plan</span>
+    <a href="/dashboard" class="btn btn-ghost">← Dashboard</a>
+  </div>
+</div>
+
+<% if (message) { %>
+  <div class="alert-banner alert-banner--info" style="margin-bottom:14px"><%= message %></div>
+<% } %>
+<% if (error) { %>
+  <div class="alert-banner alert-banner--error" style="margin-bottom:14px"><%= error %></div>
+<% } %>
+
+<div class="card" style="margin-bottom:18px">
+  <div class="card-header">
+    <h2 class="card-title">Portfolio Reports</h2>
+    <span class="text-muted" style="font-size:12px">Range limit: <%= planCaps.maxRangeDays == null ? 'unlimited' : (planCaps.maxRangeDays + ' days') %></span>
+  </div>
+  <form method="GET" action="/export/report.pdf" style="padding:16px;display:grid;gap:12px">
+    <div class="form-row" style="grid-template-columns:180px 180px auto">
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">From</label>
+        <input type="date" name="from" class="form-input" value="<%= from %>">
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">To</label>
+        <input type="date" name="to" class="form-input" value="<%= to %>">
+      </div>
+      <div class="form-group" style="margin-bottom:0;align-self:end;display:flex;gap:8px;flex-wrap:wrap">
+        <button type="submit" formaction="/export/report.pdf" class="btn btn-primary" <%= !planCaps.globalPdf ? 'disabled' : '' %>>Dashboard PDF</button>
+        <button type="submit" formaction="/export/report.xlsx" class="btn btn-ghost" <%= !planCaps.globalXlsx ? 'disabled' : '' %>>Dashboard XLSX</button>
+        <button type="submit" formaction="/export/uptime-report.pdf" class="btn btn-ghost" <%= !planCaps.uptimeGlobalPdf ? 'disabled' : '' %>>Uptime PDF</button>
+        <button type="submit" formaction="/export/uptime-report.xlsx" class="btn btn-ghost" <%= !planCaps.uptimeGlobalXlsx ? 'disabled' : '' %>>Uptime XLSX</button>
+        <button type="submit" formaction="/export/alerts.csv" class="btn btn-ghost" <%= !planCaps.alertsCsv ? 'disabled' : '' %>>Alerts CSV</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card" style="margin-bottom:18px">
+  <div class="card-header">
+    <h2 class="card-title">URL Reports</h2>
+    <span class="text-muted" style="font-size:12px"><%= urls.length %> URLs available</span>
+  </div>
+  <form method="GET" action="/reports/url-pdf" style="padding:16px;display:grid;gap:12px">
+    <div class="form-group" style="margin-bottom:0">
+      <label class="form-label">URL</label>
+      <select name="id" class="form-select">
+        <% if (!urls || urls.length === 0) { %>
+          <option value="">No URLs available</option>
+        <% } else { %>
+          <% urls.forEach(function(u) { %>
+            <option value="<%= u.id %>"><%= u.url %></option>
+          <% }) %>
+        <% } %>
+      </select>
+    </div>
+    <div class="form-row" style="grid-template-columns:180px 180px auto">
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">From</label>
+        <input type="date" name="from" class="form-input" value="<%= from %>">
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">To</label>
+        <input type="date" name="to" class="form-input" value="<%= to %>">
+      </div>
+      <div class="form-group" style="margin-bottom:0;align-self:end;display:flex;gap:8px;flex-wrap:wrap">
+        <button type="submit" formaction="/reports/url-pdf" class="btn btn-primary" <%= (!urls || urls.length === 0 || !planCaps.urlPdf) ? 'disabled' : '' %>>URL PDF</button>
+        <button type="submit" formaction="/reports/url-xlsx" class="btn btn-ghost" <%= (!urls || urls.length === 0 || !planCaps.urlXlsx) ? 'disabled' : '' %>>URL XLSX</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card" style="margin-bottom:18px">
+  <div class="card-header">
+    <h2 class="card-title">Uptime Monitor Reports</h2>
+    <span class="text-muted" style="font-size:12px"><%= monitors.length %> monitors available</span>
+  </div>
+  <form method="GET" action="/reports/uptime-pdf" style="padding:16px;display:grid;gap:12px">
+    <div class="form-group" style="margin-bottom:0">
+      <label class="form-label">Monitor</label>
+      <select name="id" class="form-select">
+        <% if (!monitors || monitors.length === 0) { %>
+          <option value="">No monitors available</option>
+        <% } else { %>
+          <% monitors.forEach(function(m) { %>
+            <option value="<%= m.id %>"><%= m.name %> — <%= m.url %></option>
+          <% }) %>
+        <% } %>
+      </select>
+    </div>
+    <div class="form-row" style="grid-template-columns:180px 180px auto">
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">From</label>
+        <input type="date" name="from" class="form-input" value="<%= from %>">
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">To</label>
+        <input type="date" name="to" class="form-input" value="<%= to %>">
+      </div>
+      <div class="form-group" style="margin-bottom:0;align-self:end;display:flex;gap:8px;flex-wrap:wrap">
+        <button type="submit" formaction="/reports/uptime-pdf" class="btn btn-primary" <%= (!monitors || monitors.length === 0 || !planCaps.uptimeSitePdf) ? 'disabled' : '' %>>Monitor PDF</button>
+        <button type="submit" formaction="/reports/uptime-xlsx" class="btn btn-ghost" <%= (!monitors || monitors.length === 0 || !planCaps.uptimeSiteXlsx) ? 'disabled' : '' %>>Monitor XLSX</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h2 class="card-title">Project Reports</h2>
+    <span class="text-muted" style="font-size:12px"><%= projects.length %> projects available</span>
+  </div>
+  <form method="GET" action="/reports/project-pdf" style="padding:16px;display:grid;gap:12px">
+    <div class="form-group" style="margin-bottom:0">
+      <label class="form-label">Project (meta monitoring)</label>
+      <select name="id" class="form-select">
+        <% if (!projects || projects.length === 0) { %>
+          <option value="">No projects available</option>
+        <% } else { %>
+          <% projects.forEach(function(p) { %>
+            <option value="<%= p.id %>"><%= p.name %></option>
+          <% }) %>
+        <% } %>
+      </select>
+    </div>
+    <div class="form-row" style="grid-template-columns:180px 180px auto">
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">From</label>
+        <input type="date" name="from" class="form-input" value="<%= from %>">
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">To</label>
+        <input type="date" name="to" class="form-input" value="<%= to %>">
+      </div>
+      <div class="form-group" style="margin-bottom:0;align-self:end;display:flex;gap:8px;flex-wrap:wrap">
+        <button type="submit" formaction="/reports/project-pdf" class="btn btn-primary" <%= (!projects || projects.length === 0 || !planCaps.projectPdf) ? 'disabled' : '' %>>Project PDF</button>
+        <button type="submit" formaction="/reports/project-xlsx" class="btn btn-ghost" <%= (!projects || projects.length === 0 || !planCaps.projectXlsx) ? 'disabled' : '' %>>Project XLSX</button>
+      </div>
+    </div>
+  </form>
+</div>

@@ -5,7 +5,10 @@
       Group meta-monitor URLs by site/project. Dashboard can be viewed by project.
     </div>
   </div>
-  <a href="/" class="btn btn-ghost">← Dashboard</a>
+  <div style="display:flex;gap:8px;align-items:center">
+    <a href="/reports" class="btn btn-ghost">Reports</a>
+    <a href="/" class="btn btn-ghost">← Dashboard</a>
+  </div>
 </div>
 
 <% if (message) { %>
@@ -75,6 +78,8 @@
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                   <a href="/dashboard?view=projects&project=<%= project.id %>" class="btn btn-ghost" style="font-size:12px;padding:5px 10px">Open</a>
                   <a href="/urls/add?project_id=<%= project.id %>" class="btn btn-ghost" style="font-size:12px;padding:5px 10px">Add URL</a>
+                  <a href="/export/project/<%= project.id %>.pdf" class="btn btn-ghost" style="font-size:12px;padding:5px 10px">Report PDF</a>
+                  <a href="/export/project/<%= project.id %>.xlsx" class="btn btn-ghost" style="font-size:12px;padding:5px 10px">Report XLSX</a>
                   <form action="/projects/<%= project.id %>/rename" method="POST" style="display:flex;gap:6px;align-items:center">
                     <input type="text" name="name" value="<%= project.name %>" class="form-input" style="width:150px;padding:5px 8px;font-size:12px">
                     <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:5px 10px">Rename</button>

@@ -19,6 +19,11 @@ const {
   defaultUptimePortfolioDateRange,
   getUptimePortfolioReportData
 } = require('../pdf-uptime-portfolio-report');
+const {
+  buildProjectPdfBuffer,
+  defaultProjectReportDateRange,
+  getProjectReportData
+} = require('../pdf-project-report');
 const { enforceReportAccess } = require('../report-access');
 
 function csvCell(val) {
@@ -433,6 +438,176 @@ router.get('/url/:id.xlsx', requireAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).send('Export failed: ' + err.message);
+  }
+});
+
+// GET /export/project/:id.pdf — project-level report (meta monitoring)
+router.get('/project/:id.pdf', requireAuth, async (req, res) => {
+  const projectId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(projectId) || projectId <= 0) {
+    return res.status(400).send('Invalid project ID');
+  }
+
+  try {
+    const isAdmin = req.user?.role === 'admin';
+    const { fromDate, toDate } = resolveRange(req.query.from, req.query.to, defaultProjectReportDateRange);
+    if (fromDate && toDate && fromDate > toDate) {
+      return res.status(400).send('Invalid date range: "from" must be <= "to".');
+    }
+    const access = enforceReportAccess({
+      req,
+      res,
+      featureKey: 'projectPdf',
+      fromDate,
+      toDate
+    });
+    if (!access.allowed) return;
+
+    const data = await getProjectReportData({
+      projectId,
+      userId: req.user.id,
+      isAdmin,
+      fromDate,
+      toDate
+    });
+    if (!data) return res.status(404).send('Project not found');
+
+    const pdfBuffer = await buildProjectPdfBuffer({
+      data,
+      userEmail: req.user.email,
+      generatedAt: new Date()
+    });
+
+    const safeName = String(data.project.name || `project-${projectId}`)
+      .replace(/[^a-zA-Z0-9_-]/g, '-')
+      .slice(0, 40);
+    const filename = `project-${safeName}-${formatDate(new Date())}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(pdfBuffer);
+  } catch (err) {
+    console.error('[Export Project PDF] Failed:', err.message);
+    return res.status(500).send('PDF export failed: ' + err.message);
+  }
+});
+
+// GET /export/project/:id.xlsx — project-level XLSX report (meta monitoring)
+router.get('/project/:id.xlsx', requireAuth, async (req, res) => {
+  const projectId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(projectId) || projectId <= 0) {
+    return res.status(400).send('Invalid project ID');
+  }
+
+  try {
+    const isAdmin = req.user?.role === 'admin';
+    const { fromDate, toDate } = resolveRange(req.query.from, req.query.to, defaultProjectReportDateRange);
+    if (fromDate && toDate && fromDate > toDate) {
+      return res.status(400).send('Invalid date range: "from" must be <= "to".');
+    }
+    const access = enforceReportAccess({
+      req,
+      res,
+      featureKey: 'projectXlsx',
+      fromDate,
+      toDate
+    });
+    if (!access.allowed) return;
+
+    const data = await getProjectReportData({
+      projectId,
+      userId: req.user.id,
+      isAdmin,
+      fromDate,
+      toDate
+    });
+    if (!data) return res.status(404).send('Project not found');
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'MetaWatch';
+    workbook.created = new Date();
+
+    const summarySheet = workbook.addWorksheet('Summary');
+    summarySheet.getColumn(1).width = 32;
+    summarySheet.getColumn(2).width = 44;
+    const summaryRows = [
+      ['Project', data.project.name || '-'],
+      ['Created', data.project.created_at ? new Date(data.project.created_at).toISOString().slice(0, 10) : '-'],
+      ['Generated', new Date().toISOString()],
+      ['Range From', fromDate ? fromDate.toISOString().slice(0, 10) : '-'],
+      ['Range To', toDate ? toDate.toISOString().slice(0, 10) : '-'],
+      ['Total URLs', data.summary.totalUrls],
+      ['Active URLs', data.summary.activeUrls],
+      ['Changed URLs (24h)', data.summary.changedUrls],
+      ['Error URLs', data.summary.errorUrls],
+      ['Pending URLs', data.summary.pendingUrls],
+      ['Avg Health Score', data.summary.avgHealth == null ? '-' : data.summary.avgHealth],
+      ['Avg Response (ms)', data.summary.avgResponseMs == null ? '-' : data.summary.avgResponseMs],
+      ['Alerts in period', data.summary.totalAlertsInPeriod],
+      ['Critical alerts', data.summary.criticalAlertsInPeriod],
+      ['Warning alerts', data.summary.warningAlertsInPeriod],
+      ['Info alerts', data.summary.infoAlertsInPeriod]
+    ];
+    summaryRows.forEach(([label, value]) => {
+      const row = summarySheet.addRow([label, value]);
+      row.getCell(1).font = { bold: true };
+    });
+
+    const urlsSheet = workbook.addWorksheet('URLs');
+    styleHeader(urlsSheet, ['URL', 'Status', 'Health', 'Last HTTP', 'Last Checked', 'Resp (ms)', 'Alerts 24h', 'Alerts Period'], {
+      0: 54, 1: 12, 2: 10, 3: 10, 4: 22, 5: 12, 6: 12, 7: 14
+    });
+    for (const u of data.urls) {
+      const row = urlsSheet.addRow([
+        u.url,
+        u.status,
+        u.health_score == null ? '' : u.health_score,
+        u.last_status_code == null ? '' : u.last_status_code,
+        u.last_checked ? new Date(u.last_checked).toISOString() : '',
+        u.last_response_ms == null ? '' : u.last_response_ms,
+        u.alert_count_24h || 0,
+        u.alert_count_period || 0
+      ]);
+      if (u.status === 'ERROR') row.eachCell(cell => { cell.fill = RED; });
+      else if (u.status === 'CHANGED') row.eachCell(cell => { cell.fill = ORANGE; });
+      else if (u.status === 'OK') row.eachCell(cell => { cell.fill = GREEN; });
+    }
+
+    const fieldsSheet = workbook.addWorksheet('Fields');
+    styleHeader(fieldsSheet, ['Field', 'Count'], { 0: 30, 1: 14 });
+    for (const f of data.fieldCounts) {
+      fieldsSheet.addRow([f.field, f.count]);
+    }
+
+    const alertsSheet = workbook.addWorksheet('Alerts');
+    styleHeader(alertsSheet, ['Detected', 'URL', 'Field', 'Severity', 'Old Value', 'New Value'], {
+      0: 22, 1: 48, 2: 18, 3: 12, 4: 40, 5: 40
+    });
+    for (const a of data.alerts) {
+      const row = alertsSheet.addRow([
+        a.detected_at ? new Date(a.detected_at).toISOString() : '',
+        a.url,
+        a.field_changed,
+        a.severity || 'info',
+        a.old_value || '',
+        a.new_value || ''
+      ]);
+      if (a.severity === 'critical') row.eachCell(cell => { cell.fill = RED; });
+      else if (a.severity === 'warning') row.eachCell(cell => { cell.fill = ORANGE; });
+    }
+
+    const safeName = String(data.project.name || `project-${projectId}`)
+      .replace(/[^a-zA-Z0-9_-]/g, '-')
+      .slice(0, 40);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="project-${safeName}-${formatDate(new Date())}.xlsx"`
+    );
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error('[Export Project XLSX] Failed:', err.message);
+    return res.status(500).send('Export failed: ' + err.message);
   }
 });
 
