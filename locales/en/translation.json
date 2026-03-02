@@ -102,7 +102,14 @@
     "maintenance_manual_silence": "Alerts silenced until",
     "maintenance_cron": "Recurring schedule",
     "maintenance_duration": "Duration",
-    "maintenance_next": "Upcoming windows"
+    "maintenance_next": "Upcoming windows",
+    "reliability_snapshot": "Reliability Snapshot (30d)",
+    "mttr": "MTTR",
+    "mtbf": "MTBF",
+    "longest_incident": "Longest incident",
+    "resolved_30d": "Resolved 30d",
+    "incident_rate": "Incident rate",
+    "per_week": "per week"
   },
   "emails": {
     "alert": {

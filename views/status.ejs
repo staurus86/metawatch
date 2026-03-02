@@ -294,6 +294,35 @@
       text-transform: none;
     }
 
+    .reliability-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      padding: 14px;
+    }
+
+    .reliability-cell {
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, #f7fbff 0%, #ffffff 100%);
+      border-radius: 10px;
+      padding: 11px 10px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--muted);
+      text-align: center;
+      font-weight: 700;
+    }
+
+    .reliability-cell b {
+      display: block;
+      margin-top: 5px;
+      font-size: 19px;
+      letter-spacing: -0.01em;
+      color: var(--ink);
+      text-transform: none;
+    }
+
     .context-note {
       margin: 0 14px 12px;
       border: 1px solid var(--line);
@@ -573,6 +602,7 @@
       .status-grid { grid-template-columns: 1fr; }
       .metric-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .simple-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .reliability-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .slo-grid { grid-template-columns: 1fr; }
       .incident-row { grid-template-columns: 1fr; }
     }
@@ -582,6 +612,7 @@
       .status-header { padding: 16px; border-radius: 14px; }
       .metric-list { grid-template-columns: 1fr; }
       .simple-grid { grid-template-columns: 1fr; }
+      .reliability-grid { grid-template-columns: 1fr; }
       .chip { width: 100%; justify-content: center; }
       .uptime-ring { width: 126px; height: 126px; }
       .uptime-ring::after { width: 96px; height: 96px; }
@@ -605,6 +636,7 @@
     const fmtMin = (v) => (v == null ? '—' : (Math.round(Number(v) * 10) / 10) + 'm');
     const fmtPct = (v) => (v == null ? '—' : (Math.round(Number(v) * 10) / 10) + '%');
     const fmtBurn = (v) => (v == null ? '—' : (Math.round(Number(v) * 100) / 100) + 'x');
+    const fmtRate = (v) => (v == null ? '—' : (Math.round(Number(v) * 10) / 10));
     const sloBadgeClass = (slo) => {
       if (!slo || slo.healthy == null) return 'slo-pill--na';
       return slo.healthy ? 'slo-pill--good' : 'slo-pill--warn';
@@ -676,18 +708,31 @@
         <div class="simple-cell"><%= t('status.avg_rt') %><b><%= responseStats?.avg_ms != null ? responseStats.avg_ms + 'ms' : '—' %></b></div>
         <div class="simple-cell"><%= t('status.min_rt') %><b><%= responseStats?.min_ms != null ? responseStats.min_ms + 'ms' : '—' %></b></div>
         <div class="simple-cell"><%= t('status.max_rt') %><b><%= responseStats?.max_ms != null ? responseStats.max_ms + 'ms' : '—' %></b></div>
-        <div class="simple-cell"><%= t('status.incidents_30d') %><b><%= incidentSummary?.incidents_30d || 0 %></b></div>
+        <div class="simple-cell"><%= t('status.incidents_30d') %><b><%= reliability30d?.incidents || 0 %></b></div>
         <div class="simple-cell"><%= t('status.check_interval') %><b><%= monitor.interval_minutes %>m</b></div>
         <div class="simple-cell"><%= t('status.threshold') %><b><%= monitor.threshold_ms %>ms</b></div>
       </div>
       <div class="context-note">
-        <%= t('status.downtime_30d') %>: <strong><%= incidentSummary?.downtime_seconds_30d ? fmtDuration(incidentSummary.downtime_seconds_30d) : '0s' %></strong>
+        <%= t('status.downtime_30d') %>: <strong><%= reliability30d?.downtimeSec ? fmtDuration(reliability30d.downtimeSec) : '0s' %></strong>
       </div>
       <% if (latestCheck && latestCheck.error_message) { %>
         <div class="context-note error-note">
           <%= t('status.last_error') %>: <strong><%= latestCheck.error_message.substring(0, 160) %></strong>
         </div>
       <% } %>
+    </section>
+
+    <section class="status-card status-section reveal">
+      <div class="status-card-title"><%= t('status.reliability_snapshot') %></div>
+      <div class="reliability-grid">
+        <div class="reliability-cell"><%= t('status.mttr') %><b><%= reliability30d?.mttrSec != null ? fmtDuration(reliability30d.mttrSec) : '—' %></b></div>
+        <div class="reliability-cell"><%= t('status.mtbf') %><b><%= reliability30d?.mtbfSec != null ? fmtDuration(reliability30d.mtbfSec) : '—' %></b></div>
+        <div class="reliability-cell"><%= t('status.longest_incident') %><b><%= reliability30d?.longestIncidentSec != null ? fmtDuration(reliability30d.longestIncidentSec) : '—' %></b></div>
+        <div class="reliability-cell"><%= t('status.resolved_30d') %><b><%= reliability30d?.resolved || 0 %></b></div>
+      </div>
+      <div class="context-note">
+        <%= t('status.incident_rate') %>: <strong><%= fmtRate(reliability30d?.incidentRatePerWeek) %> <%= t('status.per_week') %></strong>
+      </div>
     </section>
 
     <section class="status-card status-section reveal">

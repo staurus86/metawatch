@@ -170,6 +170,65 @@ function calcSlo(intervalDays, targetPct, achievedPct) {
   };
 }
 
+function calcReliability(periodDays, incidents) {
+  const nowTs = Date.now();
+  const periodSeconds = periodDays * 24 * 60 * 60;
+  const periodStartTs = nowTs - periodSeconds * 1000;
+  const list = Array.isArray(incidents) ? incidents : [];
+
+  let incidentCount = 0;
+  let resolvedCount = 0;
+  let downtimeSec = 0;
+  let longestIncidentSec = 0;
+  let resolvedDurationTotalSec = 0;
+
+  for (const inc of list) {
+    const startedTs = new Date(inc.started_at).getTime();
+    if (!Number.isFinite(startedTs)) continue;
+
+    const hasResolvedAt = !!inc.resolved_at;
+    const resolvedTs = hasResolvedAt ? new Date(inc.resolved_at).getTime() : null;
+    const endTs = Number.isFinite(resolvedTs) ? resolvedTs : nowTs;
+    if (endTs <= periodStartTs || startedTs >= nowTs) continue;
+
+    const overlapStartTs = Math.max(startedTs, periodStartTs);
+    const overlapEndTs = Math.min(endTs, nowTs);
+    const overlapSec = Math.max(0, Math.round((overlapEndTs - overlapStartTs) / 1000));
+
+    incidentCount += 1;
+    downtimeSec += overlapSec;
+    if (overlapSec > longestIncidentSec) longestIncidentSec = overlapSec;
+
+    if (Number.isFinite(resolvedTs) && resolvedTs >= periodStartTs && resolvedTs <= nowTs) {
+      const reportedDuration = Number(inc.duration_seconds);
+      const fullDurationSec = Number.isFinite(reportedDuration) && reportedDuration >= 0
+        ? Math.round(reportedDuration)
+        : Math.max(0, Math.round((resolvedTs - startedTs) / 1000));
+      resolvedCount += 1;
+      resolvedDurationTotalSec += fullDurationSec;
+    }
+  }
+
+  const mttrSec = resolvedCount > 0
+    ? Math.round(resolvedDurationTotalSec / resolvedCount)
+    : null;
+  const mtbfSec = incidentCount > 0
+    ? Math.max(0, Math.round((periodSeconds - downtimeSec) / incidentCount))
+    : null;
+  const incidentRatePerWeek = Math.round((incidentCount / periodDays) * 70) / 10;
+
+  return {
+    periodDays,
+    incidents: incidentCount,
+    resolved: resolvedCount,
+    downtimeSec,
+    mttrSec,
+    mtbfSec,
+    longestIncidentSec: longestIncidentSec || null,
+    incidentRatePerWeek
+  };
+}
+
 // GET /status/:slug — public status page (no auth required)
 router.get('/:slug', async (req, res) => {
   try {
@@ -247,17 +306,7 @@ router.get('/:slug', async (req, res) => {
       [monitor.id]
     );
 
-    // Incident summary (30d)
-    const { rows: [incidentSummary] } = await pool.query(
-      `SELECT
-         COUNT(*) FILTER (WHERE started_at > NOW() - INTERVAL '30 days')::int AS incidents_30d,
-         COALESCE(SUM(duration_seconds) FILTER (
-           WHERE started_at > NOW() - INTERVAL '30 days' AND duration_seconds IS NOT NULL
-         ), 0)::int AS downtime_seconds_30d
-       FROM uptime_incidents
-       WHERE monitor_id = $1`,
-      [monitor.id]
-    );
+    const reliability30d = calcReliability(30, incidents);
 
     // 90-day daily buckets for bar chart
     const { rows: dailyRows } = await pool.query(
@@ -386,7 +435,7 @@ router.get('/:slug', async (req, res) => {
       uptimeWindows,
       responseStats: responseStats || {},
       recentChecks,
-      incidentSummary: incidentSummary || { incidents_30d: 0, downtime_seconds_30d: 0 },
+      reliability30d,
       dayBuckets,
       weekBuckets,
       hourBuckets,
