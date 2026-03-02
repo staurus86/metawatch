@@ -1,5 +1,6 @@
 const { checkUrl } = require('../checker');
 const { isQueueEnabled, getRedisConnection, QUEUE_NAMES } = require('../queue');
+const { parsePositiveInt, withRedisLock } = require('./lock');
 
 function getWorkerCtor() {
   try {
@@ -19,6 +20,9 @@ function startMetaWorker() {
   }
 
   const concurrency = Math.max(1, parseInt(process.env.META_WORKER_CONCURRENCY || '5', 10) || 5);
+  const lockTtlMs = parsePositiveInt(process.env.META_WORKER_LOCK_TTL_MS, 20 * 60 * 1000);
+  const lockPrefix = String(process.env.WORKER_LOCK_PREFIX || 'metawatch:lock').trim() || 'metawatch:lock';
+  const redis = getRedisConnection();
   const worker = new Worker(
     QUEUE_NAMES.meta,
     async (job) => {
@@ -26,11 +30,22 @@ function startMetaWorker() {
       if (!Number.isFinite(urlId) || urlId <= 0) {
         return { skipped: true, reason: 'invalid_url_id' };
       }
-      await checkUrl(urlId);
-      return { ok: true, urlId };
+      const lockKey = `${lockPrefix}:meta:url:${urlId}`;
+      return withRedisLock(
+        {
+          redis,
+          key: lockKey,
+          ttlMs: lockTtlMs,
+          onLockedResult: { skipped: true, reason: 'duplicate_in_progress', urlId }
+        },
+        async () => {
+          await checkUrl(urlId);
+          return { ok: true, urlId };
+        }
+      );
     },
     {
-      connection: getRedisConnection(),
+      connection: redis,
       concurrency
     }
   );

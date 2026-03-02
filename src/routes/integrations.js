@@ -21,7 +21,7 @@ function hasSlackEnv() {
 }
 
 function getSlackScopes() {
-  return 'chat:write,incoming-webhook';
+  return 'chat:write,incoming-webhook,conversations:read';
 }
 
 async function loadUserIntegrations(userId) {

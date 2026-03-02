@@ -1,5 +1,6 @@
 const { checkMonitor } = require('../uptime-checker');
 const { isQueueEnabled, getRedisConnection, QUEUE_NAMES } = require('../queue');
+const { parsePositiveInt, withRedisLock } = require('./lock');
 
 function getWorkerCtor() {
   try {
@@ -19,6 +20,9 @@ function startUptimeWorker() {
   }
 
   const concurrency = Math.max(1, parseInt(process.env.UPTIME_WORKER_CONCURRENCY || '5', 10) || 5);
+  const lockTtlMs = parsePositiveInt(process.env.UPTIME_WORKER_LOCK_TTL_MS, 15 * 60 * 1000);
+  const lockPrefix = String(process.env.WORKER_LOCK_PREFIX || 'metawatch:lock').trim() || 'metawatch:lock';
+  const redis = getRedisConnection();
   const worker = new Worker(
     QUEUE_NAMES.uptime,
     async (job) => {
@@ -26,11 +30,22 @@ function startUptimeWorker() {
       if (!Number.isFinite(monitorId) || monitorId <= 0) {
         return { skipped: true, reason: 'invalid_monitor_id' };
       }
-      await checkMonitor(monitorId);
-      return { ok: true, monitorId };
+      const lockKey = `${lockPrefix}:uptime:monitor:${monitorId}`;
+      return withRedisLock(
+        {
+          redis,
+          key: lockKey,
+          ttlMs: lockTtlMs,
+          onLockedResult: { skipped: true, reason: 'duplicate_in_progress', monitorId }
+        },
+        async () => {
+          await checkMonitor(monitorId);
+          return { ok: true, monitorId };
+        }
+      );
     },
     {
-      connection: getRedisConnection(),
+      connection: redis,
       concurrency
     }
   );

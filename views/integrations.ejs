@@ -27,6 +27,7 @@
       <div style="font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:10px">
         <div><strong style="color:var(--text)">Workspace:</strong> <%= integrations.slack.workspace_name || integrations.slack.workspace_id || '—' %></div>
         <div><strong style="color:var(--text)">Channel:</strong> <%= integrations.slack.channel_name ? ('#' + integrations.slack.channel_name) : (integrations.slack.channel_id || '—') %></div>
+        <div>Need full channel selector in URL forms? Reconnect Slack once to refresh OAuth scopes.</div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <form action="/integrations/slack/test" method="POST">

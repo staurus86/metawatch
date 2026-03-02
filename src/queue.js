@@ -177,12 +177,29 @@ function safePositiveInt(value, fallback) {
   return n;
 }
 
+function safeDedupWindowMs(value, fallbackMs) {
+  const parsed = safePositiveInt(value, fallbackMs);
+  if (!Number.isFinite(parsed)) return fallbackMs;
+  return Math.max(0, parsed);
+}
+
+function buildEntityJobId(prefix, id, dedupWindowMs) {
+  const windowMs = Math.max(0, safePositiveInt(dedupWindowMs, 0));
+  if (windowMs === 0) {
+    return `${prefix}:${id}:ts:${Date.now()}:${Math.random().toString(16).slice(2, 8)}`;
+  }
+  const slot = Math.floor(Date.now() / windowMs);
+  return `${prefix}:${id}:slot:${slot}`;
+}
+
 async function enqueueMetaCheck({ urlId, userId = null, source = 'scheduler', priority = 'warning' }) {
   const id = safePositiveInt(urlId, 0);
   if (id <= 0) return { queued: false, reason: 'invalid_url_id', backend: getQueueBackendLabel() };
   if (!queueEnabled) return { queued: false, backend: 'in-memory' };
 
   const { metaQueue } = ensureBullQueues();
+  const dedupWindowMs = safeDedupWindowMs(process.env.QUEUE_META_DEDUP_MS, 45 * 1000);
+  const jobId = buildEntityJobId('url', id, dedupWindowMs);
   try {
     const job = await metaQueue.add(
       'check-url',
@@ -193,7 +210,7 @@ async function enqueueMetaCheck({ urlId, userId = null, source = 'scheduler', pr
         queuedAt: new Date().toISOString()
       },
       {
-        jobId: `url:${id}`,
+        jobId,
         attempts: 2,
         backoff: { type: 'exponential', delay: 5000 },
         priority: mapPriority(priority)
@@ -203,7 +220,7 @@ async function enqueueMetaCheck({ urlId, userId = null, source = 'scheduler', pr
   } catch (err) {
     const msg = String(err?.message || '').toLowerCase();
     if (msg.includes('jobid') || msg.includes('already exists')) {
-      return { queued: true, backend: 'redis', jobId: `url:${id}`, duplicate: true };
+      return { queued: true, backend: 'redis', jobId, duplicate: true };
     }
     throw err;
   }
@@ -215,6 +232,8 @@ async function enqueueUptimeCheck({ monitorId, userId = null, source = 'schedule
   if (!queueEnabled) return { queued: false, backend: 'in-memory' };
 
   const { uptimeQueue } = ensureBullQueues();
+  const dedupWindowMs = safeDedupWindowMs(process.env.QUEUE_UPTIME_DEDUP_MS, 45 * 1000);
+  const jobId = buildEntityJobId('monitor', id, dedupWindowMs);
   try {
     const job = await uptimeQueue.add(
       'check-monitor',
@@ -225,7 +244,7 @@ async function enqueueUptimeCheck({ monitorId, userId = null, source = 'schedule
         queuedAt: new Date().toISOString()
       },
       {
-        jobId: `monitor:${id}`,
+        jobId,
         attempts: 2,
         backoff: { type: 'exponential', delay: 5000 },
         priority: mapPriority(priority)
@@ -235,7 +254,7 @@ async function enqueueUptimeCheck({ monitorId, userId = null, source = 'schedule
   } catch (err) {
     const msg = String(err?.message || '').toLowerCase();
     if (msg.includes('jobid') || msg.includes('already exists')) {
-      return { queued: true, backend: 'redis', jobId: `monitor:${id}`, duplicate: true };
+      return { queued: true, backend: 'redis', jobId, duplicate: true };
     }
     throw err;
   }

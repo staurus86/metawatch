@@ -26,6 +26,8 @@ const {
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 const MAX_BULK_IMPORT_URLS = 500;
 const BULK_PREVIEW_ROW_LIMIT = 1000;
+const SLACK_CHANNEL_CACHE_TTL_MS = Math.max(15 * 1000, parseInt(process.env.SLACK_CHANNEL_CACHE_TTL_MS || '60000', 10) || 60000);
+const slackChannelsCache = new Map();
 const FIELD_NOTIFICATION_OVERRIDE_KEYS = [
   'title',
   'description',
@@ -168,6 +170,110 @@ async function getPagerDutyIntegrationKeyForUser(userId) {
   return row?.integration_key || null;
 }
 
+function normalizeSlackChannelOption(channel, source = 'api') {
+  const id = String(channel?.id || channel?.channel_id || '').trim();
+  if (!id) return null;
+  const rawName = String(channel?.name || channel?.channel_name || '').trim().replace(/^#/, '');
+  return {
+    id,
+    name: rawName || null,
+    label: rawName ? `#${rawName}` : id,
+    source
+  };
+}
+
+function mergeSlackChannelOptions(...lists) {
+  const byId = new Map();
+  for (const list of lists) {
+    for (const raw of Array.isArray(list) ? list : []) {
+      const normalized = normalizeSlackChannelOption(raw, raw?.source);
+      if (!normalized) continue;
+      const existing = byId.get(normalized.id);
+      if (!existing || (existing.source !== 'api' && normalized.source === 'api')) {
+        byId.set(normalized.id, normalized);
+      }
+    }
+  }
+  return [...byId.values()].sort((a, b) => {
+    const left = String(a.name || a.id).toLowerCase();
+    const right = String(b.name || b.id).toLowerCase();
+    return left.localeCompare(right);
+  });
+}
+
+async function loadSlackChannelsFromApi(botToken) {
+  if (!botToken) return { channels: [], error: null };
+
+  try {
+    const { data } = await axios.get('https://slack.com/api/conversations.list', {
+      timeout: 10000,
+      params: {
+        limit: 200,
+        types: 'public_channel,private_channel',
+        exclude_archived: true
+      },
+      headers: {
+        Authorization: `Bearer ${botToken}`
+      }
+    });
+
+    if (!data?.ok) {
+      return { channels: [], error: String(data?.error || 'channels_list_failed') };
+    }
+
+    const channels = (Array.isArray(data.channels) ? data.channels : [])
+      .map((c) => normalizeSlackChannelOption(c, 'api'))
+      .filter(Boolean);
+    return { channels, error: null };
+  } catch (err) {
+    return { channels: [], error: String(err?.message || 'channels_list_failed') };
+  }
+}
+
+async function getSlackChannelSelectorData(userId) {
+  if (!userId) {
+    return { connected: false, channels: [], defaultChannelId: '', error: null };
+  }
+
+  const cacheKey = String(userId);
+  const now = Date.now();
+  const cached = slackChannelsCache.get(cacheKey);
+  if (cached && (now - cached.ts) < SLACK_CHANNEL_CACHE_TTL_MS) {
+    return cached.value;
+  }
+
+  const { rows: [integration] } = await pool.query(
+    `SELECT channel_id, channel_name, bot_token
+     FROM slack_integrations
+     WHERE user_id = $1
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [userId]
+  );
+
+  if (!integration) {
+    const value = { connected: false, channels: [], defaultChannelId: '', error: null };
+    slackChannelsCache.set(cacheKey, { ts: now, value });
+    return value;
+  }
+
+  const defaultChannel = normalizeSlackChannelOption(
+    { id: integration.channel_id, name: integration.channel_name },
+    'default'
+  );
+  const { channels: apiChannels, error } = await loadSlackChannelsFromApi(integration.bot_token);
+  const channels = mergeSlackChannelOptions(defaultChannel ? [defaultChannel] : [], apiChannels);
+
+  const value = {
+    connected: true,
+    channels,
+    defaultChannelId: defaultChannel?.id || '',
+    error
+  };
+  slackChannelsCache.set(cacheKey, { ts: now, value });
+  return value;
+}
+
 async function resolvePagerDutyForAcceptedFields({ userId, urlId, url, fields }) {
   if (!userId || !urlId || !url) return;
   const uniqueFields = [...new Set((fields || []).map(f => String(f || '').trim()).filter(Boolean))];
@@ -213,12 +319,22 @@ router.get('/add', requireAuth, async (req, res) => {
   const selectedProjectId = await resolveProjectIdForUser(req.query.project_id, req.user.id).catch(() => null);
   const headlessAvailable = canUseHeadless(req.userPlan);
   const currentPlanName = String(req.userPlan?.name || 'Free');
+  const slackSelector = await getSlackChannelSelectorData(req.user.id).catch(() => ({
+    connected: false,
+    channels: [],
+    defaultChannelId: '',
+    error: null
+  }));
   res.render('add-url', {
     title: 'Add URL',
     error: null,
     projects,
     headlessAvailable,
     currentPlanName,
+    slackChannels: slackSelector.channels,
+    slackConnected: slackSelector.connected,
+    slackChannelsError: slackSelector.error,
+    slackDefaultChannelId: slackSelector.defaultChannelId,
     values: {
       project_id: selectedProjectId ? String(selectedProjectId) : '',
       email: req.user.default_alert_email || '',
@@ -228,6 +344,7 @@ router.get('/add', requireAuth, async (req, res) => {
       discord_webhook_url: '',
       send_to_slack: false,
       slack_channel_id: '',
+      slack_channel_custom: '',
       pagerduty_threshold: 'critical_only',
       render_mode: 'static',
       check_interval_minutes: '60',
@@ -265,12 +382,22 @@ router.post('/add', requireAuth, async (req, res) => {
 
   const renderError = async (msg, { status = 200, upgradePrompt = null } = {}) => {
     const projects = await getProjectsForUser(req.user.id).catch(() => []);
+    const slackSelector = await getSlackChannelSelectorData(req.user.id).catch(() => ({
+      connected: false,
+      channels: [],
+      defaultChannelId: '',
+      error: null
+    }));
     return res.status(status).render('add-url', {
       title: 'Add URL',
       error: msg,
       projects,
       headlessAvailable: canUseHeadless(req.userPlan),
       currentPlanName: String(req.userPlan?.name || 'Free'),
+      slackChannels: slackSelector.channels,
+      slackConnected: slackSelector.connected,
+      slackChannelsError: slackSelector.error,
+      slackDefaultChannelId: slackSelector.defaultChannelId,
       upgradePrompt,
       values: req.body
     });
@@ -324,6 +451,11 @@ router.post('/add', requireAuth, async (req, res) => {
   const rtThreshold = parseInt(response_time_threshold_ms, 10) || null;
   const fieldsNotificationConfig = parseFieldNotificationConfigFromBody(req.body);
   const pdThreshold = normalizePagerDutyThreshold(pagerduty_threshold);
+  const slackOverrideInput = String(slack_channel_id || '').trim();
+  const slackCustomInput = String(req.body.slack_channel_custom || '').trim();
+  const normalizedSlackChannelId = slackOverrideInput === '__custom__'
+    ? (slackCustomInput || null)
+    : (slackOverrideInput || null);
   const maintenanceDuration = parseInt(maintenance_duration_minutes, 10);
   const safeMaintenanceDuration = Number.isFinite(maintenanceDuration) && maintenanceDuration > 0
     ? maintenanceDuration
@@ -361,7 +493,7 @@ router.post('/add', requireAuth, async (req, res) => {
         webhook_url?.trim() || req.user.default_webhook_url || null,
         discord_webhook_url?.trim() || null,
         !!send_to_slack,
-        slack_channel_id?.trim() || null,
+        normalizedSlackChannelId,
         pdThreshold,
         JSON.stringify(fieldsNotificationConfig),
         normalizeTags(tags),
@@ -691,12 +823,22 @@ router.get('/:id/edit', requireAuth, async (req, res) => {
     const { rows: [urlRecord] } = await pool.query(query, params);
     if (!urlRecord) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
     const projects = await getProjectsForUser(req.user.id).catch(() => []);
+    const slackSelector = await getSlackChannelSelectorData(req.user.id).catch(() => ({
+      connected: false,
+      channels: [],
+      defaultChannelId: '',
+      error: null
+    }));
 
     res.render('edit-url', {
       title: 'Edit URL',
       error: null,
       urlRecord,
       projects,
+      slackChannels: slackSelector.channels,
+      slackConnected: slackSelector.connected,
+      slackChannelsError: slackSelector.error,
+      slackDefaultChannelId: slackSelector.defaultChannelId,
       cloned: !!req.query.cloned,
       upgradePrompt: null,
       headlessAvailable: canUseHeadless(req.userPlan),
@@ -731,11 +873,21 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
     const { query: q, params: p } = ownedUrlQuery(urlId, req);
     const { rows: [urlRecord] } = await pool.query(q, p);
     const projects = await getProjectsForUser(req.user.id).catch(() => []);
+    const slackSelector = await getSlackChannelSelectorData(req.user.id).catch(() => ({
+      connected: false,
+      channels: [],
+      defaultChannelId: '',
+      error: null
+    }));
     return res.render('edit-url', {
       title: 'Edit URL',
       error: 'Invalid check interval.',
       urlRecord,
       projects,
+      slackChannels: slackSelector.channels,
+      slackConnected: slackSelector.connected,
+      slackChannelsError: slackSelector.error,
+      slackDefaultChannelId: slackSelector.defaultChannelId,
       upgradePrompt: null,
       headlessAvailable: canUseHeadless(req.userPlan),
       currentPlanName: String(req.userPlan?.name || 'Free')
@@ -748,19 +900,35 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
     : null;
   const fieldsNotificationConfig = parseFieldNotificationConfigFromBody(req.body);
   const pdThreshold = normalizePagerDutyThreshold(pagerduty_threshold);
+  const slackOverrideInput = String(slack_channel_id || '').trim();
+  const slackCustomInput = String(req.body.slack_channel_custom || '').trim();
+  const normalizedSlackChannelId = slackOverrideInput === '__custom__'
+    ? (slackCustomInput || null)
+    : (slackOverrideInput || null);
   const safeProjectId = await resolveProjectIdForUser(project_id, req.user.id).catch(() => null);
   const currentPlan = req.userPlan || { name: 'Free', check_interval_min: 60 };
+  const loadSlackSelector = () => getSlackChannelSelectorData(req.user.id).catch(() => ({
+    connected: false,
+    channels: [],
+    defaultChannelId: '',
+    error: null
+  }));
   const { query: existingQ, params: existingP } = ownedUrlQuery(urlId, req);
   const { rows: [existingRecord] } = await pool.query(existingQ, existingP);
   if (!existingRecord) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
   const requestedRenderMode = normalizeRenderMode(render_mode || existingRecord.render_mode);
   if (!isIntervalAllowed(currentPlan, interval)) {
     const projects = await getProjectsForUser(req.user.id).catch(() => []);
+    const slackSelector = await loadSlackSelector();
     return res.status(402).render('edit-url', {
       title: 'Edit URL',
       error: `Your current plan requires interval >= ${minIntervalForPlan(currentPlan)} minutes.`,
       urlRecord: existingRecord,
       projects,
+      slackChannels: slackSelector.channels,
+      slackConnected: slackSelector.connected,
+      slackChannelsError: slackSelector.error,
+      slackDefaultChannelId: slackSelector.defaultChannelId,
       upgradePrompt: {
         title: 'Upgrade your plan',
         message: `${currentPlan.name} plan minimum interval is ${minIntervalForPlan(currentPlan)} minutes.`
@@ -772,11 +940,16 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
   const existingRenderMode = normalizeRenderMode(existingRecord.render_mode);
   if (requestedRenderMode === 'headless' && !canUseHeadless(currentPlan) && existingRenderMode !== 'headless') {
     const projects = await getProjectsForUser(req.user.id).catch(() => []);
+    const slackSelector = await loadSlackSelector();
     return res.status(402).render('edit-url', {
       title: 'Edit URL',
       error: 'Headless rendering is available on Pro and Agency plans.',
       urlRecord: existingRecord,
       projects,
+      slackChannels: slackSelector.channels,
+      slackConnected: slackSelector.connected,
+      slackChannelsError: slackSelector.error,
+      slackDefaultChannelId: slackSelector.defaultChannelId,
       upgradePrompt: {
         title: 'Upgrade to Pro',
         message: `${currentPlan.name} plan does not include JavaScript rendering. Upgrade to Pro or Agency to enable headless checks.`
@@ -813,7 +986,7 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
             telegram_bot_token?.trim() || null,
             telegram_chat_id?.trim() || null, webhook_url?.trim() || null, discord_webhook_url?.trim() || null,
             JSON.stringify(fieldsNotificationConfig),
-            !!send_to_slack, slack_channel_id?.trim() || null, pdThreshold,
+            !!send_to_slack, normalizedSlackChannelId, pdThreshold,
             silenced_until?.trim() || null, normalizeTags(tags), notes?.trim() || '',
             maintenance_cron?.trim() || null, safeMaintenanceDuration,
             urlId, req.user.id
@@ -828,7 +1001,7 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
             telegram_bot_token?.trim() || null,
             telegram_chat_id?.trim() || null, webhook_url?.trim() || null, discord_webhook_url?.trim() || null,
             JSON.stringify(fieldsNotificationConfig),
-            !!send_to_slack, slack_channel_id?.trim() || null, pdThreshold,
+            !!send_to_slack, normalizedSlackChannelId, pdThreshold,
             silenced_until?.trim() || null, normalizeTags(tags), notes?.trim() || '',
             maintenance_cron?.trim() || null, safeMaintenanceDuration,
             urlId
@@ -852,11 +1025,16 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
     const { query: q, params: p } = ownedUrlQuery(urlId, req);
     const { rows: [urlRecord] } = await pool.query(q, p);
     const projects = await getProjectsForUser(req.user.id).catch(() => []);
+    const slackSelector = await loadSlackSelector();
     res.render('edit-url', {
       title: 'Edit URL',
       error: err.message,
       urlRecord,
       projects,
+      slackChannels: slackSelector.channels,
+      slackConnected: slackSelector.connected,
+      slackChannelsError: slackSelector.error,
+      slackDefaultChannelId: slackSelector.defaultChannelId,
       upgradePrompt: null,
       headlessAvailable: canUseHeadless(req.userPlan),
       currentPlanName: String(req.userPlan?.name || 'Free')
