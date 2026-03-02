@@ -1,0 +1,100 @@
+<div class="page-header">
+  <div>
+    <div class="breadcrumb"><a href="/dashboard">Dashboard</a> / Integrations</div>
+    <h1 class="page-title">Integrations</h1>
+  </div>
+</div>
+
+<% if (message) { %>
+  <div class="alert-banner alert-banner--info" style="margin-bottom:12px"><%= message %></div>
+<% } %>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-header">
+    <h2 class="card-title">Slack</h2>
+    <span class="badge <%= integrations.slack ? 'badge--ok' : 'badge--paused' %>">
+      <%= integrations.slack ? 'Connected' : 'Not connected' %>
+    </span>
+  </div>
+  <div style="padding:14px 20px">
+    <% if (!slackReady) { %>
+      <div class="alert-banner alert-banner--info" style="margin-bottom:10px">
+        Slack OAuth is disabled. Set <code>SLACK_CLIENT_ID</code>, <code>SLACK_CLIENT_SECRET</code>, <code>SLACK_REDIRECT_URI</code>.
+      </div>
+    <% } %>
+
+    <% if (integrations.slack) { %>
+      <div style="font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:10px">
+        <div><strong style="color:var(--text)">Workspace:</strong> <%= integrations.slack.workspace_name || integrations.slack.workspace_id || '—' %></div>
+        <div><strong style="color:var(--text)">Channel:</strong> <%= integrations.slack.channel_name ? ('#' + integrations.slack.channel_name) : (integrations.slack.channel_id || '—') %></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <form action="/integrations/slack/test" method="POST">
+          <button type="submit" class="btn btn-ghost">Send Test</button>
+        </form>
+        <form action="/integrations/slack/disconnect" method="POST" data-confirm="Disconnect Slack integration?">
+          <button type="submit" class="btn btn-danger">Disconnect</button>
+        </form>
+      </div>
+    <% } else { %>
+      <p class="text-muted" style="font-size:13px;margin-bottom:10px">
+        Connect Slack to receive MetaWatch alerts in your workspace default channel.
+      </p>
+      <a href="/integrations/slack/connect" class="btn btn-primary">
+        Connect Slack
+      </a>
+    <% } %>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-header">
+    <h2 class="card-title">PagerDuty</h2>
+    <span class="badge <%= integrations.pagerduty ? 'badge--ok' : 'badge--paused' %>">
+      <%= integrations.pagerduty ? 'Connected' : 'Not connected' %>
+    </span>
+  </div>
+  <div style="padding:14px 20px">
+    <% if (integrations.pagerduty) { %>
+      <div style="font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:10px">
+        <div><strong style="color:var(--text)">Service:</strong> <%= integrations.pagerduty.service_name %></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        <form action="/integrations/pagerduty/test" method="POST">
+          <button type="submit" class="btn btn-ghost">Trigger Test Incident</button>
+        </form>
+        <form action="/integrations/pagerduty/disconnect" method="POST" data-confirm="Disconnect PagerDuty integration?">
+          <button type="submit" class="btn btn-danger">Disconnect</button>
+        </form>
+      </div>
+    <% } %>
+
+    <form action="/integrations/pagerduty/connect" method="POST" class="form">
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label" for="service_name">Service Name</label>
+          <input id="service_name" name="service_name" class="form-input" required
+                 value="<%= integrations.pagerduty ? integrations.pagerduty.service_name : '' %>"
+                 placeholder="Production Website">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="integration_key">Integration Key (Events API v2)</label>
+          <input id="integration_key" name="integration_key" class="form-input" required type="password"
+                 placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary"><%= integrations.pagerduty ? 'Update PagerDuty' : 'Connect PagerDuty' %></button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h2 class="card-title">Discord & Zapier</h2>
+  </div>
+  <div style="padding:14px 20px;font-size:13px;color:var(--text-muted);line-height:1.8">
+    <div><strong style="color:var(--text)">Discord:</strong> Per-URL webhook field is available in URL and Uptime monitor settings.</div>
+    <div><strong style="color:var(--text)">Zapier:</strong> Use Webhook alerts with signed payloads. Signature header: <code>X-MetaWatch-Signature</code>.</div>
+    <div><a href="/help#integrations">Open integrations help</a></div>
+  </div>
+</div>

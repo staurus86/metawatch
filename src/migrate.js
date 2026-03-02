@@ -176,6 +176,12 @@ async function migrate() {
       'ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS telegram_bot_token TEXT',
       'ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT',
       'ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS webhook_url TEXT',
+      'ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS discord_webhook_url TEXT',
+      'ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS send_to_slack BOOLEAN NOT NULL DEFAULT false',
+      'ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS slack_channel_id TEXT',
+      "ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS pagerduty_threshold VARCHAR(20) NOT NULL DEFAULT 'critical_only'",
+      "ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS fields_notification_config JSONB NOT NULL DEFAULT '{}'::jsonb",
+      "ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS render_mode VARCHAR(20) NOT NULL DEFAULT 'static'",
       'ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS reference_snapshot_id INT REFERENCES snapshots(id) ON DELETE SET NULL'
     ];
     for (const sql of muCols) await client.query(sql);
@@ -188,7 +194,8 @@ async function migrate() {
       'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS og_image TEXT',
       'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS custom_text_found BOOLEAN',
       'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS response_time_ms INTEGER',
-      'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS ssl_expires_at TIMESTAMPTZ'
+      'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS ssl_expires_at TIMESTAMPTZ',
+      'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS headless_required BOOLEAN NOT NULL DEFAULT false'
     ];
     for (const sql of snapCols) await client.query(sql);
 
@@ -230,11 +237,15 @@ async function migrate() {
         telegram_token TEXT,
         telegram_chat_id TEXT,
         webhook_url TEXT,
+        discord_webhook_url TEXT,
         threshold_ms INTEGER NOT NULL DEFAULT 3000,
         silenced_until TIMESTAMPTZ,
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
     `);
+    await client.query(
+      'ALTER TABLE uptime_monitors ADD COLUMN IF NOT EXISTS discord_webhook_url TEXT'
+    );
 
     // ─── uptime_checks ────────────────────────────────────────────────────────
     await client.query(`
@@ -317,12 +328,49 @@ async function migrate() {
         field_changed VARCHAR(100),
         severity VARCHAR(10),
         status VARCHAR(10) NOT NULL DEFAULT 'sent',
+        suppression_reason VARCHAR(100),
         error_message TEXT,
         sent_at TIMESTAMPTZ DEFAULT NOW()
       )
     `);
     await client.query(
+      'ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS suppression_reason VARCHAR(100)'
+    );
+    await client.query(
       `CREATE INDEX IF NOT EXISTS idx_notification_log_sent ON notification_log(sent_at DESC)`
+    );
+
+    // ─── integrations: Slack + PagerDuty ───────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS slack_integrations (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        workspace_name VARCHAR(255),
+        workspace_id VARCHAR(100),
+        channel_id VARCHAR(100),
+        channel_name VARCHAR(120),
+        bot_token TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await client.query(
+      'CREATE UNIQUE INDEX IF NOT EXISTS uq_slack_integrations_user ON slack_integrations(user_id)'
+    );
+    await client.query(
+      'CREATE INDEX IF NOT EXISTS idx_slack_integrations_workspace ON slack_integrations(workspace_id)'
+    );
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pagerduty_integrations (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        integration_key TEXT NOT NULL,
+        service_name VARCHAR(255) NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await client.query(
+      'CREATE UNIQUE INDEX IF NOT EXISTS uq_pagerduty_integrations_user ON pagerduty_integrations(user_id)'
     );
 
     // ─── onboarding email sequence log ──────────────────────────────────────
@@ -565,6 +613,12 @@ async function migrate() {
     await client.query(
       'ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS alert_cooldown_minutes INTEGER NOT NULL DEFAULT 60'
     );
+    await client.query(
+      'ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS health_score INTEGER'
+    );
+    await client.query(
+      'ALTER TABLE monitored_urls ADD COLUMN IF NOT EXISTS health_score_updated_at TIMESTAMPTZ'
+    );
 
     // snapshots: richer monitoring signals (backward compatible)
     const snapshotSignalCols = [
@@ -633,6 +687,7 @@ async function migrate() {
       'CREATE INDEX IF NOT EXISTS idx_snapshots_checked_at ON snapshots(checked_at)',
       'CREATE INDEX IF NOT EXISTS idx_alerts_detected_at ON alerts(detected_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_alerts_url_field_new_detected ON alerts(url_id, field_changed, new_value, detected_at DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_monitored_urls_user_health ON monitored_urls(user_id, health_score)',
       'CREATE INDEX IF NOT EXISTS idx_notification_log_status_sent ON notification_log(status, sent_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_audit_log_user_created ON audit_log(user_id, created_at DESC)'
     ];

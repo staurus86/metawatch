@@ -175,6 +175,44 @@ router.get('/url/:id/response-times', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/url/:id/change-heatmap — alert changes per day (last 365 days)
+router.get('/url/:id/change-heatmap', requireAuth, async (req, res) => {
+  const urlId = parseInt(req.params.id, 10);
+  if (isNaN(urlId)) return res.status(400).json({ error: 'Invalid ID' });
+
+  const isAdmin = req.user?.role === 'admin';
+  try {
+    const { rows: [owned] } = await pool.query(
+      isAdmin
+        ? 'SELECT id FROM monitored_urls WHERE id = $1'
+        : 'SELECT id FROM monitored_urls WHERE id = $1 AND user_id = $2',
+      isAdmin ? [urlId] : [urlId, req.user.id]
+    );
+    if (!owned) return res.status(404).json({ error: 'Not found' });
+
+    const { rows } = await pool.query(
+      `SELECT DATE(detected_at AT TIME ZONE 'UTC') AS d, COUNT(*)::int AS cnt
+       FROM alerts
+       WHERE url_id = $1
+         AND detected_at >= NOW() - INTERVAL '365 days'
+       GROUP BY DATE(detected_at AT TIME ZONE 'UTC')
+       ORDER BY d ASC`,
+      [urlId]
+    );
+
+    const out = {};
+    for (const row of rows) {
+      const key = row.d instanceof Date
+        ? row.d.toISOString().slice(0, 10)
+        : String(row.d || '').slice(0, 10);
+      if (key) out[key] = parseInt(row.cnt, 10) || 0;
+    }
+    res.json(out);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/stats — chart data (requires cookie auth)
 router.get('/stats', requireAuth, async (req, res) => {
   try {
@@ -204,6 +242,7 @@ router.get('/stats', requireAuth, async (req, res) => {
       )
       SELECT
         (SELECT COUNT(*)::int FROM monitored_urls) AS total_urls,
+        (SELECT ROUND(AVG(health_score)::numeric, 1) FROM monitored_urls) AS avg_health_score,
         (SELECT COUNT(*)::int FROM latest) AS latest_count,
         (SELECT COUNT(*)::int FROM latest WHERE status_code = 0 OR status_code >= 400) AS error_count,
         (SELECT COUNT(*)::int FROM latest WHERE noindex = true) AS noindex_count,
@@ -232,6 +271,7 @@ router.get('/stats', requireAuth, async (req, res) => {
       )
       SELECT
         (SELECT COUNT(*)::int FROM monitored_urls WHERE user_id = $1) AS total_urls,
+        (SELECT ROUND(AVG(health_score)::numeric, 1) FROM monitored_urls WHERE user_id = $1) AS avg_health_score,
         (SELECT COUNT(*)::int FROM latest) AS latest_count,
         (SELECT COUNT(*)::int FROM latest WHERE status_code = 0 OR status_code >= 400) AS error_count,
         (SELECT COUNT(*)::int FROM latest WHERE noindex = true) AS noindex_count,
@@ -308,7 +348,8 @@ router.get('/stats', requireAuth, async (req, res) => {
         ok: okCount,
         changed: changedCount,
         error: errorCount,
-        pending: pendingCount
+        pending: pendingCount,
+        avg_health_score: summary?.avg_health_score != null ? Number(summary.avg_health_score) : null
       },
       indexability: { indexed, noindex },
       changeStatus: { changed: changedCount, unchanged: unchangedCount },
@@ -577,6 +618,8 @@ router.get('/docs', (req, res) => {
     h3 { font-size: 15px; margin-top: 20px; color: #4a5568; }
     .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 700; }
     .get { background: #ebf8ff; color: #2b6cb0; }
+    .post { background: #f0fff4; color: #2f855a; }
+    .put { background: #fffaf0; color: #b7791f; }
     code, pre { background: #1a202c; color: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
     pre { padding: 14px 18px; overflow-x: auto; margin: 8px 0; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -592,40 +635,92 @@ router.get('/docs', (req, res) => {
   <h2>Authentication</h2>
   <p>Pass your API key in the <code>X-API-Key</code> header on every request.</p>
   <p>Find your API key at <a href="${baseUrl}/profile">${baseUrl}/profile</a>.</p>
-  <pre>curl -H "X-API-Key: YOUR_KEY" ${baseUrl}/api/tasks</pre>
+  <pre>curl -H "X-API-Key: YOUR_KEY" ${baseUrl}/api/v2/urls</pre>
 
   <h2>Rate Limits</h2>
   <div class="note">${API_RATE_LIMIT_MAX} requests per ${limitWindowSec}s per API key (or per IP if no API key). Exceeding returns <code>429</code>.</div>
 
-  <h2>Endpoints</h2>
+  <h2>API v2 Envelope</h2>
+  <p>All <code>/api/v2</code> endpoints use one standard response format.</p>
+  <pre>{
+  "data": [],
+  "meta": { "total": 0, "page": 1, "per_page": 25, "pages": 1 },
+  "error": null
+}</pre>
+
+  <h2>API v2 Endpoints</h2>
+  <table>
+    <thead><tr><th>Method</th><th>Path</th><th>Auth</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/v2/urls</code></td><td>API Key</td><td>URLs list with filters/sort/pagination</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/v2/urls/:id</code></td><td>API Key</td><td>URL config + latest snapshot</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/v2/urls/:id/snapshots</code></td><td>API Key</td><td>Paginated snapshots for URL</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/v2/urls/:id/alerts</code></td><td>API Key</td><td>Paginated URL alerts with severity/date filters</td></tr>
+      <tr><td><span class="badge post">POST</span></td><td><code>/api/v2/urls/:id/check</code></td><td>API Key</td><td>Queue immediate URL check</td></tr>
+      <tr><td><span class="badge put">PUT</span></td><td><code>/api/v2/urls/:id/accept-changes</code></td><td>API Key</td><td>Accept pending changes as new reference</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/v2/urls/:id/change-heatmap</code></td><td>API Key</td><td>Change counts by day (last 365 days)</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/v2/uptime</code></td><td>API Key</td><td>All uptime monitors + current stats</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/v2/uptime/:id</code></td><td>API Key</td><td>Monitor details + 1h/24h/7d/30d uptime</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/v2/uptime/:id/incidents</code></td><td>API Key</td><td>Paginated incidents for monitor</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/v2/alerts</code></td><td>API Key</td><td>Cross-URL alerts feed with filters</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/v2/stats</code></td><td>API Key</td><td>Dashboard stats in v2 envelope</td></tr>
+    </tbody>
+  </table>
+
+  <h2>API v2 Query Params</h2>
+  <p><code>/api/v2/urls</code>: <code>page</code>, <code>per_page</code>, <code>q</code>, <code>tag</code>, <code>project_id</code>, <code>status</code> (<code>ok|changed|error|paused</code>), <code>sort</code> (<code>last_checked|health_score|url</code>), <code>dir</code> (<code>asc|desc</code>).</p>
+  <p><code>/api/v2/alerts</code>: <code>page</code>, <code>per_page</code>, <code>severity</code>, <code>field</code>, <code>from</code>, <code>to</code>, <code>url_id</code>.</p>
+  <p><code>/api/v2/urls/:id/snapshots</code> and <code>/api/v2/urls/:id/alerts</code>: support <code>page</code>, <code>per_page</code>, <code>from</code>, <code>to</code>.</p>
+
+  <h2>API v2 cURL Examples</h2>
+  <h3>List URLs</h3>
+  <pre>curl -H "X-API-Key: YOUR_KEY" "${baseUrl}/api/v2/urls?page=1&per_page=25&status=changed&sort=health_score&dir=asc"</pre>
+
+  <h3>URL details</h3>
+  <pre>curl -H "X-API-Key: YOUR_KEY" ${baseUrl}/api/v2/urls/123</pre>
+
+  <h3>Queue immediate check</h3>
+  <pre>curl -X POST -H "X-API-Key: YOUR_KEY" ${baseUrl}/api/v2/urls/123/check</pre>
+
+  <h3>Accept changes</h3>
+  <pre>curl -X PUT -H "X-API-Key: YOUR_KEY" ${baseUrl}/api/v2/urls/123/accept-changes</pre>
+
+  <h3>Uptime monitor details</h3>
+  <pre>curl -H "X-API-Key: YOUR_KEY" ${baseUrl}/api/v2/uptime/45</pre>
+
+  <h3>Response example</h3>
+  <pre>{
+  "data": [
+    {
+      "id": 1,
+      "url": "https://example.com",
+      "status": "changed",
+      "health_score": 82,
+      "last_checked": "2026-03-02T08:10:00.000Z"
+    }
+  ],
+  "meta": { "total": 1, "page": 1, "per_page": 25, "pages": 1 },
+  "error": null
+}</pre>
+
+  <h2>Legacy API (v1)</h2>
   <table>
     <thead><tr><th>Method</th><th>Path</th><th>Auth</th><th>Description</th></tr></thead>
     <tbody>
       <tr><td><span class="badge get">GET</span></td><td><code>/api/health</code></td><td>—</td><td>Health check</td></tr>
-      <tr><td><span class="badge get">GET</span></td><td><code>/api/tasks</code></td><td>API Key</td><td>List all monitored URLs</td></tr>
-      <tr><td><span class="badge get">GET</span></td><td><code>/api/tasks/:id/results</code></td><td>API Key</td><td>Latest snapshot + recent alerts for a URL</td></tr>
-      <tr><td><span class="badge get">GET</span></td><td><code>/api/uptime/check-domain?domain=</code></td><td>API Key</td><td>Check if domain is monitored (used by browser extension)</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/tasks</code></td><td>API Key</td><td>List monitored URLs</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/tasks/:id/results</code></td><td>API Key</td><td>URL latest results</td></tr>
+      <tr><td><span class="badge get">GET</span></td><td><code>/api/uptime/check-domain?domain=</code></td><td>API Key</td><td>Domain check for extension</td></tr>
       <tr><td><span class="badge get">GET</span></td><td><code>/api/stats</code></td><td>Cookie</td><td>Dashboard chart data</td></tr>
-      <tr><td><span class="badge get">GET</span></td><td><code>/api/url/:id/response-times</code></td><td>Cookie</td><td>Response time history for Chart.js</td></tr>
-      <tr><td><span class="badge get">GET</span></td><td><code>/api/uptime/:id/rt</code></td><td>Cookie</td><td>Uptime monitor RT history</td></tr>
-      <tr><td><span class="badge get">GET</span></td><td><code>/api/competitor/:id/title-history</code></td><td>Cookie</td><td>Competitor title length chart data</td></tr>
     </tbody>
   </table>
-
-  <h2>Response Examples</h2>
-
-  <h3>GET /api/tasks</h3>
-  <pre>{ "tasks": [{ "id": 1, "url": "https://example.com", "is_active": true, "status_code": 200, "last_checked": "2025-06-01T12:00:00Z", "alert_count_24h": 0 }] }</pre>
-
-  <h3>GET /api/uptime/check-domain?domain=example.com</h3>
-  <pre>{ "monitored": true, "domain": "example.com", "monitor_id": 3, "name": "Main Site", "status": "up", "response_time_ms": 142, "uptime_30d": 99.9 }</pre>
 
   <h3>Error responses</h3>
   <pre>{ "error": "Unauthorized" }  // 401
 { "error": "Not found" }       // 404
  { "error": "Too many requests..." }  // 429</pre>
 
-  <p style="margin-top:40px;color:#a0aec0;font-size:13px">MetaWatch API v2 · <a href="${baseUrl}">Back to dashboard</a></p>
+  <p style="margin-top:40px;color:#a0aec0;font-size:13px">MetaWatch API docs · <a href="${baseUrl}">Back to dashboard</a></p>
 </body>
 </html>`);
 });

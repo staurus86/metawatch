@@ -7,6 +7,7 @@ const { XMLParser } = require('fast-xml-parser');
 const axios = require('axios');
 const pool = require('../db');
 const { checkUrl } = require('../checker');
+const { sendPagerDuty } = require('../notifier');
 const { scheduleUrl, unscheduleUrl } = require('../scheduler');
 const { requireAuth } = require('../auth');
 const { checkSemaphore, domainRateLimit } = require('../queue');
@@ -24,6 +25,31 @@ const {
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 const MAX_BULK_IMPORT_URLS = 500;
 const BULK_PREVIEW_ROW_LIMIT = 1000;
+const FIELD_NOTIFICATION_OVERRIDE_KEYS = [
+  'title',
+  'description',
+  'h1',
+  'page_content',
+  'response_code',
+  'noindex',
+  'redirect',
+  'canonical',
+  'robots',
+  'hreflang',
+  'og',
+  'custom_text',
+  'ssl',
+  'response_time'
+];
+const ALLOWED_FIELD_NOTIFICATION_MODES = new Set([
+  'default',
+  'silent',
+  'email_only',
+  'telegram_only',
+  'slack_only',
+  'critical_only'
+]);
+const PAGERDUTY_THRESHOLDS = new Set(['critical_only', 'warning_plus', 'all']);
 
 const ALERT_FIELD_TO_SNAPSHOT_COLUMNS = {
   Title: ['title'],
@@ -47,6 +73,30 @@ const ALERT_FIELD_TO_SNAPSHOT_COLUMNS = {
   'Custom Text': ['custom_text_found'],
   'SSL Certificate': ['ssl_expires_at']
 };
+
+function parseFieldNotificationConfigFromBody(body) {
+  const config = {};
+  for (const key of FIELD_NOTIFICATION_OVERRIDE_KEYS) {
+    const mode = String(body?.[`nf_${key}`] || 'default').trim().toLowerCase();
+    if (!ALLOWED_FIELD_NOTIFICATION_MODES.has(mode)) continue;
+    if (mode !== 'default') config[key] = mode;
+  }
+  return config;
+}
+
+function normalizePagerDutyThreshold(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return PAGERDUTY_THRESHOLDS.has(normalized) ? normalized : 'critical_only';
+}
+
+function normalizeRenderMode(value) {
+  return String(value || '').trim().toLowerCase() === 'headless' ? 'headless' : 'static';
+}
+
+function canUseHeadless(userPlan) {
+  const planName = String(userPlan?.name || '').trim().toLowerCase();
+  return planName === 'pro' || planName === 'agency';
+}
 
 function normalizeImportUrl(value) {
   const url = String(value || '').trim();
@@ -104,6 +154,47 @@ async function resolveProjectIdForUser(rawProjectId, userId) {
   return project?.id || null;
 }
 
+async function getPagerDutyIntegrationKeyForUser(userId) {
+  if (!userId) return null;
+  const { rows: [row] } = await pool.query(
+    `SELECT integration_key
+     FROM pagerduty_integrations
+     WHERE user_id = $1
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [userId]
+  );
+  return row?.integration_key || null;
+}
+
+async function resolvePagerDutyForAcceptedFields({ userId, urlId, url, fields }) {
+  if (!userId || !urlId || !url) return;
+  const uniqueFields = [...new Set((fields || []).map(f => String(f || '').trim()).filter(Boolean))];
+  if (uniqueFields.length === 0) return;
+  const integrationKey = await getPagerDutyIntegrationKeyForUser(userId);
+  if (!integrationKey) return;
+
+  for (const field of uniqueFields) {
+    try {
+      await sendPagerDuty({
+        integrationKey,
+        action: 'resolve',
+        alert: {
+          urlId,
+          url,
+          field,
+          severity: 'critical',
+          oldValue: '',
+          newValue: '',
+          timestamp: new Date()
+        }
+      });
+    } catch {
+      // non-critical
+    }
+  }
+}
+
 // Return SQL + params to fetch a URL with ownership check
 function ownedUrlQuery(urlId, req) {
   const isAdmin = req.user?.role === 'admin';
@@ -119,16 +210,25 @@ function ownedUrlQuery(urlId, req) {
 router.get('/add', requireAuth, async (req, res) => {
   const projects = await getProjectsForUser(req.user.id).catch(() => []);
   const selectedProjectId = await resolveProjectIdForUser(req.query.project_id, req.user.id).catch(() => null);
+  const headlessAvailable = canUseHeadless(req.userPlan);
+  const currentPlanName = String(req.userPlan?.name || 'Free');
   res.render('add-url', {
     title: 'Add URL',
     error: null,
     projects,
+    headlessAvailable,
+    currentPlanName,
     values: {
       project_id: selectedProjectId ? String(selectedProjectId) : '',
       email: req.user.default_alert_email || '',
       telegram_bot_token: req.user.default_telegram_token || '',
       telegram_chat_id: req.user.default_telegram_chat_id || '',
       webhook_url: req.user.default_webhook_url || '',
+      discord_webhook_url: '',
+      send_to_slack: false,
+      slack_channel_id: '',
+      pagerduty_threshold: 'critical_only',
+      render_mode: 'static',
       check_interval_minutes: '60',
       monitor_title: true,
       monitor_description: true,
@@ -154,7 +254,9 @@ router.post('/add', requireAuth, async (req, res) => {
     monitor_canonical, monitor_robots, monitor_hreflang, monitor_og,
     monitor_ssl,
     user_agent, ignore_numbers, custom_text,
-    telegram_bot_token, telegram_chat_id, webhook_url,
+    render_mode,
+    telegram_bot_token, telegram_chat_id, webhook_url, discord_webhook_url,
+    send_to_slack, slack_channel_id, pagerduty_threshold,
     project_id,
     tags, notes, response_time_threshold_ms,
     maintenance_cron, maintenance_duration_minutes
@@ -166,6 +268,8 @@ router.post('/add', requireAuth, async (req, res) => {
       title: 'Add URL',
       error: msg,
       projects,
+      headlessAvailable: canUseHeadless(req.userPlan),
+      currentPlanName: String(req.userPlan?.name || 'Free'),
       upgradePrompt,
       values: req.body
     });
@@ -205,8 +309,20 @@ router.post('/add', requireAuth, async (req, res) => {
       }
     });
   }
+  const desiredRenderMode = normalizeRenderMode(render_mode);
+  if (desiredRenderMode === 'headless' && !canUseHeadless(currentPlan)) {
+    return await renderError('Headless rendering is available on Pro and Agency plans.', {
+      status: 402,
+      upgradePrompt: {
+        title: 'Upgrade to Pro',
+        message: `${currentPlan.name} plan does not include JavaScript rendering. Upgrade to Pro or Agency to enable headless checks.`
+      }
+    });
+  }
   const safeProjectId = await resolveProjectIdForUser(project_id, req.user.id).catch(() => null);
   const rtThreshold = parseInt(response_time_threshold_ms, 10) || null;
+  const fieldsNotificationConfig = parseFieldNotificationConfigFromBody(req.body);
+  const pdThreshold = normalizePagerDutyThreshold(pagerduty_threshold);
   const maintenanceDuration = parseInt(maintenance_duration_minutes, 10);
   const safeMaintenanceDuration = Number.isFinite(maintenanceDuration) && maintenanceDuration > 0
     ? maintenanceDuration
@@ -219,10 +335,12 @@ router.post('/add', requireAuth, async (req, res) => {
           monitor_title, monitor_description, monitor_h1, monitor_body,
           monitor_status_code, monitor_noindex, monitor_redirect,
           monitor_canonical, monitor_robots, monitor_hreflang, monitor_og, monitor_ssl,
-          user_agent, ignore_numbers, custom_text,
-          telegram_bot_token, telegram_chat_id, webhook_url, tags, notes,
+          user_agent, ignore_numbers, custom_text, render_mode,
+          telegram_bot_token, telegram_chat_id, webhook_url, discord_webhook_url,
+          send_to_slack, slack_channel_id, pagerduty_threshold,
+          fields_notification_config, tags, notes,
           response_time_threshold_ms, maintenance_cron, maintenance_duration_minutes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34)
         RETURNING *`,
       [
         safeUrl,
@@ -236,9 +354,15 @@ router.post('/add', requireAuth, async (req, res) => {
         user_agent?.trim() || null,
         !!ignore_numbers,
         custom_text?.trim() || null,
+        desiredRenderMode,
         telegram_bot_token?.trim() || req.user.default_telegram_token || null,
         telegram_chat_id?.trim() || req.user.default_telegram_chat_id || null,
         webhook_url?.trim() || req.user.default_webhook_url || null,
+        discord_webhook_url?.trim() || null,
+        !!send_to_slack,
+        slack_channel_id?.trim() || null,
+        pdThreshold,
+        JSON.stringify(fieldsNotificationConfig),
         normalizeTags(tags),
         notes?.trim() || '',
         rtThreshold,
@@ -567,7 +691,16 @@ router.get('/:id/edit', requireAuth, async (req, res) => {
     if (!urlRecord) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
     const projects = await getProjectsForUser(req.user.id).catch(() => []);
 
-    res.render('edit-url', { title: 'Edit URL', error: null, urlRecord, projects, cloned: !!req.query.cloned, upgradePrompt: null });
+    res.render('edit-url', {
+      title: 'Edit URL',
+      error: null,
+      urlRecord,
+      projects,
+      cloned: !!req.query.cloned,
+      upgradePrompt: null,
+      headlessAvailable: canUseHeadless(req.userPlan),
+      currentPlanName: String(req.userPlan?.name || 'Free')
+    });
   } catch (err) {
     console.error(err);
     res.status(500).render('error', { title: 'Error', error: err.message });
@@ -584,8 +717,9 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
     monitor_title, monitor_description, monitor_h1, monitor_body,
     monitor_status_code, monitor_noindex, monitor_redirect,
     monitor_canonical, monitor_robots, monitor_hreflang, monitor_og, monitor_ssl,
-    user_agent, ignore_numbers, custom_text,
-    telegram_bot_token, telegram_chat_id, webhook_url,
+    user_agent, ignore_numbers, custom_text, render_mode,
+    telegram_bot_token, telegram_chat_id, webhook_url, discord_webhook_url,
+    send_to_slack, slack_channel_id, pagerduty_threshold,
     project_id,
     silenced_until, tags, notes,
     maintenance_cron, maintenance_duration_minutes
@@ -596,28 +730,58 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
     const { query: q, params: p } = ownedUrlQuery(urlId, req);
     const { rows: [urlRecord] } = await pool.query(q, p);
     const projects = await getProjectsForUser(req.user.id).catch(() => []);
-    return res.render('edit-url', { title: 'Edit URL', error: 'Invalid check interval.', urlRecord, projects, upgradePrompt: null });
+    return res.render('edit-url', {
+      title: 'Edit URL',
+      error: 'Invalid check interval.',
+      urlRecord,
+      projects,
+      upgradePrompt: null,
+      headlessAvailable: canUseHeadless(req.userPlan),
+      currentPlanName: String(req.userPlan?.name || 'Free')
+    });
   }
 
   const maintenanceDuration = parseInt(maintenance_duration_minutes, 10);
   const safeMaintenanceDuration = Number.isFinite(maintenanceDuration) && maintenanceDuration > 0
     ? maintenanceDuration
     : null;
+  const fieldsNotificationConfig = parseFieldNotificationConfigFromBody(req.body);
+  const pdThreshold = normalizePagerDutyThreshold(pagerduty_threshold);
   const safeProjectId = await resolveProjectIdForUser(project_id, req.user.id).catch(() => null);
   const currentPlan = req.userPlan || { name: 'Free', check_interval_min: 60 };
+  const { query: existingQ, params: existingP } = ownedUrlQuery(urlId, req);
+  const { rows: [existingRecord] } = await pool.query(existingQ, existingP);
+  if (!existingRecord) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
+  const requestedRenderMode = normalizeRenderMode(render_mode || existingRecord.render_mode);
   if (!isIntervalAllowed(currentPlan, interval)) {
-    const { query: q, params: p } = ownedUrlQuery(urlId, req);
-    const { rows: [urlRecord] } = await pool.query(q, p);
     const projects = await getProjectsForUser(req.user.id).catch(() => []);
     return res.status(402).render('edit-url', {
       title: 'Edit URL',
       error: `Your current plan requires interval >= ${minIntervalForPlan(currentPlan)} minutes.`,
-      urlRecord,
+      urlRecord: existingRecord,
       projects,
       upgradePrompt: {
         title: 'Upgrade your plan',
         message: `${currentPlan.name} plan minimum interval is ${minIntervalForPlan(currentPlan)} minutes.`
-      }
+      },
+      headlessAvailable: canUseHeadless(req.userPlan),
+      currentPlanName: String(req.userPlan?.name || 'Free')
+    });
+  }
+  const existingRenderMode = normalizeRenderMode(existingRecord.render_mode);
+  if (requestedRenderMode === 'headless' && !canUseHeadless(currentPlan) && existingRenderMode !== 'headless') {
+    const projects = await getProjectsForUser(req.user.id).catch(() => []);
+    return res.status(402).render('edit-url', {
+      title: 'Edit URL',
+      error: 'Headless rendering is available on Pro and Agency plans.',
+      urlRecord: existingRecord,
+      projects,
+      upgradePrompt: {
+        title: 'Upgrade to Pro',
+        message: `${currentPlan.name} plan does not include JavaScript rendering. Upgrade to Pro or Agency to enable headless checks.`
+      },
+      headlessAvailable: canUseHeadless(req.userPlan),
+      currentPlanName: String(req.userPlan?.name || 'Free')
     });
   }
 
@@ -629,11 +793,13 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
          monitor_status_code = $8, monitor_noindex = $9, monitor_redirect = $10,
          monitor_canonical = $11, monitor_robots = $12, monitor_hreflang = $13, monitor_og = $14,
          monitor_ssl = $15,
-         user_agent = $16, ignore_numbers = $17, custom_text = $18,
-         telegram_bot_token = $19, telegram_chat_id = $20, webhook_url = $21,
-         silenced_until = $22, tags = $23, notes = $24,
-         maintenance_cron = $25, maintenance_duration_minutes = $26
-       WHERE id = $27 ${req.user.role !== 'admin' ? 'AND user_id = $28' : ''}
+         user_agent = $16, ignore_numbers = $17, custom_text = $18, render_mode = $19,
+         telegram_bot_token = $20, telegram_chat_id = $21, webhook_url = $22, discord_webhook_url = $23,
+         fields_notification_config = $24,
+         send_to_slack = $25, slack_channel_id = $26, pagerduty_threshold = $27,
+         silenced_until = $28, tags = $29, notes = $30,
+         maintenance_cron = $31, maintenance_duration_minutes = $32
+       WHERE id = $33 ${req.user.role !== 'admin' ? 'AND user_id = $34' : ''}
        RETURNING *`,
       req.user.role !== 'admin'
         ? [
@@ -642,8 +808,11 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
             !!monitor_status_code, !!monitor_noindex, !!monitor_redirect,
             !!monitor_canonical, !!monitor_robots, !!monitor_hreflang, !!monitor_og,
             !!monitor_ssl, user_agent?.trim() || null, !!ignore_numbers,
-            custom_text?.trim() || null, telegram_bot_token?.trim() || null,
-            telegram_chat_id?.trim() || null, webhook_url?.trim() || null,
+            custom_text?.trim() || null, requestedRenderMode,
+            telegram_bot_token?.trim() || null,
+            telegram_chat_id?.trim() || null, webhook_url?.trim() || null, discord_webhook_url?.trim() || null,
+            JSON.stringify(fieldsNotificationConfig),
+            !!send_to_slack, slack_channel_id?.trim() || null, pdThreshold,
             silenced_until?.trim() || null, normalizeTags(tags), notes?.trim() || '',
             maintenance_cron?.trim() || null, safeMaintenanceDuration,
             urlId, req.user.id
@@ -654,8 +823,11 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
             !!monitor_status_code, !!monitor_noindex, !!monitor_redirect,
             !!monitor_canonical, !!monitor_robots, !!monitor_hreflang, !!monitor_og,
             !!monitor_ssl, user_agent?.trim() || null, !!ignore_numbers,
-            custom_text?.trim() || null, telegram_bot_token?.trim() || null,
-            telegram_chat_id?.trim() || null, webhook_url?.trim() || null,
+            custom_text?.trim() || null, requestedRenderMode,
+            telegram_bot_token?.trim() || null,
+            telegram_chat_id?.trim() || null, webhook_url?.trim() || null, discord_webhook_url?.trim() || null,
+            JSON.stringify(fieldsNotificationConfig),
+            !!send_to_slack, slack_channel_id?.trim() || null, pdThreshold,
             silenced_until?.trim() || null, normalizeTags(tags), notes?.trim() || '',
             maintenance_cron?.trim() || null, safeMaintenanceDuration,
             urlId
@@ -679,7 +851,15 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
     const { query: q, params: p } = ownedUrlQuery(urlId, req);
     const { rows: [urlRecord] } = await pool.query(q, p);
     const projects = await getProjectsForUser(req.user.id).catch(() => []);
-    res.render('edit-url', { title: 'Edit URL', error: err.message, urlRecord, projects, upgradePrompt: null });
+    res.render('edit-url', {
+      title: 'Edit URL',
+      error: err.message,
+      urlRecord,
+      projects,
+      upgradePrompt: null,
+      headlessAvailable: canUseHeadless(req.userPlan),
+      currentPlanName: String(req.userPlan?.name || 'Free')
+    });
   }
 });
 
@@ -831,12 +1011,24 @@ router.post('/:id/check-now', requireAuth, async (req, res) => {
 // POST /urls/:id/accept-changes — set reference_snapshot_id to latest
 router.post('/:id/accept-changes', requireAuth, async (req, res) => {
   const urlId = parseInt(req.params.id, 10);
+  if (isNaN(urlId)) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
   const isAdmin = req.user.role === 'admin';
   try {
+    const { query: ownerQ, params: ownerP } = ownedUrlQuery(urlId, req);
+    const { rows: [urlRecord] } = await pool.query(ownerQ, ownerP);
+    if (!urlRecord) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
+
     const { rows } = await pool.query(
       'SELECT id FROM snapshots WHERE url_id = $1 ORDER BY checked_at DESC LIMIT 1',
       [urlId]
     );
+    let pendingFields = [];
+    const { rows: pendingAlerts } = await pool.query(
+      'SELECT field_changed FROM alerts WHERE url_id = $1',
+      [urlId]
+    );
+    pendingFields = pendingAlerts.map(a => a.field_changed).filter(Boolean);
+
     if (rows[0]) {
       await pool.query(
         isAdmin
@@ -845,6 +1037,25 @@ router.post('/:id/accept-changes', requireAuth, async (req, res) => {
         isAdmin ? [rows[0].id, urlId] : [rows[0].id, urlId, req.user.id]
       );
     }
+
+    const { rowCount: deletedCount } = await pool.query(
+      'DELETE FROM alerts WHERE url_id = $1',
+      [urlId]
+    );
+
+    await resolvePagerDutyForAcceptedFields({
+      userId: urlRecord.user_id,
+      urlId,
+      url: urlRecord.url,
+      fields: pendingFields
+    });
+
+    await auditFromRequest(req, {
+      action: 'url.accept_all',
+      entityType: 'monitored_url',
+      entityId: urlId,
+      meta: { acceptedCount: deletedCount }
+    });
     res.redirect(`/urls/${urlId}`);
   } catch (err) {
     console.error(err);
@@ -928,6 +1139,13 @@ router.post('/:id/accept-selected', requireAuth, async (req, res) => {
       'DELETE FROM alerts WHERE url_id = $1 AND id = ANY($2::int[])',
       [urlId, selectedAlerts.map(a => a.id)]
     );
+
+    await resolvePagerDutyForAcceptedFields({
+      userId: urlRecord.user_id,
+      urlId,
+      url: urlRecord.url,
+      fields: selectedAlerts.map(a => a.field_changed)
+    });
 
     await auditFromRequest(req, {
       action: 'url.accept_selected',
@@ -1063,17 +1281,21 @@ router.post('/:id/clone', requireAuth, async (req, res) => {
           monitor_title, monitor_description, monitor_h1, monitor_body,
           monitor_status_code, monitor_noindex, monitor_redirect,
           monitor_canonical, monitor_robots, monitor_hreflang, monitor_og, monitor_ssl,
-          user_agent, ignore_numbers, custom_text,
-          telegram_bot_token, telegram_chat_id, webhook_url, tags, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+          user_agent, ignore_numbers, custom_text, render_mode,
+          telegram_bot_token, telegram_chat_id, webhook_url, discord_webhook_url,
+          send_to_slack, slack_channel_id, pagerduty_threshold,
+          fields_notification_config, tags, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)
        RETURNING *`,
       [
         src.url, src.email, src.check_interval_minutes, req.user.id, src.project_id || null,
         src.monitor_title, src.monitor_description, src.monitor_h1, src.monitor_body,
         src.monitor_status_code, src.monitor_noindex, src.monitor_redirect,
         src.monitor_canonical, src.monitor_robots, src.monitor_hreflang, src.monitor_og, src.monitor_ssl,
-        src.user_agent, src.ignore_numbers, src.custom_text,
-        src.telegram_bot_token, src.telegram_chat_id, src.webhook_url,
+        src.user_agent, src.ignore_numbers, src.custom_text, normalizeRenderMode(src.render_mode),
+        src.telegram_bot_token, src.telegram_chat_id, src.webhook_url, src.discord_webhook_url,
+        !!src.send_to_slack, src.slack_channel_id || null, normalizePagerDutyThreshold(src.pagerduty_threshold),
+        JSON.stringify(src.fields_notification_config || {}),
         src.tags, src.notes || ''
       ]
     );
@@ -1097,9 +1319,37 @@ router.post('/:id/test-notify', requireAuth, async (req, res) => {
     const { rows: [urlRecord] } = await pool.query(query, params);
     if (!urlRecord) return res.status(404).json({ error: 'Not found' });
 
+    let urlWithIntegrations = { ...urlRecord };
+    if (urlRecord.user_id) {
+      const [{ rows: [slack] }, { rows: [pagerduty] }] = await Promise.all([
+        pool.query(
+          `SELECT bot_token, channel_id
+           FROM slack_integrations
+           WHERE user_id = $1
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          [urlRecord.user_id]
+        ),
+        pool.query(
+          `SELECT integration_key
+           FROM pagerduty_integrations
+           WHERE user_id = $1
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          [urlRecord.user_id]
+        )
+      ]);
+      urlWithIntegrations = {
+        ...urlWithIntegrations,
+        slack_bot_token: slack?.bot_token || null,
+        slack_default_channel_id: slack?.channel_id || null,
+        pagerduty_integration_key: pagerduty?.integration_key || null
+      };
+    }
+
     const { notify } = require('../notifier');
     const results = await notify({
-      urlRecord,
+      urlRecord: urlWithIntegrations,
       field: 'Test Notification',
       oldValue: 'MetaWatch test',
       newValue: 'This is a test alert — your notifications are working!',

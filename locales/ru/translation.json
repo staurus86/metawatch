@@ -14,6 +14,7 @@
     "tags": "Теги",
     "status_pages": "Статус-страницы",
     "competitors": "Конкуренты",
+    "integrations": "Интеграции",
     "admin": "Админ",
     "profile": "Профиль и API-ключ",
     "help": "Справка",
@@ -46,6 +47,9 @@
     "status": "Статус",
     "url": "URL",
     "changes": "Изменения",
+    "health_score": "Здоровье",
+    "avg_health_score": "Среднее здоровье",
+    "unhealthy_only": "Только проблемные (<70)",
     "recent_alerts": "Последние алерты",
     "last_24h": "за 24ч"
   },

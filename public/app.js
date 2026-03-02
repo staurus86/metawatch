@@ -191,6 +191,7 @@ function hydrateDashboardStats() {
   const okEl = document.getElementById('stat-ok');
   const changedEl = document.getElementById('stat-changed');
   const errorEl = document.getElementById('stat-error');
+  const healthEl = document.getElementById('stat-health');
   if (!totalEl || !okEl || !changedEl || !errorEl) return;
 
   getDashboardStats()
@@ -200,6 +201,9 @@ function hydrateDashboardStats() {
       okEl.textContent = stats.summary.ok ?? okEl.textContent;
       changedEl.textContent = stats.summary.changed ?? changedEl.textContent;
       errorEl.textContent = stats.summary.error ?? errorEl.textContent;
+      if (healthEl && stats.summary.avg_health_score != null) {
+        healthEl.textContent = stats.summary.avg_health_score;
+      }
     })
     .catch(() => {});
 }
@@ -304,6 +308,91 @@ function initCharts() {
       }
     })
     .catch(err => console.warn('Chart data load failed:', err.message));
+}
+
+function heatmapColor(count) {
+  if (count >= 4) return '#216e39';
+  if (count >= 2) return '#40c463';
+  if (count >= 1) return '#9be9a8';
+  return '#ebedf0';
+}
+
+// Reusable contributions-like heatmap renderer.
+function renderHeatmap(containerId, data) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const dayMs = 86400000;
+  const end = new Date();
+  end.setUTCHours(0, 0, 0, 0);
+
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - 364);
+
+  const mondayOffset = (start.getUTCDay() + 6) % 7; // Mon=0..Sun=6
+  start.setUTCDate(start.getUTCDate() - mondayOffset);
+
+  const grid = document.createElement('div');
+  grid.style.display = 'grid';
+  grid.style.gridTemplateColumns = 'repeat(52, 12px)';
+  grid.style.gridTemplateRows = 'repeat(7, 12px)';
+  grid.style.gap = '3px';
+  grid.style.width = 'fit-content';
+
+  for (let week = 0; week < 52; week++) {
+    for (let dow = 0; dow < 7; dow++) {
+      const date = new Date(start.getTime() + ((week * 7 + dow) * dayMs));
+      const key = date.toISOString().slice(0, 10);
+      const count = date > end ? 0 : Number(data[key] || 0);
+      const cell = document.createElement('div');
+      cell.style.width = '12px';
+      cell.style.height = '12px';
+      cell.style.borderRadius = '2px';
+      cell.style.background = heatmapColor(count);
+      cell.style.border = '1px solid rgba(27,31,35,0.06)';
+      cell.style.gridColumn = String(week + 1);
+      cell.style.gridRow = String(dow + 1);
+      cell.title = `${count} change${count === 1 ? '' : 's'} on ${date.toLocaleDateString()}`;
+      grid.appendChild(cell);
+    }
+  }
+
+  const legend = document.createElement('div');
+  legend.style.display = 'flex';
+  legend.style.alignItems = 'center';
+  legend.style.gap = '6px';
+  legend.style.marginTop = '10px';
+  legend.style.fontSize = '11px';
+  legend.style.color = 'var(--text-muted)';
+  legend.innerHTML = [
+    '<span>Less</span>',
+    `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${heatmapColor(0)};border:1px solid rgba(27,31,35,0.06)"></span>`,
+    `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${heatmapColor(1)};border:1px solid rgba(27,31,35,0.06)"></span>`,
+    `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${heatmapColor(2)};border:1px solid rgba(27,31,35,0.06)"></span>`,
+    `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${heatmapColor(4)};border:1px solid rgba(27,31,35,0.06)"></span>`,
+    '<span>More</span>'
+  ].join('');
+
+  container.innerHTML = '';
+  container.appendChild(grid);
+  container.appendChild(legend);
+}
+
+window.renderHeatmap = renderHeatmap;
+
+function initChangeHeatmap() {
+  const container = document.getElementById('change-heatmap');
+  if (!container) return;
+  const urlId = container.getAttribute('data-url-id');
+  if (!urlId) return;
+
+  fetch('/api/url/' + urlId + '/change-heatmap')
+    .then(r => r.json())
+    .then(data => {
+      if (!data || data.error) return;
+      renderHeatmap('change-heatmap', data);
+    })
+    .catch(() => {});
 }
 
 // ─── Response time chart (url-detail page) ───
@@ -645,7 +734,7 @@ document.querySelectorAll('button[data-copy-text]').forEach(btn => {
 
 // ─── Wait for Chart.js CDN to load ───────────────────────────────────────────
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => { hydrateDashboardStats(); initCharts(); initResponseTimeChart(); initUptimeChart(); initCompetitorChart(); });
+  document.addEventListener('DOMContentLoaded', () => { hydrateDashboardStats(); initCharts(); initResponseTimeChart(); initUptimeChart(); initCompetitorChart(); initChangeHeatmap(); });
 } else {
-  window.addEventListener('load', () => { hydrateDashboardStats(); initCharts(); initResponseTimeChart(); initUptimeChart(); initCompetitorChart(); });
+  window.addEventListener('load', () => { hydrateDashboardStats(); initCharts(); initResponseTimeChart(); initUptimeChart(); initCompetitorChart(); initChangeHeatmap(); });
 }

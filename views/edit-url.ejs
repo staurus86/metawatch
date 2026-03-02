@@ -40,6 +40,23 @@
       </div>
     </div>
 
+    <% const canHeadless = !!headlessAvailable; %>
+    <% const selectedRenderMode = String(urlRecord.render_mode || 'static').toLowerCase() === 'headless' ? 'headless' : 'static'; %>
+    <div class="form-group">
+      <label class="form-label" for="render_mode">JavaScript Rendering</label>
+      <select id="render_mode" name="render_mode" class="form-select" style="max-width:320px">
+        <option value="static" <%= selectedRenderMode === 'static' ? 'selected' : '' %>>Static (default)</option>
+        <option value="headless" <%= selectedRenderMode === 'headless' ? 'selected' : '' %> <%= (canHeadless || selectedRenderMode === 'headless') ? '' : 'disabled' %>>
+          Headless Browser (JS)
+        </option>
+      </select>
+      <p class="form-hint">
+        <%= canHeadless
+          ? 'Use headless mode for JS-heavy pages. Higher resource usage.'
+          : `Headless mode is available on Pro/Agency plans. Current plan: ${currentPlanName || 'Free'}.` %>
+      </p>
+    </div>
+
     <div class="form-group">
       <label class="form-label" for="project_id">Project</label>
       <select id="project_id" name="project_id" class="form-select">
@@ -135,7 +152,7 @@
     </div>
 
     <!-- Advanced options -->
-    <details class="form-details" <%= (urlRecord.user_agent || urlRecord.ignore_numbers || urlRecord.telegram_chat_id || urlRecord.webhook_url) ? 'open' : '' %>>
+    <details class="form-details" <%= (urlRecord.user_agent || urlRecord.ignore_numbers || urlRecord.telegram_chat_id || urlRecord.webhook_url || urlRecord.discord_webhook_url || urlRecord.send_to_slack || urlRecord.slack_channel_id || (urlRecord.pagerduty_threshold && urlRecord.pagerduty_threshold !== 'critical_only')) ? 'open' : '' %>>
       <summary class="form-section-title" style="cursor:pointer">Advanced Options ▾</summary>
 
       <div style="padding-top:12px">
@@ -181,6 +198,90 @@
                  value="<%= urlRecord.webhook_url || '' %>">
           <p class="form-hint">Receives a JSON POST on each change</p>
         </div>
+
+        <div class="form-section-title" style="margin-top:8px">Discord Webhook</div>
+        <div class="form-group">
+          <label class="form-label" for="discord_webhook_url">Discord Webhook URL</label>
+          <input type="url" id="discord_webhook_url" name="discord_webhook_url" class="form-input"
+                 placeholder="https://discord.com/api/webhooks/..."
+                 value="<%= urlRecord.discord_webhook_url || '' %>">
+          <p class="form-hint">Sends Discord embed alerts for meta changes</p>
+        </div>
+
+        <div class="form-section-title" style="margin-top:8px">Slack</div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" name="send_to_slack" value="1"
+              <%= urlRecord.send_to_slack ? 'checked' : '' %>>
+            <span>Send alerts to Slack</span>
+          </label>
+          <p class="form-hint">Requires connected workspace on <a href="/integrations">Integrations</a>.</p>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="slack_channel_id">Slack Channel Override (optional)</label>
+          <input type="text" id="slack_channel_id" name="slack_channel_id" class="form-input"
+                 placeholder="C0123456789 or #alerts"
+                 value="<%= urlRecord.slack_channel_id || '' %>">
+          <p class="form-hint">Leave blank to use workspace default channel.</p>
+        </div>
+
+        <div class="form-section-title" style="margin-top:8px">PagerDuty</div>
+        <% const pdThreshold = String(urlRecord.pagerduty_threshold || 'critical_only'); %>
+        <div class="form-group">
+          <label class="form-label" for="pagerduty_threshold">Alert threshold</label>
+          <select id="pagerduty_threshold" name="pagerduty_threshold" class="form-select" style="max-width:280px">
+            <option value="critical_only" <%= pdThreshold === 'critical_only' ? 'selected' : '' %>>Critical only</option>
+            <option value="warning_plus" <%= pdThreshold === 'warning_plus' ? 'selected' : '' %>>Warning + Critical</option>
+            <option value="all" <%= pdThreshold === 'all' ? 'selected' : '' %>>All severities</option>
+          </select>
+          <p class="form-hint">Requires connected service on <a href="/integrations">Integrations</a>.</p>
+        </div>
+
+        <details class="form-details" style="margin-top:12px">
+          <summary class="form-section-title" style="cursor:pointer">Per-field notification overrides ▾</summary>
+          <div style="padding-top:10px">
+            <p class="form-hint" style="margin-bottom:8px">
+              Silent = detect and save changes, but do not send notifications.
+            </p>
+            <% const overrideFields = [
+              { key: 'title', label: 'Title' },
+              { key: 'description', label: 'Meta Description' },
+              { key: 'h1', label: 'H1' },
+              { key: 'page_content', label: 'Page Content' },
+              { key: 'response_code', label: 'Response Code / HTTP State' },
+              { key: 'noindex', label: 'noindex' },
+              { key: 'redirect', label: 'Redirect' },
+              { key: 'canonical', label: 'Canonical / Indexability' },
+              { key: 'robots', label: 'robots.txt / Robots Blocking' },
+              { key: 'hreflang', label: 'hreflang' },
+              { key: 'og', label: 'OG Tags' },
+              { key: 'custom_text', label: 'Custom Text / Text Rules' },
+              { key: 'ssl', label: 'SSL' },
+              { key: 'response_time', label: 'Response Time' }
+            ]; %>
+            <% let nfConfig = {}; %>
+            <% if (urlRecord.fields_notification_config && typeof urlRecord.fields_notification_config === 'object') { %>
+              <% nfConfig = urlRecord.fields_notification_config; %>
+            <% } else if (typeof urlRecord.fields_notification_config === 'string') { %>
+              <% try { nfConfig = JSON.parse(urlRecord.fields_notification_config); } catch (e) { nfConfig = {}; } %>
+            <% } %>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
+              <% overrideFields.forEach(function(f) { const current = String(nfConfig[f.key] || 'default'); %>
+                <div class="form-group" style="margin-bottom:0">
+                  <label class="form-label" for="nf_<%= f.key %>"><%= f.label %></label>
+                  <select id="nf_<%= f.key %>" name="nf_<%= f.key %>" class="form-select">
+                    <option value="default" <%= current === 'default' ? 'selected' : '' %>>Default</option>
+                    <option value="silent" <%= current === 'silent' ? 'selected' : '' %>>Silent</option>
+                    <option value="email_only" <%= current === 'email_only' ? 'selected' : '' %>>Email only</option>
+                    <option value="telegram_only" <%= current === 'telegram_only' ? 'selected' : '' %>>Telegram only</option>
+                    <option value="slack_only" <%= current === 'slack_only' ? 'selected' : '' %>>Slack only</option>
+                    <option value="critical_only" <%= current === 'critical_only' ? 'selected' : '' %>>Critical only</option>
+                  </select>
+                </div>
+              <% }) %>
+            </div>
+          </div>
+        </details>
       </div>
     </details>
 

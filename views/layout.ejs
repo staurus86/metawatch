@@ -75,6 +75,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <%= t('nav.competitors') %>
         </a>
+        <a href="/integrations" class="nav-link <%= typeof title !== 'undefined' && title === 'Integrations' ? 'active' : '' %>">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 12h8"/><path d="M12 8v8"/><rect x="3" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          <%= t('nav.integrations') %>
+        </a>
         <a href="/help" class="nav-link <%= typeof title !== 'undefined' && title === 'Help Center' ? 'active' : '' %>">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 015.8 1c0 2-3 2-3 4"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           <%= t('nav.help') %>

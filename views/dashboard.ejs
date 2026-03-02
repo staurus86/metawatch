@@ -11,6 +11,7 @@
   if (tagFilter) paramsBase.tag = tagFilter;
   if (projectFilter) paramsBase.project = projectFilter;
   if (fieldFilter) paramsBase.field = fieldFilter;
+  if (unhealthyOnly) paramsBase.unhealthy = '1';
 
   function queryWith(overrides) {
     const data = { ...paramsBase, ...(overrides || {}) };
@@ -31,6 +32,7 @@
   if (dir) fieldBaseParams.set('dir', dir);
   if (tagFilter) fieldBaseParams.set('tag', tagFilter);
   if (projectFilter) fieldBaseParams.set('project', projectFilter);
+  if (unhealthyOnly) fieldBaseParams.set('unhealthy', '1');
   const fieldNavBase = '/dashboard?' + fieldBaseParams.toString() + '&field=';
 
   function sortLink(columnKey) {
@@ -41,6 +43,19 @@
   function sortArrow(columnKey) {
     if (sort !== columnKey) return '↕';
     return dir === 'asc' ? '↑' : '↓';
+  }
+
+  function healthBadgeClass(score) {
+    if (score == null) return 'badge--pending';
+    if (Number(score) >= 90) return 'badge--ok';
+    if (Number(score) >= 70) return 'badge--changed';
+    return 'badge--error';
+  }
+
+  function healthTooltip(urlRow) {
+    const reasons = Array.isArray(urlRow.health_reasons) ? urlRow.health_reasons : [];
+    if (reasons.length === 0) return 'No active deductions';
+    return reasons.join(' • ');
   }
 %>
 
@@ -95,6 +110,10 @@
   <div class="stat-card stat-card--error">
     <div id="stat-error" class="stat-value"><%= stats.error %></div>
     <div class="stat-label"><%= t('dashboard.error') %></div>
+  </div>
+  <div class="stat-card <%= stats.avgHealthScore == null ? '' : stats.avgHealthScore >= 90 ? 'stat-card--ok' : stats.avgHealthScore >= 70 ? 'stat-card--changed' : 'stat-card--error' %>">
+    <div id="stat-health" class="stat-value"><%= stats.avgHealthScore == null ? '—' : stats.avgHealthScore %></div>
+    <div class="stat-label"><%= t('dashboard.avg_health_score') %></div>
   </div>
 </div>
 
@@ -195,8 +214,13 @@
     <option value="paused" <%= statusFilter === 'paused' ? 'selected' : '' %>><%= t('dashboard.status_paused') %></option>
   </select>
 
+  <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted)">
+    <input type="checkbox" name="unhealthy" value="1" <%= unhealthyOnly ? 'checked' : '' %>>
+    <%= t('dashboard.unhealthy_only') %>
+  </label>
+
   <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:6px 12px"><%= t('dashboard.apply') %></button>
-  <a href="<%= queryWith({ q: null, status: null, page: null }) %>" class="btn btn-ghost" style="font-size:12px;padding:6px 12px"><%= t('dashboard.reset') %></a>
+  <a href="<%= queryWith({ q: null, status: null, unhealthy: null, page: null }) %>" class="btn btn-ghost" style="font-size:12px;padding:6px 12px"><%= t('dashboard.reset') %></a>
 </form>
 
 <!-- Projects view -->
@@ -238,7 +262,12 @@
                   <div class="url-row-left">
                     <span class="status-dot status-dot--<%= u.status.toLowerCase() %>"></span>
                     <div class="url-info">
-                      <div class="url-text"><%= u.url %></div>
+                      <div class="url-text">
+                        <%= u.url %>
+                        <% if (String(u.render_mode || 'static').toLowerCase() === 'headless') { %>
+                          <span class="badge badge--changed" style="margin-left:6px;font-size:10px;vertical-align:middle">JS</span>
+                        <% } %>
+                      </div>
                       <div class="url-meta">
                         <% if (u.last_checked) { %>
                           Last checked: <span class="time-ago" data-ts="<%= new Date(u.last_checked).toISOString() %>"></span>
@@ -254,6 +283,9 @@
                     </div>
                   </div>
                   <div class="url-row-right">
+                    <span class="badge <%= healthBadgeClass(u.health_score) %>" title="<%= healthTooltip(u) %>">
+                      <%= t('dashboard.health_score') %>: <%= u.health_score == null ? '—' : u.health_score %>
+                    </span>
                     <% if (u.uptime_pct != null) { %>
                       <span class="uptime-badge uptime-badge--<%= u.uptime_pct >= 99 ? 'great' : u.uptime_pct >= 95 ? 'ok' : 'warn' %>"><%= u.uptime_pct %>%</span>
                     <% } %>
@@ -331,6 +363,9 @@
         <a href="<%= sortLink('changes') %>" style="text-decoration:none;color:inherit">
           <%= t('dashboard.changes') %> <%= sortArrow('changes') %>
         </a>
+        <a href="<%= sortLink('health_score') %>" style="text-decoration:none;color:inherit">
+          <%= t('dashboard.health_score') %> <%= sortArrow('health_score') %>
+        </a>
       </div>
       <div class="url-list">
         <% urls.forEach(function(u) { %>
@@ -340,7 +375,12 @@
               <div class="url-row-left">
                 <span class="status-dot status-dot--<%= u.status.toLowerCase() %>"></span>
                 <div class="url-info">
-                  <div class="url-text"><%= u.url %></div>
+                  <div class="url-text">
+                    <%= u.url %>
+                    <% if (String(u.render_mode || 'static').toLowerCase() === 'headless') { %>
+                      <span class="badge badge--changed" style="margin-left:6px;font-size:10px;vertical-align:middle">JS</span>
+                    <% } %>
+                  </div>
                   <div class="url-meta">
                     <% if (u.last_checked) { %>
                       Last checked: <span class="time-ago" data-ts="<%= new Date(u.last_checked).toISOString() %>"></span>
@@ -357,6 +397,9 @@
                 </div>
               </div>
               <div class="url-row-right">
+                <span class="badge <%= healthBadgeClass(u.health_score) %>" title="<%= healthTooltip(u) %>">
+                  <%= t('dashboard.health_score') %>: <%= u.health_score == null ? '—' : u.health_score %>
+                </span>
                 <% if (u.uptime_pct != null) { %>
                   <span class="uptime-badge uptime-badge--<%= u.uptime_pct >= 99 ? 'great' : u.uptime_pct >= 95 ? 'ok' : 'warn' %>">
                     <%= u.uptime_pct %>%

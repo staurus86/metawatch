@@ -75,6 +75,15 @@
     </div>
   </div>
   <div class="card info-card">
+    <div class="info-label">Rendering</div>
+    <div class="info-value">
+      <% const renderMode = String(urlRecord.render_mode || 'static').toLowerCase() === 'headless' ? 'headless' : 'static'; %>
+      <span class="badge <%= renderMode === 'headless' ? 'badge--changed' : 'badge--paused' %>">
+        <%= renderMode === 'headless' ? 'Headless JS' : 'Static' %>
+      </span>
+    </div>
+  </div>
+  <div class="card info-card">
     <div class="info-label">Next Check</div>
     <div class="info-value">
       <% if (nextCheck) { %>
@@ -151,6 +160,16 @@
   </a>
 </div>
 
+<!-- Change history heatmap (always visible) -->
+<div class="card" style="margin-top:16px">
+  <div style="padding:14px 20px 4px">
+    <div class="section-label">Change History (Last 365 days)</div>
+    <div id="change-heatmap"
+         data-url-id="<%= urlRecord.id %>"
+         style="margin-top:10px;overflow-x:auto"></div>
+  </div>
+</div>
+
 <!-- Tab content -->
 <div class="card tab-content-card">
 
@@ -158,6 +177,11 @@
   <% if (activeTab === 'overview') { %>
     <% const latest = snapshots[0]; %>
     <% if (latest) { %>
+      <% if (latest.headless_required) { %>
+      <div class="alert-banner alert-banner--info" style="margin:16px 20px 0">
+        Headless rendering is requested for this URL, but headless checks are disabled or unavailable on this server.
+      </div>
+      <% } %>
       <% if (latest.js_rendered) { %>
       <div class="alert-banner alert-banner--info" style="margin:16px 20px 0">
         ⚠️ Page may be JavaScript-rendered. Consider headless rendering for higher accuracy.

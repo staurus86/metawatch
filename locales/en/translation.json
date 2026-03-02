@@ -14,6 +14,7 @@
     "tags": "Tags",
     "status_pages": "Status Pages",
     "competitors": "Competitors",
+    "integrations": "Integrations",
     "admin": "Admin",
     "profile": "Profile & API Key",
     "help": "Help",
@@ -46,6 +47,9 @@
     "status": "Status",
     "url": "URL",
     "changes": "Changes",
+    "health_score": "Health",
+    "avg_health_score": "Avg Health",
+    "unhealthy_only": "Show only unhealthy (<70)",
     "recent_alerts": "Recent Alerts",
     "last_24h": "last 24h"
   },

@@ -18,6 +18,7 @@ const SORT_COLUMNS = {
   last_checked: 'ls.checked_at',
   url: 'mu.url',
   changes: 'COALESCE(ac.alert_count, 0)',
+  health_score: 'mu.health_score',
   status: STATUS_SORT_SQL
 };
 
@@ -34,7 +35,7 @@ function buildOrderSql(sortKey, sortDir) {
   const dir = sortDir === 'asc' ? 'ASC' : 'DESC';
   const col = SORT_COLUMNS[sortKey] || SORT_COLUMNS.last_checked;
 
-  if (sortKey === 'last_checked') {
+  if (sortKey === 'last_checked' || sortKey === 'health_score') {
     return `${col} ${dir} NULLS LAST, mu.created_at DESC`;
   }
   return `${col} ${dir}, mu.created_at DESC`;
@@ -99,6 +100,7 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
     const statusFilter = ['ok', 'changed', 'error', 'paused'].includes(rawStatusFilter)
       ? rawStatusFilter
       : '';
+    const unhealthyOnly = String(req.query.unhealthy || '').trim() === '1';
     const sort = normalizeSort(req.query.sort);
     const dir = normalizeDir(req.query.dir);
     const prefPerPage = [10, 25, 50].includes(parseInt(req.user.pref_rows_per_page, 10))
@@ -166,6 +168,7 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
     } else if (statusFilter === 'paused') {
       statusWhere = 'AND mu.is_active = false';
     }
+    const healthWhere = unhealthyOnly ? 'AND COALESCE(mu.health_score, 100) < 70' : '';
 
     // Problem-tab filter (applied in SQL so pagination works correctly)
     const problemFilter = tab === 'problems'
@@ -212,6 +215,7 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
     const { rows: [statsRow] } = await pool.query(`
       SELECT
         COUNT(*)::int AS total,
+        ROUND(AVG(mu.health_score)::numeric, 1) AS avg_health_score,
         COUNT(*) FILTER (
           WHERE ls.status_code IS NULL
         )::int AS pending,
@@ -233,7 +237,7 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
         SELECT COUNT(*) AS alert_count FROM alerts
         WHERE url_id = mu.id AND detected_at > NOW() - INTERVAL '24 hours'
       ) ac ON true
-      WHERE 1=1 ${userWhere}
+      WHERE 1=1 ${userWhere} ${healthWhere}
     `, userParams);
 
     const stats = {
@@ -241,7 +245,8 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
       ok: statsRow?.ok || 0,
       changed: statsRow?.changed || 0,
       error: statsRow?.error || 0,
-      pending: statsRow?.pending || 0
+      pending: statsRow?.pending || 0,
+      avgHealthScore: statsRow?.avg_health_score != null ? Number(statsRow.avg_health_score) : null
     };
 
     // ── Count for pagination ─────────────────────────────────────────────────
@@ -256,7 +261,7 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
           SELECT COUNT(*) AS alert_count FROM alerts
           WHERE url_id = mu.id AND detected_at > NOW() - INTERVAL '24 hours'
         ) ac ON true
-        WHERE 1=1 ${userWhere} ${tagWhere} ${projectWhere} ${searchWhere} ${statusWhere} ${problemFilter}
+        WHERE 1=1 ${userWhere} ${tagWhere} ${projectWhere} ${searchWhere} ${statusWhere} ${healthWhere} ${problemFilter}
       ) sub
     `, scopedParams);
 
@@ -271,16 +276,28 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
       SELECT
         mu.*,
         p.name AS project_name,
-        ls.status_code  AS last_status_code,
-        ls.checked_at   AS last_checked,
+        ls.status_code AS last_status_code,
+        ls.checked_at AS last_checked,
         COALESCE(ac.alert_count, 0)::int AS recent_alert_count,
+        ARRAY_REMOVE(ARRAY[
+          CASE WHEN ls.status_code IS NOT NULL AND ls.status_code != 200 THEN '-20: response code != 200' END,
+          CASE WHEN ls.noindex = true THEN '-15: noindex enabled' END,
+          CASE WHEN hc.title_changed_7d THEN '-10: title changed in last 7d' END,
+          CASE WHEN hc.canonical_changed_7d THEN '-10: canonical changed in last 7d' END,
+          CASE WHEN ls.redirect_url IS NOT NULL AND BTRIM(ls.redirect_url) <> '' THEN '-10: redirect is present' END,
+          CASE WHEN ls.description IS NULL OR BTRIM(ls.description) = '' THEN '-5: description missing' END,
+          CASE WHEN ls.h1 IS NULL OR BTRIM(ls.h1) = '' THEN '-5: H1 missing' END,
+          CASE WHEN ls.ssl_expires_at IS NOT NULL AND ls.ssl_expires_at < NOW() + INTERVAL '30 days' THEN '-5: SSL expires in <30d' END,
+          CASE WHEN ls.response_time_ms IS NOT NULL AND ls.response_time_ms > 2000 THEN '-5: response time > 2000ms' END
+        ], NULL) AS health_reasons,
         CASE WHEN up.total = 0 OR up.total IS NULL THEN NULL
           ELSE ROUND((up.ok_count::float / up.total * 100)::numeric, 1)
         END AS uptime_pct
       FROM monitored_urls mu
       LEFT JOIN projects p ON p.id = mu.project_id
       LEFT JOIN LATERAL (
-        SELECT status_code, checked_at FROM snapshots
+        SELECT status_code, checked_at, noindex, description, h1, ssl_expires_at, response_time_ms, redirect_url
+        FROM snapshots
         WHERE url_id = mu.id ORDER BY checked_at DESC LIMIT 1
       ) ls ON true
       LEFT JOIN LATERAL (
@@ -289,12 +306,21 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
       ) ac ON true
       LEFT JOIN LATERAL (
         SELECT
+          BOOL_OR(field_changed = 'Title') AS title_changed_7d,
+          BOOL_OR(field_changed = 'Canonical') AS canonical_changed_7d
+        FROM alerts
+        WHERE url_id = mu.id
+          AND detected_at > NOW() - INTERVAL '7 days'
+          AND field_changed IN ('Title', 'Canonical')
+      ) hc ON true
+      LEFT JOIN LATERAL (
+        SELECT
           COUNT(*) AS total,
           COUNT(*) FILTER (WHERE status_code BETWEEN 200 AND 399) AS ok_count
         FROM snapshots
         WHERE url_id = mu.id AND checked_at > NOW() - INTERVAL '30 days'
       ) up ON true
-      WHERE 1=1 ${userWhere} ${tagWhere} ${projectWhere} ${searchWhere} ${statusWhere} ${problemFilter}
+      WHERE 1=1 ${userWhere} ${tagWhere} ${projectWhere} ${searchWhere} ${statusWhere} ${healthWhere} ${problemFilter}
       ORDER BY ${orderSql}
       LIMIT $${limitIdx} OFFSET $${offsetIdx}
     `, [...scopedParams, perPage, offset]);
@@ -308,16 +334,28 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
         SELECT
           mu.*,
           p.name AS project_name,
-          ls.status_code  AS last_status_code,
-          ls.checked_at   AS last_checked,
+          ls.status_code AS last_status_code,
+          ls.checked_at AS last_checked,
           COALESCE(ac.alert_count, 0)::int AS recent_alert_count,
+          ARRAY_REMOVE(ARRAY[
+            CASE WHEN ls.status_code IS NOT NULL AND ls.status_code != 200 THEN '-20: response code != 200' END,
+            CASE WHEN ls.noindex = true THEN '-15: noindex enabled' END,
+            CASE WHEN hc.title_changed_7d THEN '-10: title changed in last 7d' END,
+            CASE WHEN hc.canonical_changed_7d THEN '-10: canonical changed in last 7d' END,
+            CASE WHEN ls.redirect_url IS NOT NULL AND BTRIM(ls.redirect_url) <> '' THEN '-10: redirect is present' END,
+            CASE WHEN ls.description IS NULL OR BTRIM(ls.description) = '' THEN '-5: description missing' END,
+            CASE WHEN ls.h1 IS NULL OR BTRIM(ls.h1) = '' THEN '-5: H1 missing' END,
+            CASE WHEN ls.ssl_expires_at IS NOT NULL AND ls.ssl_expires_at < NOW() + INTERVAL '30 days' THEN '-5: SSL expires in <30d' END,
+            CASE WHEN ls.response_time_ms IS NOT NULL AND ls.response_time_ms > 2000 THEN '-5: response time > 2000ms' END
+          ], NULL) AS health_reasons,
           CASE WHEN up.total = 0 OR up.total IS NULL THEN NULL
             ELSE ROUND((up.ok_count::float / up.total * 100)::numeric, 1)
           END AS uptime_pct
         FROM monitored_urls mu
         LEFT JOIN projects p ON p.id = mu.project_id
         LEFT JOIN LATERAL (
-          SELECT status_code, checked_at FROM snapshots
+          SELECT status_code, checked_at, noindex, description, h1, ssl_expires_at, response_time_ms, redirect_url
+          FROM snapshots
           WHERE url_id = mu.id ORDER BY checked_at DESC LIMIT 1
         ) ls ON true
         LEFT JOIN LATERAL (
@@ -326,12 +364,21 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
         ) ac ON true
         LEFT JOIN LATERAL (
           SELECT
+            BOOL_OR(field_changed = 'Title') AS title_changed_7d,
+            BOOL_OR(field_changed = 'Canonical') AS canonical_changed_7d
+          FROM alerts
+          WHERE url_id = mu.id
+            AND detected_at > NOW() - INTERVAL '7 days'
+            AND field_changed IN ('Title', 'Canonical')
+        ) hc ON true
+        LEFT JOIN LATERAL (
+          SELECT
             COUNT(*) AS total,
             COUNT(*) FILTER (WHERE status_code BETWEEN 200 AND 399) AS ok_count
           FROM snapshots
           WHERE url_id = mu.id AND checked_at > NOW() - INTERVAL '30 days'
         ) up ON true
-        WHERE 1=1 ${userWhere} ${tagWhere} ${projectWhere} ${searchWhere} ${statusWhere} ${problemFilter}
+        WHERE 1=1 ${userWhere} ${tagWhere} ${projectWhere} ${searchWhere} ${statusWhere} ${healthWhere} ${problemFilter}
         ORDER BY COALESCE(p.name, 'zzzzzz') ASC, ${orderSql}
       `, scopedParams);
       projectGroups = buildProjectGroups(projectUrls.map(u => ({ ...u, status: computeStatus(u) })));
@@ -398,6 +445,7 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
       tagFilter,
       q,
       statusFilter,
+      unhealthyOnly,
       sort,
       dir,
       allTags,

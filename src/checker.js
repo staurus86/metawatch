@@ -2,10 +2,15 @@ const crypto = require('crypto');
 const pool = require('./db');
 const cron = require('node-cron');
 const { scrapeUrl, fetchRobotsTxt, checkSsl } = require('./scraper');
+const { scrapeUrlHeadless } = require('./headless-scraper');
 const { notify } = require('./notifier');
 
 const SSL_WARN_DAYS = parseInt(process.env.SSL_WARN_DAYS || '30', 10);
 const DEFAULT_ALERT_COOLDOWN_MINUTES = parseInt(process.env.DEFAULT_ALERT_COOLDOWN_MINUTES || '60', 10);
+
+function isHeadlessEnabled() {
+  return String(process.env.ENABLE_HEADLESS || 'false').trim().toLowerCase() === 'true';
+}
 
 // Check if current time falls inside a maintenance window defined by a cron expression
 function isInMaintenanceWindow(maintenanceCron, durationMinutes) {
@@ -64,15 +69,29 @@ function isHttpErrorState(statusCode, soft404) {
 }
 
 // Write to notification_log
-async function logNotification({ urlId, monitorId, channel, fieldChanged, severity, status, errorMessage }) {
+async function logNotification({ urlId, monitorId, channel, fieldChanged, severity, status, suppressionReason, errorMessage }) {
   try {
     await pool.query(
-      `INSERT INTO notification_log (url_id, monitor_id, channel, field_changed, severity, status, error_message)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [urlId || null, monitorId || null, channel, fieldChanged || null, severity || null, status, errorMessage || null]
+      `INSERT INTO notification_log (url_id, monitor_id, channel, field_changed, severity, status, suppression_reason, error_message)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [urlId || null, monitorId || null, channel, fieldChanged || null, severity || null, status, suppressionReason || null, errorMessage || null]
     );
   } catch {
     // non-critical
+  }
+}
+
+async function logChannelResults({ urlId, fieldChanged, severity, notifyResults }) {
+  if (!notifyResults || typeof notifyResults !== 'object') return;
+  for (const channel of ['discord', 'slack', 'pagerduty']) {
+    if (notifyResults[channel] !== true) continue;
+    await logNotification({
+      urlId,
+      channel,
+      fieldChanged,
+      severity,
+      status: 'sent'
+    });
   }
 }
 
@@ -212,10 +231,159 @@ const MONITORED_FIELDS = [
   { key: 'ssl_expires_at', monitorKey: 'monitor_ssl', label: 'SSL Certificate' }
 ];
 
+const ALLOWED_FIELD_NOTIFICATION_MODES = new Set([
+  'default',
+  'silent',
+  'email_only',
+  'telegram_only',
+  'slack_only',
+  'critical_only'
+]);
+
+const FIELD_OVERRIDE_KEY_BY_FIELD_KEY = {
+  title: 'title',
+  description: 'description',
+  h1: 'h1',
+  body_text_hash: 'page_content',
+  status_code: 'response_code',
+  soft_404: 'response_code',
+  noindex: 'noindex',
+  redirect_url: 'redirect',
+  redirect_chain: 'redirect',
+  canonical: 'canonical',
+  canonical_issue: 'canonical',
+  indexability_conflict: 'canonical',
+  robots_txt_hash: 'robots',
+  robots_blocked: 'robots',
+  hreflang: 'hreflang',
+  og_title: 'og',
+  og_description: 'og',
+  og_image: 'og',
+  custom_text_found: 'custom_text',
+  ssl_expires_at: 'ssl',
+  http_state: 'response_code',
+  text_rule: 'custom_text',
+  ssl_warning: 'ssl',
+  response_time: 'response_time'
+};
+
+function parseFieldsNotificationConfig(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function buildOverrideRuleActions(mode, urlRecord) {
+  if (mode === 'email_only') {
+    if (!urlRecord?.email) return [];
+    return [{ type: 'send_email', value: urlRecord.email }];
+  }
+  if (mode === 'telegram_only') {
+    const botToken = urlRecord?.telegram_bot_token || process.env.TELEGRAM_BOT_TOKEN || null;
+    const chatId = urlRecord?.telegram_chat_id || null;
+    if (!botToken || !chatId) return [];
+    return [{ type: 'send_telegram', value: `${botToken}:${chatId}` }];
+  }
+  if (mode === 'slack_only') {
+    const hasSlackIntegration = !!(urlRecord?.slack_bot_token && (urlRecord?.slack_channel_id || urlRecord?.slack_default_channel_id));
+    if (!hasSlackIntegration) return [];
+    return [{ type: 'send_slack', value: urlRecord?.slack_channel_id || '' }];
+  }
+  return null;
+}
+
+function resolveFieldOverride({ config, overrideKey, severity, urlRecord }) {
+  const modeRaw = String(config?.[overrideKey] || 'default').toLowerCase().trim();
+  const mode = ALLOWED_FIELD_NOTIFICATION_MODES.has(modeRaw) ? modeRaw : 'default';
+
+  if (mode === 'silent') {
+    return { suppress: true, suppressionReason: 'silent_field', overrideRuleActions: null };
+  }
+  if (mode === 'critical_only' && severity !== 'critical') {
+    return { suppress: true, suppressionReason: 'critical_only', overrideRuleActions: null };
+  }
+  if (mode === 'email_only' || mode === 'telegram_only' || mode === 'slack_only') {
+    const overrideRuleActions = buildOverrideRuleActions(mode, urlRecord);
+    if (!overrideRuleActions || overrideRuleActions.length === 0) {
+      const reason = mode === 'slack_only' ? 'slack_only_unavailable' : 'override_target_missing';
+      return { suppress: true, suppressionReason: reason, overrideRuleActions: [] };
+    }
+    return { suppress: false, suppressionReason: null, overrideRuleActions };
+  }
+  return { suppress: false, suppressionReason: null, overrideRuleActions: null };
+}
+
 // Strip digits from a value when ignore_numbers is enabled
 function maybeStripNumbers(val) {
   if (val === null || val === undefined) return val;
   return String(val).replace(/\d+/g, '');
+}
+
+function isMissingText(value) {
+  return value == null || String(value).trim() === '';
+}
+
+async function computeAndStoreHealthScore({ urlId, snap }) {
+  let score = 100;
+  const applyDeduction = (points) => {
+    score -= points;
+  };
+
+  const statusCode = parseInt(snap?.status_code || 0, 10);
+  if (statusCode !== 200) applyDeduction(20);
+
+  if (snap?.noindex === true || String(snap?.noindex) === 'true') {
+    applyDeduction(15);
+  }
+
+  const { rows: [changes7d] } = await pool.query(
+    `SELECT
+       BOOL_OR(field_changed = 'Title') AS title_changed_7d,
+       BOOL_OR(field_changed = 'Canonical') AS canonical_changed_7d
+     FROM alerts
+     WHERE url_id = $1
+       AND detected_at > NOW() - INTERVAL '7 days'
+       AND field_changed IN ('Title', 'Canonical')`,
+    [urlId]
+  );
+
+  if (changes7d?.title_changed_7d) applyDeduction(10);
+  if (changes7d?.canonical_changed_7d) applyDeduction(10);
+
+  if (!isMissingText(snap?.redirect_url)) applyDeduction(10);
+  if (isMissingText(snap?.description)) applyDeduction(5);
+  if (isMissingText(snap?.h1)) applyDeduction(5);
+
+  if (snap?.ssl_expires_at) {
+    const expiresAt = new Date(snap.ssl_expires_at);
+    const daysLeft = (expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+    if (Number.isFinite(daysLeft) && daysLeft < 30) {
+      applyDeduction(5);
+    }
+  }
+
+  const responseTimeMs = parseInt(snap?.response_time_ms || 0, 10);
+  if (Number.isFinite(responseTimeMs) && responseTimeMs > 2000) {
+    applyDeduction(5);
+  }
+
+  const normalizedScore = Math.max(0, Math.min(100, score));
+  await pool.query(
+    `UPDATE monitored_urls
+     SET health_score = $1,
+         health_score_updated_at = NOW()
+     WHERE id = $2`,
+    [normalizedScore, urlId]
+  );
+  return normalizedScore;
 }
 
 async function checkUrl(urlId) {
@@ -230,9 +398,27 @@ async function checkUrl(urlId) {
 
   try {
     const { rows } = await pool.query(
-      `SELECT mu.*, COALESCE(u.language, 'en') AS user_language
+      `SELECT mu.*,
+              COALESCE(u.language, 'en') AS user_language,
+              si.bot_token AS slack_bot_token,
+              si.channel_id AS slack_default_channel_id,
+              pdi.integration_key AS pagerduty_integration_key
        FROM monitored_urls mu
        LEFT JOIN users u ON u.id = mu.user_id
+       LEFT JOIN LATERAL (
+         SELECT bot_token, channel_id
+         FROM slack_integrations
+         WHERE user_id = mu.user_id
+         ORDER BY created_at DESC
+         LIMIT 1
+       ) si ON true
+       LEFT JOIN LATERAL (
+         SELECT integration_key
+         FROM pagerduty_integrations
+         WHERE user_id = mu.user_id
+         ORDER BY created_at DESC
+         LIMIT 1
+       ) pdi ON true
        WHERE mu.id = $1
          AND mu.is_active = true`,
       [urlId]
@@ -264,12 +450,34 @@ async function checkUrl(urlId) {
       [urlId]
     );
 
-    // Scrape current state
-    const scraped = await scrapeUrl(urlRecord.url, {
+    const scrapeOptions = {
       userAgent: urlRecord.user_agent || undefined,
       customText: urlRecord.custom_text || undefined,
       textRules: textRules.length > 0 ? textRules : undefined
-    });
+    };
+    const renderMode = String(urlRecord.render_mode || 'static').trim().toLowerCase() === 'headless'
+      ? 'headless'
+      : 'static';
+    let headlessRequired = false;
+
+    // Scrape current state
+    let scraped = null;
+    if (renderMode === 'headless') {
+      if (isHeadlessEnabled()) {
+        try {
+          scraped = await scrapeUrlHeadless(urlRecord.url, scrapeOptions);
+        } catch (headlessErr) {
+          console.error(`[Headless] URL #${urlId}: ${headlessErr.message}`);
+          headlessRequired = true;
+          scraped = await scrapeUrl(urlRecord.url, scrapeOptions);
+        }
+      } else {
+        headlessRequired = true;
+        scraped = await scrapeUrl(urlRecord.url, scrapeOptions);
+      }
+    } else {
+      scraped = await scrapeUrl(urlRecord.url, scrapeOptions);
+    }
 
     const robotsData = urlRecord.monitor_robots
       ? await fetchRobotsTxt(urlRecord.url, urlRecord.user_agent)
@@ -294,8 +502,8 @@ async function checkUrl(urlId) {
          (url_id, title, description, h1, body_text_hash, normalized_body_hash, status_code, soft_404, noindex,
           redirect_url, redirect_chain, canonical, canonical_issue, indexability_conflict, robots_txt_hash,
           raw_robots_txt, robots_blocked, hreflang, og_title, og_description, og_image, custom_text_found,
-          response_time_ms, ssl_expires_at, text_rules_json, js_rendered)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+          response_time_ms, ssl_expires_at, text_rules_json, headless_required, js_rendered)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
        RETURNING *`,
       [
         urlId,
@@ -323,6 +531,7 @@ async function checkUrl(urlId) {
         scraped.response_time_ms ?? null,
         sslExpiresAt ?? null,
         textRulesJson,
+        !!headlessRequired,
         !!scraped.js_rendered
       ]
     );
@@ -333,6 +542,11 @@ async function checkUrl(urlId) {
         'UPDATE monitored_urls SET reference_snapshot_id = $1 WHERE id = $2',
         [snap.id, urlId]
       );
+      try {
+        await computeAndStoreHealthScore({ urlId, snap });
+      } catch (healthErr) {
+        console.error(`[HealthScore] URL #${urlId}: ${healthErr.message}`);
+      }
       console.log(`[Check] First snapshot saved for URL #${urlId} — set as reference`);
       return { snapshot: snap, alerts: [] };
     }
@@ -343,6 +557,7 @@ async function checkUrl(urlId) {
       0,
       parseInt(urlRecord.alert_cooldown_minutes || DEFAULT_ALERT_COOLDOWN_MINUTES, 10) || DEFAULT_ALERT_COOLDOWN_MINUTES
     );
+    const fieldsNotificationConfig = parseFieldsNotificationConfig(urlRecord.fields_notification_config);
 
     // Load user's alert rules (for this URL's owner)
     let alertRules = [];
@@ -427,7 +642,7 @@ async function checkUrl(urlId) {
           fieldChanged: field.label,
           severity,
           status: 'suppressed',
-          errorMessage: state.reason
+          suppressionReason: state.reason
         });
         continue;
       }
@@ -440,11 +655,13 @@ async function checkUrl(urlId) {
         ? (snap.raw_robots_txt ?? newSource)
         : newSource;
 
-      await pool.query(
+      const { rows: [createdAlert] } = await pool.query(
         `INSERT INTO alerts (url_id, field_changed, old_value, new_value, severity)
-         VALUES ($1, $2, $3, $4, $5)`,
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id`,
         [urlId, field.label, String(oldSource ?? ''), String(newSource ?? ''), severity]
       );
+      const alertId = createdAlert?.id;
 
       alertsGenerated.push(field.label);
 
@@ -453,20 +670,56 @@ async function checkUrl(urlId) {
       const ruleActions = matchingRule
         ? (Array.isArray(matchingRule.actions) ? matchingRule.actions : [])
         : [];
-      const suppress = ruleActions.some(a => a.type === 'suppress_alert');
+      const ruleSuppress = ruleActions.some(a => a.type === 'suppress_alert');
+      const overrideKey = FIELD_OVERRIDE_KEY_BY_FIELD_KEY[field.key] || field.key;
+      const fieldOverride = resolveFieldOverride({
+        config: fieldsNotificationConfig,
+        overrideKey,
+        severity,
+        urlRecord
+      });
+      const effectiveRuleActions = fieldOverride.overrideRuleActions !== null
+        ? fieldOverride.overrideRuleActions
+        : (ruleActions.length > 0 ? ruleActions : undefined);
+      const suppress = ruleSuppress || fieldOverride.suppress;
+      const suppressionReason = fieldOverride.suppressionReason || (ruleSuppress ? 'alert_rule' : null);
 
       if (state.notify && !suppress && !silenced) {
         try {
-          await notify({
+          const notifyResults = await notify({
             urlRecord,
             field: field.label,
             oldValue: displayOld,
             newValue: displayNew,
             severity,
             timestamp: new Date(),
-            ruleActions: ruleActions.length > 0 ? ruleActions : undefined
+            ruleActions: effectiveRuleActions
           });
-          await logNotification({ urlId, channel: 'multi', fieldChanged: field.label, severity, status: 'sent' });
+          const anyNotified = Object.values(notifyResults || {}).some(Boolean);
+          if (alertId && anyNotified) {
+            await pool.query(
+              'UPDATE alerts SET notified = true, email_sent = $1 WHERE id = $2',
+              [!!notifyResults?.email, alertId]
+            );
+          }
+          await logChannelResults({
+            urlId,
+            fieldChanged: field.label,
+            severity,
+            notifyResults
+          });
+          if (anyNotified) {
+            await logNotification({ urlId, channel: 'multi', fieldChanged: field.label, severity, status: 'sent' });
+          } else {
+            await logNotification({
+              urlId,
+              channel: 'suppressed',
+              fieldChanged: field.label,
+              severity,
+              status: 'suppressed',
+              suppressionReason: 'no_channel_target'
+            });
+          }
         } catch (notifyErr) {
           await logNotification({
             urlId,
@@ -478,7 +731,14 @@ async function checkUrl(urlId) {
           });
         }
       } else if (suppress) {
-        await logNotification({ urlId, channel: 'suppressed', fieldChanged: field.label, severity, status: 'suppressed' });
+        await logNotification({
+          urlId,
+          channel: 'suppressed',
+          fieldChanged: field.label,
+          severity,
+          status: 'suppressed',
+          suppressionReason: suppressionReason || 'suppressed'
+        });
       }
     }
 
@@ -502,24 +762,58 @@ async function checkUrl(urlId) {
         });
 
         if (transitionState.recordAlert) {
-          await pool.query(
+          const { rows: [createdTransitionAlert] } = await pool.query(
             `INSERT INTO alerts (url_id, field_changed, old_value, new_value, severity)
-             VALUES ($1, 'HTTP State', $2, $3, $4)`,
+             VALUES ($1, 'HTTP State', $2, $3, $4)
+             RETURNING id`,
             [urlId, oldVal, newVal, severity]
           );
+          const transitionAlertId = createdTransitionAlert?.id;
           alertsGenerated.push(`HTTP State: ${newVal}`);
 
-          if (transitionState.notify && !silenced) {
+          const transitionOverride = resolveFieldOverride({
+            config: fieldsNotificationConfig,
+            overrideKey: FIELD_OVERRIDE_KEY_BY_FIELD_KEY.http_state,
+            severity,
+            urlRecord
+          });
+
+          if (transitionState.notify && !silenced && !transitionOverride.suppress) {
             try {
-              await notify({
+              const notifyResults = await notify({
                 urlRecord,
                 field: 'HTTP State',
                 oldValue: oldVal,
                 newValue: newVal,
                 severity,
-                timestamp: new Date()
+                timestamp: new Date(),
+                ruleActions: transitionOverride.overrideRuleActions || undefined
               });
-              await logNotification({ urlId, channel: 'multi', fieldChanged: 'HTTP State', severity, status: 'sent' });
+              const anyNotified = Object.values(notifyResults || {}).some(Boolean);
+              if (transitionAlertId && anyNotified) {
+                await pool.query(
+                  'UPDATE alerts SET notified = true, email_sent = $1 WHERE id = $2',
+                  [!!notifyResults?.email, transitionAlertId]
+                );
+              }
+              await logChannelResults({
+                urlId,
+                fieldChanged: 'HTTP State',
+                severity,
+                notifyResults
+              });
+              if (anyNotified) {
+                await logNotification({ urlId, channel: 'multi', fieldChanged: 'HTTP State', severity, status: 'sent' });
+              } else {
+                await logNotification({
+                  urlId,
+                  channel: 'suppressed',
+                  fieldChanged: 'HTTP State',
+                  severity,
+                  status: 'suppressed',
+                  suppressionReason: 'no_channel_target'
+                });
+              }
             } catch (err) {
               await logNotification({
                 urlId,
@@ -530,6 +824,15 @@ async function checkUrl(urlId) {
                 errorMessage: err.message
               });
             }
+          } else if (transitionOverride.suppress) {
+            await logNotification({
+              urlId,
+              channel: 'suppressed',
+              fieldChanged: 'HTTP State',
+              severity,
+              status: 'suppressed',
+              suppressionReason: transitionOverride.suppressionReason || 'suppressed'
+            });
           }
         }
       }
@@ -574,26 +877,77 @@ async function checkUrl(urlId) {
         });
         if (!textState.recordAlert) continue;
 
-        await pool.query(
+        const { rows: [createdTextAlert] } = await pool.query(
           `INSERT INTO alerts (url_id, field_changed, old_value, new_value, severity)
-           VALUES ($1, $2, $3, $4, 'info')`,
+           VALUES ($1, $2, $3, $4, 'info')
+           RETURNING id`,
           [urlId, `Text: ${label}`, oldVal, newVal]
         );
+        const textAlertId = createdTextAlert?.id;
         alertsGenerated.push(`Text: ${label}`);
 
-        if (textState.notify && !silenced) {
+        const textOverride = resolveFieldOverride({
+          config: fieldsNotificationConfig,
+          overrideKey: FIELD_OVERRIDE_KEY_BY_FIELD_KEY.text_rule,
+          severity: 'info',
+          urlRecord
+        });
+
+        if (textState.notify && !silenced && !textOverride.suppress) {
           try {
-            await notify({
+            const notifyResults = await notify({
               urlRecord,
               field: `Text Rule: ${label}`,
               oldValue: oldVal,
               newValue: newVal,
               severity: 'info',
-              timestamp: new Date()
+              timestamp: new Date(),
+              ruleActions: textOverride.overrideRuleActions || undefined
             });
-          } catch {
-            // non-critical
+            const anyNotified = Object.values(notifyResults || {}).some(Boolean);
+            if (textAlertId && anyNotified) {
+              await pool.query(
+                'UPDATE alerts SET notified = true, email_sent = $1 WHERE id = $2',
+                [!!notifyResults?.email, textAlertId]
+              );
+            }
+            await logChannelResults({
+              urlId,
+              fieldChanged: `Text: ${label}`,
+              severity: 'info',
+              notifyResults
+            });
+            if (anyNotified) {
+              await logNotification({ urlId, channel: 'multi', fieldChanged: `Text: ${label}`, severity: 'info', status: 'sent' });
+            } else {
+              await logNotification({
+                urlId,
+                channel: 'suppressed',
+                fieldChanged: `Text: ${label}`,
+                severity: 'info',
+                status: 'suppressed',
+                suppressionReason: 'no_channel_target'
+              });
+            }
+          } catch (textNotifyErr) {
+            await logNotification({
+              urlId,
+              channel: 'multi',
+              fieldChanged: `Text: ${label}`,
+              severity: 'info',
+              status: 'failed',
+              errorMessage: textNotifyErr.message
+            });
           }
+        } else if (textOverride.suppress) {
+          await logNotification({
+            urlId,
+            channel: 'suppressed',
+            fieldChanged: `Text: ${label}`,
+            severity: 'info',
+            status: 'suppressed',
+            suppressionReason: textOverride.suppressionReason || 'suppressed'
+          });
         }
       }
     }
@@ -610,23 +964,56 @@ async function checkUrl(urlId) {
           [urlId]
         );
         if (recentWarn.length === 0) {
-          await pool.query(
+          const { rows: [createdSslAlert] } = await pool.query(
             `INSERT INTO alerts (url_id, field_changed, old_value, new_value, severity)
-             VALUES ($1, 'SSL Expiry Warning', $2, $3, 'critical')`,
+             VALUES ($1, 'SSL Expiry Warning', $2, $3, 'critical')
+             RETURNING id`,
             [urlId, `${daysLeft} days remaining`, sslExpiresAt.toISOString()]
           );
+          const sslAlertId = createdSslAlert?.id;
           alertsGenerated.push(`SSL Expiry Warning (${daysLeft}d)`);
-          if (!silenced) {
+          const sslOverride = resolveFieldOverride({
+            config: fieldsNotificationConfig,
+            overrideKey: FIELD_OVERRIDE_KEY_BY_FIELD_KEY.ssl_warning,
+            severity: 'critical',
+            urlRecord
+          });
+          if (!silenced && !sslOverride.suppress) {
             try {
-              await notify({
+              const notifyResults = await notify({
                 urlRecord,
                 field: 'SSL Expiry Warning',
                 oldValue: `${daysLeft} days remaining`,
                 newValue: `Certificate expires: ${sslExpiresAt.toUTCString()}`,
                 severity: 'critical',
-                timestamp: new Date()
+                timestamp: new Date(),
+                ruleActions: sslOverride.overrideRuleActions || undefined
               });
-              await logNotification({ urlId, channel: 'multi', fieldChanged: 'SSL Expiry Warning', severity: 'critical', status: 'sent' });
+              const anyNotified = Object.values(notifyResults || {}).some(Boolean);
+              if (sslAlertId && anyNotified) {
+                await pool.query(
+                  'UPDATE alerts SET notified = true, email_sent = $1 WHERE id = $2',
+                  [!!notifyResults?.email, sslAlertId]
+                );
+              }
+              await logChannelResults({
+                urlId,
+                fieldChanged: 'SSL Expiry Warning',
+                severity: 'critical',
+                notifyResults
+              });
+              if (anyNotified) {
+                await logNotification({ urlId, channel: 'multi', fieldChanged: 'SSL Expiry Warning', severity: 'critical', status: 'sent' });
+              } else {
+                await logNotification({
+                  urlId,
+                  channel: 'suppressed',
+                  fieldChanged: 'SSL Expiry Warning',
+                  severity: 'critical',
+                  status: 'suppressed',
+                  suppressionReason: 'no_channel_target'
+                });
+              }
             } catch (notifyErr) {
               await logNotification({
                 urlId,
@@ -637,6 +1024,15 @@ async function checkUrl(urlId) {
                 errorMessage: notifyErr.message
               });
             }
+          } else if (sslOverride.suppress) {
+            await logNotification({
+              urlId,
+              channel: 'suppressed',
+              fieldChanged: 'SSL Expiry Warning',
+              severity: 'critical',
+              status: 'suppressed',
+              suppressionReason: sslOverride.suppressionReason || 'suppressed'
+            });
           }
         }
       }
@@ -649,23 +1045,56 @@ async function checkUrl(urlId) {
         // Only alert if previous check was not above threshold (state transition)
         const prevRt = lastSnapshot?.response_time_ms ?? null;
         if (prevRt == null || prevRt <= threshold) {
-          await pool.query(
+          const { rows: [createdRtAlert] } = await pool.query(
             `INSERT INTO alerts (url_id, field_changed, old_value, new_value, severity)
-             VALUES ($1, 'Response Time', $2, $3, 'warning')`,
+             VALUES ($1, 'Response Time', $2, $3, 'warning')
+             RETURNING id`,
             [urlId, `${threshold}ms threshold`, `${scraped.response_time_ms}ms`]
           );
+          const responseTimeAlertId = createdRtAlert?.id;
           alertsGenerated.push(`Slow response (${scraped.response_time_ms}ms)`);
-          if (!silenced) {
+          const responseTimeOverride = resolveFieldOverride({
+            config: fieldsNotificationConfig,
+            overrideKey: FIELD_OVERRIDE_KEY_BY_FIELD_KEY.response_time,
+            severity: 'warning',
+            urlRecord
+          });
+          if (!silenced && !responseTimeOverride.suppress) {
             try {
-              await notify({
+              const notifyResults = await notify({
                 urlRecord,
                 field: 'Response Time',
                 oldValue: `Threshold: ${threshold}ms`,
                 newValue: `Actual: ${scraped.response_time_ms}ms`,
                 severity: 'warning',
-                timestamp: new Date()
+                timestamp: new Date(),
+                ruleActions: responseTimeOverride.overrideRuleActions || undefined
               });
-              await logNotification({ urlId, channel: 'multi', fieldChanged: 'Response Time', severity: 'warning', status: 'sent' });
+              const anyNotified = Object.values(notifyResults || {}).some(Boolean);
+              if (responseTimeAlertId && anyNotified) {
+                await pool.query(
+                  'UPDATE alerts SET notified = true, email_sent = $1 WHERE id = $2',
+                  [!!notifyResults?.email, responseTimeAlertId]
+                );
+              }
+              await logChannelResults({
+                urlId,
+                fieldChanged: 'Response Time',
+                severity: 'warning',
+                notifyResults
+              });
+              if (anyNotified) {
+                await logNotification({ urlId, channel: 'multi', fieldChanged: 'Response Time', severity: 'warning', status: 'sent' });
+              } else {
+                await logNotification({
+                  urlId,
+                  channel: 'suppressed',
+                  fieldChanged: 'Response Time',
+                  severity: 'warning',
+                  status: 'suppressed',
+                  suppressionReason: 'no_channel_target'
+                });
+              }
             } catch (e) {
               await logNotification({
                 urlId,
@@ -676,6 +1105,15 @@ async function checkUrl(urlId) {
                 errorMessage: e.message
               });
             }
+          } else if (responseTimeOverride.suppress) {
+            await logNotification({
+              urlId,
+              channel: 'suppressed',
+              fieldChanged: 'Response Time',
+              severity: 'warning',
+              status: 'suppressed',
+              suppressionReason: responseTimeOverride.suppressionReason || 'suppressed'
+            });
           }
         }
       }
@@ -685,6 +1123,12 @@ async function checkUrl(urlId) {
       console.log(`[Check] URL #${urlId}: ${alertsGenerated.length} change(s) — ${alertsGenerated.join(', ')}`);
     } else {
       console.log(`[Check] URL #${urlId}: No changes detected`);
+    }
+
+    try {
+      await computeAndStoreHealthScore({ urlId, snap });
+    } catch (healthErr) {
+      console.error(`[HealthScore] URL #${urlId}: ${healthErr.message}`);
     }
 
     return { snapshot: snap, alerts: alertsGenerated };

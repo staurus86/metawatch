@@ -6,7 +6,7 @@ const { requireAuth } = require('../auth');
 const { checkMonitor } = require('../uptime-checker');
 const { scheduleMonitor, unscheduleMonitor } = require('../scheduler');
 const { notify: notifyMeta } = require('../notifier');
-const { sendTelegram, sendWebhook } = require('../notifier');
+const { sendTelegram, sendWebhook, sendDiscord } = require('../notifier');
 const { sendAlert: sendEmail } = require('../mailer');
 const { assertSafeOutboundUrl } = require('../net-safety');
 const { auditFromRequest } = require('../audit');
@@ -133,7 +133,8 @@ router.get('/add', requireAuth, (req, res) => {
       alert_email: req.user.default_alert_email || '',
       telegram_token: req.user.default_telegram_token || '',
       telegram_chat_id: req.user.default_telegram_chat_id || '',
-      webhook_url: req.user.default_webhook_url || ''
+      webhook_url: req.user.default_webhook_url || '',
+      discord_webhook_url: ''
     }
   });
 });
@@ -142,7 +143,7 @@ router.get('/add', requireAuth, (req, res) => {
 router.post('/add', requireAuth, async (req, res) => {
   const {
     name, url, interval_minutes, threshold_ms,
-    alert_email, telegram_token, telegram_chat_id, webhook_url,
+    alert_email, telegram_token, telegram_chat_id, webhook_url, discord_webhook_url,
     is_public, maintenance_cron, maintenance_duration_minutes
   } = req.body;
 
@@ -192,9 +193,9 @@ router.post('/add', requireAuth, async (req, res) => {
     const { rows: [monitor] } = await pool.query(
       `INSERT INTO uptime_monitors
          (user_id, name, url, slug, interval_minutes, threshold_ms,
-          alert_email, telegram_token, telegram_chat_id, webhook_url, is_public,
+          alert_email, telegram_token, telegram_chat_id, webhook_url, discord_webhook_url, is_public,
           maintenance_cron, maintenance_duration_minutes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING *`,
       [
         req.user.id, name.trim(), safeUrl, slug,
@@ -204,6 +205,7 @@ router.post('/add', requireAuth, async (req, res) => {
         telegram_token?.trim() || req.user.default_telegram_token || null,
         telegram_chat_id?.trim() || req.user.default_telegram_chat_id || null,
         webhook_url?.trim() || req.user.default_webhook_url || null,
+        discord_webhook_url?.trim() || null,
         !!is_public,
         maintenance_cron?.trim() || null,
         safeMaintenanceDuration
@@ -329,7 +331,7 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
   const monitorId = parseInt(req.params.id, 10);
   const {
     name, url, interval_minutes, threshold_ms,
-    alert_email, telegram_token, telegram_chat_id, webhook_url,
+    alert_email, telegram_token, telegram_chat_id, webhook_url, discord_webhook_url,
     is_public, silenced_until, maintenance_cron, maintenance_duration_minutes
   } = req.body;
 
@@ -360,21 +362,21 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
       `UPDATE uptime_monitors SET
          name = $1, url = $2, interval_minutes = $3, threshold_ms = $4,
          alert_email = $5, telegram_token = $6, telegram_chat_id = $7,
-         webhook_url = $8, is_public = $9, silenced_until = $10,
-         maintenance_cron = $11, maintenance_duration_minutes = $12
-       WHERE id = $13 ${!isAdmin ? 'AND user_id = $14' : ''}
+         webhook_url = $8, discord_webhook_url = $9, is_public = $10, silenced_until = $11,
+         maintenance_cron = $12, maintenance_duration_minutes = $13
+       WHERE id = $14 ${!isAdmin ? 'AND user_id = $15' : ''}
        RETURNING *`,
       !isAdmin
         ? [name?.trim(), safeUrl, intervalValue,
           parseInt(threshold_ms || '3000', 10), alert_email?.trim() || null,
           telegram_token?.trim() || null, telegram_chat_id?.trim() || null,
-          webhook_url?.trim() || null, !!is_public, silenced_until?.trim() || null,
+          webhook_url?.trim() || null, discord_webhook_url?.trim() || null, !!is_public, silenced_until?.trim() || null,
           maintenance_cron?.trim() || null, safeMaintenanceDuration,
           monitorId, req.user.id]
         : [name?.trim(), safeUrl, intervalValue,
           parseInt(threshold_ms || '3000', 10), alert_email?.trim() || null,
           telegram_token?.trim() || null, telegram_chat_id?.trim() || null,
-          webhook_url?.trim() || null, !!is_public, silenced_until?.trim() || null,
+          webhook_url?.trim() || null, discord_webhook_url?.trim() || null, !!is_public, silenced_until?.trim() || null,
           maintenance_cron?.trim() || null, safeMaintenanceDuration,
           monitorId]
     );
@@ -459,6 +461,20 @@ router.post('/:id/test-notify', requireAuth, async (req, res) => {
     if (monitor.webhook_url) {
       const ok = await sendWebhook({ webhookUrl: monitor.webhook_url, payload: { event: 'test', monitor_id: monitor.id, name: monitor.name } });
       if (ok) channels.push('webhook');
+    }
+    if (monitor.discord_webhook_url) {
+      const ok = await sendDiscord({
+        webhookUrl: monitor.discord_webhook_url,
+        alert: {
+          type: 'uptime',
+          event: 'info',
+          name: monitor.name,
+          url: monitor.url,
+          description: 'MetaWatch Uptime test notification is working.',
+          timestamp: new Date()
+        }
+      });
+      if (ok) channels.push('discord');
     }
 
     if (channels.length === 0) return res.json({ ok: false, message: 'No notification channels configured.' });

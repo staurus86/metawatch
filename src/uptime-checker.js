@@ -2,7 +2,7 @@ const axios = require('axios');
 const cron = require('node-cron');
 const pool = require('./db');
 const { checkSsl } = require('./scraper');
-const { sendTelegram, sendWebhook } = require('./notifier');
+const { sendTelegram, sendWebhook, sendDiscord } = require('./notifier');
 const { sendAlert: sendEmail } = require('./mailer');
 const { assertSafeOutboundUrl } = require('./net-safety');
 
@@ -27,6 +27,25 @@ function getCause(err, statusCode) {
   return 'connection_error';
 }
 
+function severityForUptimeEvent(event) {
+  const normalized = String(event || '').toLowerCase();
+  if (normalized === 'recovery' || normalized === 'info') return 'info';
+  if (normalized === 'degraded' || normalized === 'warning') return 'warning';
+  return 'critical';
+}
+
+async function logNotification({ monitorId, channel, fieldChanged, severity, status, errorMessage }) {
+  try {
+    await pool.query(
+      `INSERT INTO notification_log (monitor_id, channel, field_changed, severity, status, error_message)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [monitorId || null, channel, fieldChanged || null, severity || null, status, errorMessage || null]
+    );
+  } catch {
+    // non-critical
+  }
+}
+
 function isInMaintenanceWindow(maintenanceCron, durationMinutes) {
   if (!maintenanceCron || !durationMinutes || durationMinutes <= 0) return false;
   try {
@@ -49,7 +68,7 @@ function isInMaintenanceWindow(maintenanceCron, durationMinutes) {
   return false;
 }
 
-async function sendUptimeNotification({ monitor, subject, body }) {
+async function sendUptimeNotification({ monitor, subject, body, discordEvent = 'down' }) {
   const results = {};
 
   // Email
@@ -82,6 +101,28 @@ async function sendUptimeNotification({ monitor, subject, body }) {
     results.webhook = await sendWebhook({
       webhookUrl: monitor.webhook_url,
       payload: { event: 'uptime_alert', monitor_id: monitor.id, name: monitor.name, url: monitor.url, subject, body, timestamp: new Date().toISOString() }
+    });
+  }
+
+  if (monitor.discord_webhook_url) {
+    results.discord = await sendDiscord({
+      webhookUrl: monitor.discord_webhook_url,
+      alert: {
+        type: 'uptime',
+        event: discordEvent,
+        name: monitor.name,
+        url: monitor.url,
+        body,
+        timestamp: new Date()
+      }
+    });
+    await logNotification({
+      monitorId: monitor.id,
+      channel: 'discord',
+      fieldChanged: subject,
+      severity: severityForUptimeEvent(discordEvent),
+      status: results.discord ? 'sent' : 'failed',
+      errorMessage: results.discord ? null : 'discord_send_failed'
     });
   }
 
@@ -192,11 +233,12 @@ async function checkMonitor(monitorId) {
       if (status === 'down') {
         subject = `🔴 ${monitor.name} is DOWN`;
         body = `URL: ${monitor.url}\nError: ${errorMessage || `HTTP ${statusCode}`}`;
+        await sendUptimeNotification({ monitor, subject, body, discordEvent: 'down' });
       } else {
         subject = `🟡 ${monitor.name} is SLOW (DEGRADED)`;
         body = `URL: ${monitor.url}\nResponse time: ${responseTimeMs}ms (threshold: ${monitor.threshold_ms}ms)`;
+        await sendUptimeNotification({ monitor, subject, body, discordEvent: 'degraded' });
       }
-      await sendUptimeNotification({ monitor, subject, body });
       await pool.query('UPDATE uptime_incidents SET alert_sent = true WHERE id = $1', [newIncident.id]);
     }
   }
@@ -218,7 +260,8 @@ async function checkMonitor(monitorId) {
       await sendUptimeNotification({
         monitor,
         subject: `🟢 ${monitor.name} is back UP`,
-        body: `URL: ${monitor.url}\nDowntime: ${dur}`
+        body: `URL: ${monitor.url}\nDowntime: ${dur}`,
+        discordEvent: 'recovery'
       });
     }
   }
@@ -246,7 +289,8 @@ async function checkMonitor(monitorId) {
           await sendUptimeNotification({
             monitor,
             subject: `⚠️ SSL expires in ${daysLeft} days`,
-            body: `URL: ${monitor.url}\nSSL certificate expires: ${new Date(sslExpiresAt).toLocaleDateString()}`
+            body: `URL: ${monitor.url}\nSSL certificate expires: ${new Date(sslExpiresAt).toLocaleDateString()}`,
+            discordEvent: 'warning'
           });
         }
         break;

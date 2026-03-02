@@ -114,9 +114,11 @@ app.use('/notifications', require('./routes/notifications'));
 app.use('/tags', require('./routes/tags'));
 app.use('/status-pages', require('./routes/status-pages'));
 app.use('/competitors', require('./routes/competitors'));
+app.use('/integrations', require('./routes/integrations'));
 app.use('/alert-rules', require('./routes/alert-rules'));
 app.use('/admin', require('./routes/admin'));
 app.use('/profile', require('./routes/profile'));
+app.use('/api/v2', require('./routes/api-v2'));
 app.use('/api', require('./routes/api'));
 
 // Public status page — no auth

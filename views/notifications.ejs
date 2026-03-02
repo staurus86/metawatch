@@ -15,6 +15,9 @@
         <option value="email" <%= filters.channel === 'email' ? 'selected' : '' %>>Email</option>
         <option value="telegram" <%= filters.channel === 'telegram' ? 'selected' : '' %>>Telegram</option>
         <option value="webhook" <%= filters.channel === 'webhook' ? 'selected' : '' %>>Webhook</option>
+        <option value="discord" <%= filters.channel === 'discord' ? 'selected' : '' %>>Discord</option>
+        <option value="slack" <%= filters.channel === 'slack' ? 'selected' : '' %>>Slack</option>
+        <option value="pagerduty" <%= filters.channel === 'pagerduty' ? 'selected' : '' %>>PagerDuty</option>
       </select>
     </div>
     <div>
@@ -32,6 +35,7 @@
         <option value="">All</option>
         <option value="sent"   <%= filters.status === 'sent'   ? 'selected' : '' %>>Sent</option>
         <option value="failed" <%= filters.status === 'failed' ? 'selected' : '' %>>Failed</option>
+        <option value="suppressed" <%= filters.status === 'suppressed' ? 'selected' : '' %>>Suppressed</option>
       </select>
     </div>
     <button type="submit" class="btn btn-ghost" style="font-size:13px;padding:6px 14px">Filter</button>
@@ -93,9 +97,12 @@
                 <% } %>
               </td>
               <td>
-                <span class="badge badge--<%= n.status === 'sent' ? 'ok' : 'error' %>">
+                <span class="badge badge--<%= n.status === 'sent' ? 'ok' : (n.status === 'suppressed' ? 'pending' : 'error') %>">
                   <%= n.status %>
                 </span>
+                <% if (n.suppression_reason) { %>
+                  <div style="font-size:11px;color:var(--text-muted);margin-top:2px"><%= n.suppression_reason %></div>
+                <% } %>
                 <% if (n.error_message) { %>
                   <div style="font-size:11px;color:var(--text-muted);margin-top:2px"><%= n.error_message.substring(0, 60) %></div>
                 <% } %>
