@@ -17,6 +17,25 @@ function createTransporter() {
   });
 }
 
+async function sendEmail({ to, subject, html, text }) {
+  if (!isEmailConfigured()) {
+    return false;
+  }
+  try {
+    await createTransporter().sendMail({
+      from: process.env.SMTP_FROM || 'MetaWatch <alerts@metawatch.app>',
+      to,
+      subject,
+      html,
+      text
+    });
+    return true;
+  } catch (err) {
+    console.error(`[Email failed] ${err.message}`);
+    return false;
+  }
+}
+
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -212,4 +231,4 @@ async function sendDigest({ to, frequency, periodLabel, alerts, incidents, sslEx
   }
 }
 
-module.exports = { sendAlert, sendDigest, isEmailConfigured };
+module.exports = { sendAlert, sendDigest, sendEmail, isEmailConfigured };

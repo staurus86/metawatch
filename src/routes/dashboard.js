@@ -4,6 +4,41 @@ const pool = require('../db');
 const { requireAuth } = require('../auth');
 
 const DEFAULT_PER_PAGE = 25;
+const STATUS_SORT_SQL = `
+  CASE
+    WHEN mu.is_active = false THEN 4
+    WHEN ls.status_code IS NULL THEN 3
+    WHEN ls.status_code = 0 OR ls.status_code >= 400 THEN 0
+    WHEN COALESCE(ac.alert_count, 0) > 0 THEN 1
+    ELSE 2
+  END
+`;
+
+const SORT_COLUMNS = {
+  last_checked: 'ls.checked_at',
+  url: 'mu.url',
+  changes: 'COALESCE(ac.alert_count, 0)',
+  status: STATUS_SORT_SQL
+};
+
+function normalizeSort(sort) {
+  const key = String(sort || '').toLowerCase();
+  return SORT_COLUMNS[key] ? key : 'last_checked';
+}
+
+function normalizeDir(dir) {
+  return String(dir || '').toLowerCase() === 'asc' ? 'asc' : 'desc';
+}
+
+function buildOrderSql(sortKey, sortDir) {
+  const dir = sortDir === 'asc' ? 'ASC' : 'DESC';
+  const col = SORT_COLUMNS[sortKey] || SORT_COLUMNS.last_checked;
+
+  if (sortKey === 'last_checked') {
+    return `${col} ${dir} NULLS LAST, mu.created_at DESC`;
+  }
+  return `${col} ${dir}, mu.created_at DESC`;
+}
 
 function computeStatus(u) {
   if (!u.last_status_code && u.last_status_code !== 0) return 'PENDING';
@@ -59,6 +94,13 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
     const view = req.query.view === 'list' ? 'list' : req.query.view === 'projects' ? 'projects' : prefView;
 
     const rawProjectFilter = String(req.query.project || '');
+    const q = String(req.query.q || '').trim();
+    const rawStatusFilter = String(req.query.status || '').trim().toLowerCase();
+    const statusFilter = ['ok', 'changed', 'error', 'paused'].includes(rawStatusFilter)
+      ? rawStatusFilter
+      : '';
+    const sort = normalizeSort(req.query.sort);
+    const dir = normalizeDir(req.query.dir);
     const prefPerPage = [10, 25, 50].includes(parseInt(req.user.pref_rows_per_page, 10))
       ? parseInt(req.user.pref_rows_per_page, 10)
       : DEFAULT_PER_PAGE;
@@ -69,6 +111,7 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
     const importedCount = req.query.imported ? parseInt(req.query.imported, 10) : null;
     const importSkipped = req.query.skipped ? parseInt(req.query.skipped, 10) : null;
     const importTag = req.query.import_tag ? String(req.query.import_tag) : null;
+    const orderSql = buildOrderSql(sort, dir);
 
     // Ownership filter
     const userParams = isAdmin ? [] : [req.user.id];
@@ -94,6 +137,34 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
         scopedParams.push(parsedProjectId);
         projectWhere = `AND mu.project_id = $${scopedParams.length}`;
       }
+    }
+
+    let searchWhere = '';
+    if (q) {
+      scopedParams.push(`%${q}%`);
+      searchWhere = `AND mu.url ILIKE $${scopedParams.length}`;
+    }
+
+    let statusWhere = '';
+    if (statusFilter === 'ok') {
+      statusWhere = `
+        AND mu.is_active = true
+        AND ls.status_code BETWEEN 1 AND 399
+        AND COALESCE(ac.alert_count, 0) = 0
+      `;
+    } else if (statusFilter === 'changed') {
+      statusWhere = `
+        AND mu.is_active = true
+        AND ls.status_code BETWEEN 1 AND 399
+        AND COALESCE(ac.alert_count, 0) > 0
+      `;
+    } else if (statusFilter === 'error') {
+      statusWhere = `
+        AND mu.is_active = true
+        AND (ls.status_code = 0 OR ls.status_code >= 400)
+      `;
+    } else if (statusFilter === 'paused') {
+      statusWhere = 'AND mu.is_active = false';
     }
 
     // Problem-tab filter (applied in SQL so pagination works correctly)
@@ -185,7 +256,7 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
           SELECT COUNT(*) AS alert_count FROM alerts
           WHERE url_id = mu.id AND detected_at > NOW() - INTERVAL '24 hours'
         ) ac ON true
-        WHERE 1=1 ${userWhere} ${tagWhere} ${projectWhere} ${problemFilter}
+        WHERE 1=1 ${userWhere} ${tagWhere} ${projectWhere} ${searchWhere} ${statusWhere} ${problemFilter}
       ) sub
     `, scopedParams);
 
@@ -223,8 +294,8 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
         FROM snapshots
         WHERE url_id = mu.id AND checked_at > NOW() - INTERVAL '30 days'
       ) up ON true
-      WHERE 1=1 ${userWhere} ${tagWhere} ${projectWhere} ${problemFilter}
-      ORDER BY mu.created_at DESC
+      WHERE 1=1 ${userWhere} ${tagWhere} ${projectWhere} ${searchWhere} ${statusWhere} ${problemFilter}
+      ORDER BY ${orderSql}
       LIMIT $${limitIdx} OFFSET $${offsetIdx}
     `, [...scopedParams, perPage, offset]);
 
@@ -260,8 +331,8 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
           FROM snapshots
           WHERE url_id = mu.id AND checked_at > NOW() - INTERVAL '30 days'
         ) up ON true
-        WHERE 1=1 ${userWhere} ${tagWhere} ${projectWhere} ${problemFilter}
-        ORDER BY COALESCE(p.name, 'zzzzzz'), mu.created_at DESC
+        WHERE 1=1 ${userWhere} ${tagWhere} ${projectWhere} ${searchWhere} ${statusWhere} ${problemFilter}
+        ORDER BY COALESCE(p.name, 'zzzzzz') ASC, ${orderSql}
       `, scopedParams);
       projectGroups = buildProjectGroups(projectUrls.map(u => ({ ...u, status: computeStatus(u) })));
     }
@@ -325,6 +396,10 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
       fieldFilter,
       alertFields,
       tagFilter,
+      q,
+      statusFilter,
+      sort,
+      dir,
       allTags,
       page,
       totalPages,

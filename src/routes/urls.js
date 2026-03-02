@@ -25,6 +25,29 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 const MAX_BULK_IMPORT_URLS = 500;
 const BULK_PREVIEW_ROW_LIMIT = 1000;
 
+const ALERT_FIELD_TO_SNAPSHOT_COLUMNS = {
+  Title: ['title'],
+  'Meta Description': ['description'],
+  H1: ['h1'],
+  'Page Content': ['body_text_hash', 'normalized_body_hash'],
+  'Response Code': ['status_code'],
+  'Soft 404': ['soft_404'],
+  noindex: ['noindex'],
+  'Redirect URL': ['redirect_url'],
+  'Redirect Chain': ['redirect_chain'],
+  Canonical: ['canonical'],
+  'Canonical Issue': ['canonical_issue'],
+  'Indexability Conflict': ['indexability_conflict'],
+  'robots.txt': ['robots_txt_hash', 'raw_robots_txt'],
+  'Robots Blocking': ['robots_blocked'],
+  hreflang: ['hreflang'],
+  'OG Title': ['og_title'],
+  'OG Description': ['og_description'],
+  'OG Image': ['og_image'],
+  'Custom Text': ['custom_text_found'],
+  'SSL Certificate': ['ssl_expires_at']
+};
+
 function normalizeImportUrl(value) {
   const url = String(value || '').trim();
   if (!/^https?:\/\//i.test(url)) return null;
@@ -747,7 +770,8 @@ router.get('/:id', requireAuth, async (req, res) => {
       robotsDiff,
       activeTab: req.query.tab || 'overview',
       uptimePct,
-      textRules
+      textRules,
+      acceptedCount: req.query.accepted ? parseInt(req.query.accepted, 10) : null
     });
   } catch (err) {
     console.error(err);
@@ -822,6 +846,100 @@ router.post('/:id/accept-changes', requireAuth, async (req, res) => {
       );
     }
     res.redirect(`/urls/${urlId}`);
+  } catch (err) {
+    console.error(err);
+    res.status(500).render('error', { title: 'Error', error: err.message });
+  }
+});
+
+// POST /urls/:id/accept-selected — accept specific alert rows only
+router.post('/:id/accept-selected', requireAuth, async (req, res) => {
+  const urlId = parseInt(req.params.id, 10);
+  if (isNaN(urlId)) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
+
+  const rawAlertIds = Array.isArray(req.body.alert_ids)
+    ? req.body.alert_ids
+    : req.body.alert_ids
+      ? [req.body.alert_ids]
+      : [];
+  const alertIds = rawAlertIds.map(v => parseInt(v, 10)).filter(v => Number.isFinite(v) && v > 0);
+  if (alertIds.length === 0) return res.redirect(`/urls/${urlId}?tab=changes`);
+
+  try {
+    const { query, params } = ownedUrlQuery(urlId, req);
+    const { rows: [urlRecord] } = await pool.query(query, params);
+    if (!urlRecord) return res.status(404).render('error', { title: 'Not Found', error: 'URL not found' });
+
+    const { rows: [latestSnapshot] } = await pool.query(
+      'SELECT * FROM snapshots WHERE url_id = $1 ORDER BY checked_at DESC LIMIT 1',
+      [urlId]
+    );
+    if (!latestSnapshot) return res.redirect(`/urls/${urlId}?tab=changes`);
+
+    const { rows: selectedAlerts } = await pool.query(
+      `SELECT id, field_changed
+       FROM alerts
+       WHERE url_id = $1 AND id = ANY($2::int[])`,
+      [urlId, alertIds]
+    );
+    if (selectedAlerts.length === 0) return res.redirect(`/urls/${urlId}?tab=changes`);
+
+    let refSnapshotId = urlRecord.reference_snapshot_id || null;
+    let refSnapshot = null;
+    if (refSnapshotId) {
+      const { rows: [existingRef] } = await pool.query(
+        'SELECT id FROM snapshots WHERE id = $1 AND url_id = $2',
+        [refSnapshotId, urlId]
+      );
+      refSnapshot = existingRef || null;
+    }
+    if (!refSnapshot) {
+      refSnapshotId = latestSnapshot.id;
+      await pool.query(
+        req.user.role === 'admin'
+          ? 'UPDATE monitored_urls SET reference_snapshot_id = $1 WHERE id = $2'
+          : 'UPDATE monitored_urls SET reference_snapshot_id = $1 WHERE id = $2 AND user_id = $3',
+        req.user.role === 'admin' ? [refSnapshotId, urlId] : [refSnapshotId, urlId, req.user.id]
+      );
+    }
+
+    const columnUpdates = new Map();
+    const acceptedFields = new Set();
+    for (const alert of selectedAlerts) {
+      const cols = ALERT_FIELD_TO_SNAPSHOT_COLUMNS[alert.field_changed];
+      if (!cols || cols.length === 0) continue;
+      acceptedFields.add(alert.field_changed);
+      for (const col of cols) {
+        columnUpdates.set(col, latestSnapshot[col]);
+      }
+    }
+
+    if (columnUpdates.size > 0 && refSnapshotId && refSnapshotId !== latestSnapshot.id) {
+      const cols = [...columnUpdates.keys()];
+      const values = cols.map(c => columnUpdates.get(c));
+      const setSql = cols.map((c, idx) => `${c} = $${idx + 1}`).join(', ');
+      await pool.query(
+        `UPDATE snapshots SET ${setSql} WHERE id = $${cols.length + 1}`,
+        [...values, refSnapshotId]
+      );
+    }
+
+    const { rowCount: deletedCount } = await pool.query(
+      'DELETE FROM alerts WHERE url_id = $1 AND id = ANY($2::int[])',
+      [urlId, selectedAlerts.map(a => a.id)]
+    );
+
+    await auditFromRequest(req, {
+      action: 'url.accept_selected',
+      entityType: 'monitored_url',
+      entityId: urlId,
+      meta: {
+        acceptedCount: deletedCount,
+        acceptedFields: [...acceptedFields]
+      }
+    });
+
+    res.redirect(`/urls/${urlId}?tab=changes&accepted=${deletedCount}`);
   } catch (err) {
     console.error(err);
     res.status(500).render('error', { title: 'Error', error: err.message });

@@ -6,6 +6,7 @@ const {
   signToken, setAuthCookie, clearAuthCookie,
   hashPassword, comparePassword, generateApiKey, hashApiKey
 } = require('../auth');
+const { triggerWelcomeOnboarding } = require('../onboarding-sequence');
 
 // Simple in-memory rate limiter for login: max 10 attempts per 15 min per IP
 const loginAttempts = new Map();
@@ -82,6 +83,7 @@ router.post('/login', async (req, res) => {
 
     const token = signToken(user.id);
     setAuthCookie(res, token);
+    triggerWelcomeOnboarding(user.id).catch(() => {});
     res.redirect('/');
   } catch (err) {
     console.error(err);
@@ -244,6 +246,7 @@ router.post('/invite/:token', async (req, res) => {
 
     const jwtToken = signToken(user.id);
     setAuthCookie(res, jwtToken);
+    triggerWelcomeOnboarding(user.id).catch(() => {});
     res.redirect('/');
   } catch (err) {
     console.error(err);

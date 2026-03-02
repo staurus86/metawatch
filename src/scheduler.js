@@ -5,6 +5,7 @@ const { checkMonitor } = require('./uptime-checker');
 const { checkSemaphore, domainRateLimit, userRateLimit } = require('./queue');
 const { sendDigest } = require('./mailer');
 const { sendWebhook } = require('./notifier');
+const { runOnboardingSequenceDaily } = require('./onboarding-sequence');
 
 // Map of urlId -> cron ScheduledTask
 const activeJobs = new Map();
@@ -290,6 +291,10 @@ async function startScheduler() {
   // Webhook retry cron — runs every 2 minutes
   cron.schedule('*/2 * * * *', () => retryWebhooks());
   console.log('[Scheduler] Webhook retry queue active (every 2 min)');
+
+  // Onboarding email sequence cron — runs daily
+  cron.schedule('30 9 * * *', () => runOnboardingSequenceDaily());
+  console.log('[Scheduler] Onboarding sequence cron active (daily at 09:30 UTC)');
 }
 
 async function sendHourlyDigests() {

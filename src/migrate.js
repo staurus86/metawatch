@@ -323,6 +323,20 @@ async function migrate() {
       `CREATE INDEX IF NOT EXISTS idx_notification_log_sent ON notification_log(sent_at DESC)`
     );
 
+    // ─── onboarding email sequence log ──────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS email_sequence_log (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        step VARCHAR(64) NOT NULL,
+        sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(user_id, step)
+      )
+    `);
+    await client.query(
+      'CREATE INDEX IF NOT EXISTS idx_email_sequence_user_sent ON email_sequence_log(user_id, sent_at DESC)'
+    );
+
     // ─── webhook_delivery_log ─────────────────────────────────────────────────
     await client.query(`
       CREATE TABLE IF NOT EXISTS webhook_delivery_log (

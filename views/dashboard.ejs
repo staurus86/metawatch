@@ -4,6 +4,10 @@
     per_page: String(perPage || 25),
     view: view || 'projects'
   };
+  if (q) paramsBase.q = q;
+  if (statusFilter) paramsBase.status = statusFilter;
+  if (sort) paramsBase.sort = sort;
+  if (dir) paramsBase.dir = dir;
   if (tagFilter) paramsBase.tag = tagFilter;
   if (projectFilter) paramsBase.project = projectFilter;
   if (fieldFilter) paramsBase.field = fieldFilter;
@@ -21,9 +25,23 @@
     per_page: String(perPage || 25),
     view: view || 'projects'
   });
+  if (q) fieldBaseParams.set('q', q);
+  if (statusFilter) fieldBaseParams.set('status', statusFilter);
+  if (sort) fieldBaseParams.set('sort', sort);
+  if (dir) fieldBaseParams.set('dir', dir);
   if (tagFilter) fieldBaseParams.set('tag', tagFilter);
   if (projectFilter) fieldBaseParams.set('project', projectFilter);
   const fieldNavBase = '/dashboard?' + fieldBaseParams.toString() + '&field=';
+
+  function sortLink(columnKey) {
+    const nextDir = (sort === columnKey && dir === 'asc') ? 'desc' : 'asc';
+    return queryWith({ sort: columnKey, dir: nextDir, page: null });
+  }
+
+  function sortArrow(columnKey) {
+    if (sort !== columnKey) return '↕';
+    return dir === 'asc' ? '↑' : '↓';
+  }
 %>
 
 <div class="page-header">
@@ -150,14 +168,43 @@
   <% } %>
 </div>
 
+<form method="GET" action="/dashboard" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 14px">
+  <input type="hidden" name="tab" value="<%= tab || 'all' %>">
+  <input type="hidden" name="view" value="<%= view || 'projects' %>">
+  <input type="hidden" name="per_page" value="<%= perPage || 25 %>">
+  <% if (tagFilter) { %><input type="hidden" name="tag" value="<%= tagFilter %>"><% } %>
+  <% if (projectFilter) { %><input type="hidden" name="project" value="<%= projectFilter %>"><% } %>
+  <% if (fieldFilter) { %><input type="hidden" name="field" value="<%= fieldFilter %>"><% } %>
+  <% if (sort) { %><input type="hidden" name="sort" value="<%= sort %>"><% } %>
+  <% if (dir) { %><input type="hidden" name="dir" value="<%= dir %>"><% } %>
+
+  <input
+    name="q"
+    type="search"
+    class="form-input"
+    style="width:260px;padding:6px 10px;font-size:13px"
+    placeholder="Search URL or domain"
+    value="<%= q || '' %>"
+    autocomplete="off">
+
+  <select name="status" class="form-select" style="padding:6px 10px;font-size:13px;width:auto">
+    <option value="" <%= !statusFilter ? 'selected' : '' %>>All statuses</option>
+    <option value="ok" <%= statusFilter === 'ok' ? 'selected' : '' %>>OK</option>
+    <option value="changed" <%= statusFilter === 'changed' ? 'selected' : '' %>>Changed</option>
+    <option value="error" <%= statusFilter === 'error' ? 'selected' : '' %>>Error</option>
+    <option value="paused" <%= statusFilter === 'paused' ? 'selected' : '' %>>Paused</option>
+  </select>
+
+  <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">Apply</button>
+  <a href="<%= queryWith({ q: null, status: null, page: null }) %>" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">Reset</a>
+</form>
+
 <!-- Projects view -->
 <% if (view === 'projects') { %>
   <div class="card" style="border-top-left-radius:0">
     <div class="card-header">
       <h2 class="card-title">Meta Monitoring by Project</h2>
       <div style="display:flex;gap:8px;align-items:center">
-        <input id="url-search" type="search" class="form-input" style="width:220px;padding:5px 10px;font-size:13px"
-               placeholder="Filter URLs…" autocomplete="off">
         <a href="/projects" class="btn btn-ghost" style="font-size:12px;padding:5px 10px">Manage Projects</a>
       </div>
     </div>
@@ -240,8 +287,6 @@
         </label>
       </h2>
       <div style="display:flex;gap:8px;align-items:center">
-        <input id="url-search" type="search" class="form-input" style="width:220px;padding:5px 10px;font-size:13px"
-               placeholder="Filter URLs…" autocomplete="off">
         <% if (tab === 'problems' && urls.length > 0) { %>
           <form action="/urls/accept-all-changes" method="POST">
             <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:4px 10px">
@@ -273,6 +318,20 @@
         <% } %>
       </div>
     <% } else { %>
+      <div style="display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-muted)">
+        <a href="<%= sortLink('last_checked') %>" style="text-decoration:none;color:inherit">
+          Last Checked <%= sortArrow('last_checked') %>
+        </a>
+        <a href="<%= sortLink('status') %>" style="text-decoration:none;color:inherit">
+          Status <%= sortArrow('status') %>
+        </a>
+        <a href="<%= sortLink('url') %>" style="text-decoration:none;color:inherit">
+          URL <%= sortArrow('url') %>
+        </a>
+        <a href="<%= sortLink('changes') %>" style="text-decoration:none;color:inherit">
+          Changes <%= sortArrow('changes') %>
+        </a>
+      </div>
       <div class="url-list">
         <% urls.forEach(function(u) { %>
           <div class="url-row-wrap">

@@ -40,6 +40,12 @@
   </form>
 </div>
 
+<% if (acceptedCount && acceptedCount > 0) { %>
+  <div class="alert-banner alert-banner--ok" style="margin-top:12px">
+    ✓ Accepted <%= acceptedCount %> selected change<%= acceptedCount !== 1 ? 's' : '' %>.
+  </div>
+<% } %>
+
 <!-- Info cards -->
 <div class="info-grid">
   <div class="card info-card">
@@ -299,36 +305,45 @@
       </div>
     <% } %>
     <% if (alerts.length > 0) { %>
-      <div class="alerts-detail-list">
-        <% alerts.forEach(function(alert) { %>
-          <div class="alert-detail-row">
-            <div class="alert-detail-header">
-              <span class="alert-field-badge"><%= alert.field_changed %></span>
-              <% if (alert.severity === 'critical') { %>
-                <span class="badge badge--severity-critical">Critical</span>
-              <% } else if (alert.severity === 'warning') { %>
-                <span class="badge badge--severity-warning">Warning</span>
-              <% } else if (alert.severity) { %>
-                <span class="badge badge--severity-info">Info</span>
-              <% } %>
-              <span class="alert-time text-muted">
-                <span class="time-ago" data-ts="<%= new Date(alert.detected_at).toISOString() %>"></span>
-                — <%= new Date(alert.detected_at).toUTCString() %>
-              </span>
-            </div>
-            <div class="diff-container">
-              <div class="diff-panel diff-panel--old">
-                <div class="diff-panel-label">Previous</div>
-                <div class="diff-panel-value"><%- alert.diffOldHtml || (alert.old_value || '(empty)') %></div>
+      <form action="/urls/<%= urlRecord.id %>/accept-selected" method="POST">
+        <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px 0">
+          <button type="submit" class="btn btn-ghost" style="font-size:12px">✓ Accept Selected</button>
+        </div>
+        <div class="alerts-detail-list">
+          <% alerts.forEach(function(alert) { %>
+            <div class="alert-detail-row">
+              <div class="alert-detail-header" style="display:flex;align-items:center;gap:10px">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                  <input type="checkbox" name="alert_ids" value="<%= alert.id %>" style="width:14px;height:14px">
+                  <span class="text-muted" style="font-size:12px">Select</span>
+                </label>
+                <span class="alert-field-badge"><%= alert.field_changed %></span>
+                <% if (alert.severity === 'critical') { %>
+                  <span class="badge badge--severity-critical">Critical</span>
+                <% } else if (alert.severity === 'warning') { %>
+                  <span class="badge badge--severity-warning">Warning</span>
+                <% } else if (alert.severity) { %>
+                  <span class="badge badge--severity-info">Info</span>
+                <% } %>
+                <span class="alert-time text-muted">
+                  <span class="time-ago" data-ts="<%= new Date(alert.detected_at).toISOString() %>"></span>
+                  - <%= new Date(alert.detected_at).toUTCString() %>
+                </span>
               </div>
-              <div class="diff-panel diff-panel--new">
-                <div class="diff-panel-label">Current</div>
-                <div class="diff-panel-value"><%- alert.diffNewHtml || (alert.new_value || '(empty)') %></div>
+              <div class="diff-container">
+                <div class="diff-panel diff-panel--old">
+                  <div class="diff-panel-label">Previous</div>
+                  <div class="diff-panel-value"><%- alert.diffOldHtml || (alert.old_value || '(empty)') %></div>
+                </div>
+                <div class="diff-panel diff-panel--new">
+                  <div class="diff-panel-label">Current</div>
+                  <div class="diff-panel-value"><%- alert.diffNewHtml || (alert.new_value || '(empty)') %></div>
+                </div>
               </div>
             </div>
-          </div>
-        <% }) %>
-      </div>
+          <% }) %>
+        </div>
+      </form>
     <% } else { %>
       <div class="empty-state" style="padding:32px">
         <div class="empty-icon">✅</div>
