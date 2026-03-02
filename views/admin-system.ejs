@@ -46,6 +46,8 @@
     <div><strong>Started:</strong> <%= system.scheduler.started ? 'yes' : 'no' %></div>
     <div><strong>Leader lock held:</strong> <%= system.scheduler.hasLock ? 'yes' : 'no' %></div>
     <div><strong>Queue backend:</strong> <%= system.scheduler.queueBackend %></div>
+    <div><strong>Queue mode enabled:</strong> <%= system.workerStatus && system.workerStatus.queueEnabled ? 'yes' : 'no' %></div>
+    <div><strong>Queue workers enabled:</strong> <%= system.workerStatus && system.workerStatus.enabled ? 'yes' : 'no' %></div>
     <div><strong>Async notifications:</strong> <%= system.scheduler.asyncNotifications ? 'enabled' : 'disabled' %></div>
     <div><strong>Workers started:</strong> <%= system.workerStatus && system.workerStatus.started ? 'yes' : 'no' %></div>
     <div><strong>Meta worker:</strong> <%= system.workerStatus && system.workerStatus.meta ? 'up' : 'off' %></div>

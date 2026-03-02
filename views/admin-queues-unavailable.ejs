@@ -1,0 +1,52 @@
+<div class="page-header">
+  <h1 class="page-title">Queue Dashboard Unavailable</h1>
+  <div style="display:flex;gap:8px">
+    <a href="/admin/system" class="btn btn-secondary">← System Metrics</a>
+    <a href="/admin/users" class="btn btn-ghost">Users</a>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-header">
+    <h2 class="card-title">Reason</h2>
+  </div>
+  <div style="padding:14px 20px;font-size:14px;color:var(--text-muted)">
+    <strong style="color:var(--danger,#d64545)">Queue board is disabled on this service.</strong>
+    <div style="margin-top:6px"><%= reason %></div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-header">
+    <h2 class="card-title">Runtime Diagnostics</h2>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <tbody>
+        <tr><th>Queue backend</th><td><%= diagnostics && diagnostics.backend ? diagnostics.backend : 'unknown' %></td></tr>
+        <tr><th>Queue enabled</th><td><%= diagnostics && diagnostics.queueEnabled ? 'yes' : 'no' %></td></tr>
+        <tr><th>REDIS_URL configured</th><td><%= diagnostics && diagnostics.redisUrlConfigured ? 'yes' : 'no' %></td></tr>
+        <tr><th>BullMQ package available</th><td><%= diagnostics && diagnostics.bullmqAvailable ? 'yes' : 'no' %></td></tr>
+        <tr><th>ioredis package available</th><td><%= diagnostics && diagnostics.ioredisAvailable ? 'yes' : 'no' %></td></tr>
+        <% if (diagnostics && diagnostics.initError) { %>
+          <tr><th>Init error</th><td><code><%= diagnostics.initError %></code></td></tr>
+        <% } %>
+        <% if (diagnostics && diagnostics.bullBoardError) { %>
+          <tr><th>Bull board error</th><td><code><%= diagnostics.bullBoardError %></code></td></tr>
+        <% } %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h2 class="card-title">Railway Setup</h2>
+  </div>
+  <div style="padding:14px 20px;color:var(--text-muted);font-size:13px;line-height:1.7">
+    <div><strong style="color:var(--text)">Web service</strong>: set <code>REDIS_URL</code>, <code>ENABLE_SCHEDULER=true</code>, <code>ENABLE_QUEUE_WORKERS=false</code>, <code>ENABLE_WEB=true</code>.</div>
+    <div><strong style="color:var(--text)">Worker service</strong>: set <code>REDIS_URL</code>, <code>ENABLE_SCHEDULER=false</code>, <code>ENABLE_QUEUE_WORKERS=true</code>, <code>ENABLE_WEB=false</code>.</div>
+    <div><strong style="color:var(--text)">Both services</strong>: set the same <code>DATABASE_URL</code> and stable <code>JWT_SECRET</code>.</div>
+    <div style="margin-top:8px">After updating variables, redeploy both services and refresh this page.</div>
+  </div>
+</div>

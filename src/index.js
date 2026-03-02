@@ -8,7 +8,7 @@ const pool = require('./db');
 const migrate = require('./migrate');
 const { startScheduler } = require('./scheduler');
 const { isQueueEnabled } = require('./queue');
-const { startQueueWorkers } = require('./workers');
+const { startQueueWorkers, isQueueWorkersEnabled } = require('./workers');
 const { loadUserMiddleware } = require('./auth');
 const { loadUserPlanMiddleware } = require('./plans');
 const { i18nMiddleware } = require('./i18n');
@@ -17,6 +17,14 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const CUSTOM_DOMAIN_CACHE_TTL_MS = 60 * 1000;
 const customDomainCache = new Map();
+
+function parseEnvBool(value, fallback = false) {
+  if (value == null || value === '') return fallback;
+  const normalized = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+}
 
 function normalizeHostHeader(hostHeader) {
   const raw = String(hostHeader || '').trim().toLowerCase();
@@ -141,15 +149,24 @@ app.use((err, req, res, next) => {
 async function start() {
   try {
     await migrate();
-    const schedulerEnabled = String(process.env.ENABLE_SCHEDULER || 'true').toLowerCase() !== 'false';
+    const schedulerEnabled = parseEnvBool(process.env.ENABLE_SCHEDULER, true);
     const queueEnabled = isQueueEnabled();
+    const queueWorkersEnabled = isQueueWorkersEnabled();
+    const implicitWorkerOnlyMode = queueEnabled && queueWorkersEnabled && !schedulerEnabled;
+    const webEnabled = parseEnvBool(process.env.ENABLE_WEB, !implicitWorkerOnlyMode);
 
-    if (queueEnabled) {
+    if (queueEnabled && queueWorkersEnabled) {
       await startQueueWorkers();
     }
 
-    if (queueEnabled && !schedulerEnabled) {
-      console.log('[Queue] Worker mode enabled (REDIS_URL set, ENABLE_SCHEDULER=false). Web server is not started.');
+    if (!webEnabled) {
+      const modeSource = process.env.ENABLE_WEB == null || process.env.ENABLE_WEB === ''
+        ? 'auto'
+        : 'explicit';
+      console.log(`[Web] Disabled (${modeSource} mode). Web server is not started.`);
+      if (!schedulerEnabled && !queueWorkersEnabled) {
+        console.log('[Runtime] ENABLE_SCHEDULER=false and ENABLE_QUEUE_WORKERS=false; process is idle.');
+      }
       return;
     }
 

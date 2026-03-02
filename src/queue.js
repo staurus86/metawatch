@@ -83,11 +83,13 @@ const QUEUE_NAMES = {
 
 let QueueCtor = null;
 let IORedisCtor = null;
+let queueInitError = null;
 
 try {
   ({ Queue: QueueCtor } = require('bullmq'));
   IORedisCtor = require('ioredis');
 } catch (err) {
+  queueInitError = err;
   if (REDIS_URL) {
     console.error(`[Queue] REDIS_URL is set, but BullMQ dependencies are unavailable: ${err.message}`);
   }
@@ -106,6 +108,17 @@ function getQueueBackendLabel() {
 
 function isQueueEnabled() {
   return queueEnabled;
+}
+
+function getQueueDiagnostics() {
+  return {
+    backend: getQueueBackendLabel(),
+    queueEnabled,
+    redisUrlConfigured: Boolean(REDIS_URL),
+    bullmqAvailable: Boolean(QueueCtor),
+    ioredisAvailable: Boolean(IORedisCtor),
+    initError: queueInitError ? String(queueInitError.message || queueInitError) : null
+  };
 }
 
 function getRedisConnection() {
@@ -299,6 +312,7 @@ module.exports = {
   QUEUE_NAMES,
   getQueueBackendLabel,
   isQueueEnabled,
+  getQueueDiagnostics,
   getRedisConnection,
   getQueueInstances,
   enqueueMetaCheck,

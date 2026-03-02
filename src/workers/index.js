@@ -10,6 +10,18 @@ const workerState = {
   notification: null
 };
 
+function parseEnvBool(value, fallback = false) {
+  if (value == null || value === '') return fallback;
+  const normalized = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+}
+
+function isQueueWorkersEnabled() {
+  return parseEnvBool(process.env.ENABLE_QUEUE_WORKERS, true);
+}
+
 async function closeWorker(worker) {
   if (!worker || typeof worker.close !== 'function') return;
   await worker.close().catch((err) => {
@@ -19,6 +31,7 @@ async function closeWorker(worker) {
 
 async function startQueueWorkers() {
   if (!isQueueEnabled()) return workerState;
+  if (!isQueueWorkersEnabled()) return workerState;
   if (workerState.started) return workerState;
 
   workerState.meta = startMetaWorker();
@@ -44,7 +57,11 @@ async function stopQueueWorkers() {
 }
 
 function getWorkerStatus() {
+  const queueEnabled = isQueueEnabled();
+  const workersEnabled = isQueueWorkersEnabled();
   return {
+    enabled: queueEnabled && workersEnabled,
+    queueEnabled,
     started: workerState.started,
     meta: !!workerState.meta,
     uptime: !!workerState.uptime,
@@ -55,5 +72,6 @@ function getWorkerStatus() {
 module.exports = {
   startQueueWorkers,
   stopQueueWorkers,
-  getWorkerStatus
+  getWorkerStatus,
+  isQueueWorkersEnabled
 };
