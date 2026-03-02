@@ -50,6 +50,8 @@
         <tr>
           <th>Email</th>
           <th>Role</th>
+          <th>Plan</th>
+          <th>Subscription</th>
           <th>Joined</th>
           <th>API Key</th>
           <th>Actions</th>
@@ -69,6 +71,17 @@
                 <%= u.role %>
               </span>
             </td>
+            <td>
+              <span class="badge badge--ok">
+                <%= u.current_plan_name || 'Free' %>
+              </span>
+            </td>
+            <td>
+              <% const subStatus = u.subscription_status || 'active'; %>
+              <span class="badge badge--<%= subStatus === 'active' ? 'ok' : subStatus === 'trial' ? 'pending' : 'error' %>">
+                <%= subStatus %>
+              </span>
+            </td>
             <td class="text-muted nowrap">
               <%= new Date(u.created_at).toISOString().split('T')[0] %>
             </td>
@@ -76,8 +89,21 @@
               <%= u.api_key_last4 ? ('••••••••••••' + u.api_key_last4) : '—' %>
             </td>
             <td>
-              <% if (u.id !== locals.user.id) { %>
-                <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start">
+                <form action="/admin/users/<%= u.id %>/plan" method="POST" style="display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap">
+                  <select name="plan_id" class="form-select" style="padding:3px 6px;font-size:12px;width:auto" required>
+                    <% plans.forEach(function(plan) { %>
+                      <option value="<%= plan.id %>" <%= Number(u.current_plan_id) === Number(plan.id) ? 'selected' : '' %>><%= plan.name %></option>
+                    <% }) %>
+                  </select>
+                  <select name="status" class="form-select" style="padding:3px 6px;font-size:12px;width:auto" required>
+                    <% ['active', 'trial', 'expired', 'cancelled'].forEach(function(st) { %>
+                      <option value="<%= st %>" <%= (u.subscription_status || 'active') === st ? 'selected' : '' %>><%= st %></option>
+                    <% }) %>
+                  </select>
+                  <button type="submit" class="btn btn-primary" style="font-size:11px;padding:3px 8px">Save plan</button>
+                </form>
+                <% if (u.id !== locals.user.id) { %>
                   <form action="/admin/users/<%= u.id %>/role" method="POST" style="display:inline-flex;gap:4px">
                     <select name="role" class="form-select" style="padding:3px 6px;font-size:12px;width:auto">
                       <option value="admin" <%= u.role === 'admin' ? 'selected' : '' %>>admin</option>
@@ -91,8 +117,8 @@
                       Revoke
                     </button>
                   </form>
-                </div>
-              <% } %>
+                <% } %>
+              </div>
             </td>
           </tr>
         <% }) %>

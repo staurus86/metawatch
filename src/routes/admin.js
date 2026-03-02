@@ -2,31 +2,75 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const pool = require('../db');
-const { requireAdmin, generateApiKey } = require('../auth');
+const { requireAdmin } = require('../auth');
 const { sendAlert } = require('../mailer');
 const { auditFromRequest } = require('../audit');
 const { getSchedulerStatus } = require('../scheduler');
+const { clearPlanCache } = require('../plans');
 const { version: APP_VERSION } = require('../../package.json');
+
+const SUBSCRIPTION_STATUSES = ['active', 'trial', 'expired', 'cancelled'];
+
+async function loadUsersForAdmin() {
+  const { rows } = await pool.query(
+    `SELECT
+       u.id,
+       u.email,
+       u.role,
+       u.created_at,
+       COALESCE(u.api_key_last4, RIGHT(u.api_key, 4)) AS api_key_last4,
+       cp.plan_id AS current_plan_id,
+       cp.plan_name AS current_plan_name,
+       cp.status AS subscription_status
+     FROM users u
+     LEFT JOIN LATERAL (
+       SELECT
+         s.plan_id,
+         p.name AS plan_name,
+         s.status
+       FROM subscriptions s
+       JOIN plans p ON p.id = s.plan_id
+       WHERE s.user_id = u.id
+       ORDER BY
+         CASE WHEN s.status IN ('active', 'trial') THEN 0 ELSE 1 END,
+         COALESCE(s.updated_at, s.created_at) DESC
+       LIMIT 1
+     ) cp ON true
+     ORDER BY u.created_at ASC`
+  );
+  return rows;
+}
+
+async function loadRecentInvites() {
+  const { rows } = await pool.query(
+    `SELECT i.*, u.email AS inviter_email
+     FROM invites i
+     LEFT JOIN users u ON u.id = i.invited_by_id
+     ORDER BY i.created_at DESC LIMIT 20`
+  );
+  return rows;
+}
+
+async function loadPlansForAdmin() {
+  const { rows } = await pool.query(
+    'SELECT id, name, price_usd FROM plans ORDER BY price_usd ASC, id ASC'
+  );
+  return rows;
+}
 
 // GET /admin/users
 router.get('/users', requireAdmin, async (req, res) => {
   try {
-    const { rows: users } = await pool.query(
-      `SELECT id, email, role, created_at,
-              COALESCE(api_key_last4, RIGHT(api_key, 4)) AS api_key_last4
-       FROM users
-       ORDER BY created_at ASC`
-    );
-    const { rows: invites } = await pool.query(
-      `SELECT i.*, u.email AS inviter_email
-       FROM invites i
-       LEFT JOIN users u ON u.id = i.invited_by_id
-       ORDER BY i.created_at DESC LIMIT 20`
-    );
+    const [users, invites, plans] = await Promise.all([
+      loadUsersForAdmin(),
+      loadRecentInvites(),
+      loadPlansForAdmin()
+    ]);
     res.render('admin', {
       title: 'Admin — Users',
       users,
       invites,
+      plans,
       inviteLink: null,
       message: req.query.msg || null
     });
@@ -73,23 +117,17 @@ router.post('/invite', requireAdmin, async (req, res) => {
       }).catch(() => false);
     }
 
-    const { rows: users } = await pool.query(
-      `SELECT id, email, role, created_at,
-              COALESCE(api_key_last4, RIGHT(api_key, 4)) AS api_key_last4
-       FROM users
-       ORDER BY created_at ASC`
-    );
-    const { rows: invites } = await pool.query(
-      `SELECT i.*, u.email AS inviter_email
-       FROM invites i
-       LEFT JOIN users u ON u.id = i.invited_by_id
-       ORDER BY i.created_at DESC LIMIT 20`
-    );
+    const [users, invites, plans] = await Promise.all([
+      loadUsersForAdmin(),
+      loadRecentInvites(),
+      loadPlansForAdmin()
+    ]);
 
     res.render('admin', {
       title: 'Admin — Users',
       users,
       invites,
+      plans,
       inviteLink: inviteUrl,
       message: emailSent ? 'Invite email sent!' : null
     });
@@ -136,6 +174,84 @@ router.post('/users/:id/role', requireAdmin, async (req, res) => {
     });
     res.redirect('/admin/users?msg=Role+updated');
   } catch (err) {
+    res.redirect('/admin/users?msg=' + encodeURIComponent(err.message));
+  }
+});
+
+// POST /admin/users/:id/plan — set plan + subscription status manually
+router.post('/users/:id/plan', requireAdmin, async (req, res) => {
+  const userId = parseInt(req.params.id, 10);
+  const planId = parseInt(req.body.plan_id, 10);
+  const status = String(req.body.status || '').trim().toLowerCase();
+
+  if (!Number.isFinite(userId) || userId <= 0) {
+    return res.redirect('/admin/users?msg=Invalid+user');
+  }
+  if (!Number.isFinite(planId) || planId <= 0) {
+    return res.redirect('/admin/users?msg=Invalid+plan');
+  }
+  if (!SUBSCRIPTION_STATUSES.includes(status)) {
+    return res.redirect('/admin/users?msg=Invalid+subscription+status');
+  }
+
+  try {
+    const [{ rows: userRows }, { rows: planRows }] = await Promise.all([
+      pool.query('SELECT id, email FROM users WHERE id = $1 LIMIT 1', [userId]),
+      pool.query('SELECT id, name FROM plans WHERE id = $1 LIMIT 1', [planId])
+    ]);
+
+    const targetUser = userRows[0] || null;
+    const plan = planRows[0] || null;
+    if (!targetUser) return res.redirect('/admin/users?msg=User+not+found');
+    if (!plan) return res.redirect('/admin/users?msg=Plan+not+found');
+
+    let trialEndsAt = null;
+    let currentPeriodEnd = null;
+    if (status === 'trial') {
+      trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+      currentPeriodEnd = trialEndsAt;
+    } else if (status === 'active') {
+      currentPeriodEnd = new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000);
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `UPDATE subscriptions
+         SET status = 'cancelled',
+             updated_at = NOW()
+         WHERE user_id = $1
+           AND status IN ('active', 'trial')`,
+        [userId]
+      );
+
+      await client.query(
+        `INSERT INTO subscriptions
+           (user_id, plan_id, status, trial_ends_at, current_period_end, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
+        [userId, planId, status, trialEndsAt, currentPeriodEnd]
+      );
+
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
+    }
+
+    clearPlanCache(userId);
+    await auditFromRequest(req, {
+      action: 'admin.user.plan_change',
+      entityType: 'user',
+      entityId: userId,
+      meta: { plan_id: planId, plan_name: plan.name, status }
+    });
+
+    res.redirect('/admin/users?msg=' + encodeURIComponent(`Plan updated: ${targetUser.email} -> ${plan.name} (${status})`));
+  } catch (err) {
+    console.error(err);
     res.redirect('/admin/users?msg=' + encodeURIComponent(err.message));
   }
 });
