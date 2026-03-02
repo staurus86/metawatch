@@ -5,7 +5,12 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
+    "dev": "nodemon src/index.js",
+    "test": "node --test",
+    "smoke:code": "node scripts/smoke-code.js",
+    "doctor:web": "node scripts/env-doctor.js --mode=web",
+    "doctor:worker": "node scripts/env-doctor.js --mode=worker",
+    "ci:check": "npm run smoke:code && npm test"
   },
   "engines": {
     "node": ">=18.0.0"
