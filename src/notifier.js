@@ -97,7 +97,13 @@ async function notify({ urlRecord, field, oldValue, newValue, severity, timestam
 
   for (const to of emailTargets) {
     results.email = await sendEmailAlert({
-      to, url: urlRecord.url, field, oldValue, newValue, timestamp
+      to,
+      url: urlRecord.url,
+      field,
+      oldValue,
+      newValue,
+      timestamp,
+      language: urlRecord.user_language
     });
   }
 

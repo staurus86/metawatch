@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const { translate, normalizeLanguage } = require('./i18n');
 
 function isEmailConfigured() {
   return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
@@ -51,13 +52,24 @@ function formatValue(val) {
   return `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:13px">${escapeHtml(String(val))}</pre>`;
 }
 
-async function sendAlert({ to, url, field, oldValue, newValue, timestamp }) {
+function localeForLanguage(language) {
+  return normalizeLanguage(language) === 'ru' ? 'ru-RU' : 'en-US';
+}
+
+function digestChangesWord(language, count) {
+  const lang = normalizeLanguage(language);
+  if (lang === 'ru') return 'изменений';
+  return count === 1 ? 'change' : 'changes';
+}
+
+async function sendAlert({ to, url, field, oldValue, newValue, timestamp, language }) {
   if (!isEmailConfigured()) {
     console.log(`[Email skipped — no SMTP config] ${field} changed on ${url}`);
     return false;
   }
 
-  const subject = `[MetaWatch] Change detected: ${field} on ${url}`;
+  const lang = normalizeLanguage(language);
+  const subject = translate(lang, 'emails.alert.subject', { field, url });
   const ts = new Date(timestamp).toUTCString();
   const dashboardUrl = process.env.BASE_URL || '#';
 
@@ -65,36 +77,36 @@ async function sendAlert({ to, url, field, oldValue, newValue, timestamp }) {
 <html><body style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:20px;color:#2d3748;background:#f7fafc">
   <div style="background:#1a202c;color:white;padding:16px 24px;border-radius:8px 8px 0 0;display:flex;align-items:center">
     <span style="font-size:22px;margin-right:10px">👁</span>
-    <h2 style="margin:0;font-size:18px;font-weight:600">MetaWatch Alert</h2>
+    <h2 style="margin:0;font-size:18px;font-weight:600">${translate(lang, 'emails.alert.title')}</h2>
   </div>
   <div style="background:white;border:1px solid #e2e8f0;border-top:none;padding:24px;border-radius:0 0 8px 8px">
-    <p style="margin-top:0;color:#4a5568">A change was detected on your monitored page:</p>
+    <p style="margin-top:0;color:#4a5568">${translate(lang, 'emails.alert.detected_text')}</p>
     <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:14px">
       <tr style="border-bottom:1px solid #e2e8f0">
-        <td style="padding:10px 12px;background:#f7fafc;font-weight:600;width:130px;color:#2d3748">URL</td>
+        <td style="padding:10px 12px;background:#f7fafc;font-weight:600;width:130px;color:#2d3748">${translate(lang, 'emails.alert.url')}</td>
         <td style="padding:10px 12px"><a href="${escapeHtml(url)}" style="color:#4299e1;word-break:break-all">${escapeHtml(url)}</a></td>
       </tr>
       <tr style="border-bottom:1px solid #e2e8f0">
-        <td style="padding:10px 12px;background:#f7fafc;font-weight:600;color:#2d3748">Field</td>
+        <td style="padding:10px 12px;background:#f7fafc;font-weight:600;color:#2d3748">${translate(lang, 'emails.alert.field')}</td>
         <td style="padding:10px 12px"><strong style="color:#e53e3e">${escapeHtml(field)}</strong></td>
       </tr>
       <tr>
-        <td style="padding:10px 12px;background:#f7fafc;font-weight:600;color:#2d3748">Detected At</td>
+        <td style="padding:10px 12px;background:#f7fafc;font-weight:600;color:#2d3748">${translate(lang, 'emails.alert.detected_at')}</td>
         <td style="padding:10px 12px;color:#718096">${ts}</td>
       </tr>
     </table>
-    <h3 style="color:#e53e3e;margin-bottom:8px;font-size:14px;text-transform:uppercase;letter-spacing:0.05em">Previous Value</h3>
+    <h3 style="color:#e53e3e;margin-bottom:8px;font-size:14px;text-transform:uppercase;letter-spacing:0.05em">${translate(lang, 'emails.alert.previous_value')}</h3>
     <div style="background:#fff5f5;border-left:4px solid #e53e3e;padding:12px;margin-bottom:16px;border-radius:4px">
       ${formatValue(oldValue)}
     </div>
-    <h3 style="color:#38a169;margin-bottom:8px;font-size:14px;text-transform:uppercase;letter-spacing:0.05em">New Value</h3>
+    <h3 style="color:#38a169;margin-bottom:8px;font-size:14px;text-transform:uppercase;letter-spacing:0.05em">${translate(lang, 'emails.alert.new_value')}</h3>
     <div style="background:#f0fff4;border-left:4px solid #38a169;padding:12px;border-radius:4px">
       ${formatValue(newValue)}
     </div>
     <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
     <p style="color:#718096;font-size:12px;margin:0">
-      <a href="${escapeHtml(dashboardUrl)}" style="color:#4299e1">Open MetaWatch Dashboard</a>
-      &nbsp;·&nbsp; MetaWatch — Website Metadata Monitor
+      <a href="${escapeHtml(dashboardUrl)}" style="color:#4299e1">${translate(lang, 'emails.alert.open_dashboard')}</a>
+      &nbsp;·&nbsp; ${translate(lang, 'emails.alert.footer')}
     </p>
   </div>
 </body></html>`;
@@ -114,18 +126,21 @@ async function sendAlert({ to, url, field, oldValue, newValue, timestamp }) {
   }
 }
 
-async function sendDigest({ to, frequency, periodLabel, alerts, incidents, sslExpirations, dateRange }) {
+async function sendDigest({ to, frequency, periodLabel, alerts, incidents, sslExpirations, dateRange, language }) {
   if (!isEmailConfigured()) return false;
 
+  const lang = normalizeLanguage(language);
+  const locale = localeForLanguage(lang);
   const dashboardUrl = process.env.BASE_URL || '#';
   const isEmpty = (!alerts || alerts.length === 0) && (!incidents || incidents.length === 0) && (!sslExpirations || sslExpirations.length === 0);
   if (isEmpty) return false;
 
   const totalChanges = (alerts || []).length;
-  const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const today = new Date().toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
+  const changesWord = digestChangesWord(lang, totalChanges);
   const subject = frequency === 'weekly'
-    ? `MetaWatch Weekly Report — ${dateRange || today}`
-    : `MetaWatch Daily — ${totalChanges} change${totalChanges !== 1 ? 's' : ''} [${today}]`;
+    ? translate(lang, 'emails.digest.weekly_subject', { date: dateRange || today })
+    : translate(lang, 'emails.digest.daily_subject', { count: totalChanges, changes_word: changesWord, date: today });
 
   const sevColor = { critical: '#e53e3e', warning: '#e53e3e', info: '#718096' };
   const sevLabel = { critical: '🔴 Critical', warning: '🟡 Warning', info: '🔵 Info' };
@@ -152,7 +167,7 @@ async function sendDigest({ to, frequency, periodLabel, alerts, incidents, sslEx
       }
     }
     metaHtml = `
-      <h3 style="font-size:15px;margin:20px 0 10px;color:#2d3748;border-bottom:2px solid #e2e8f0;padding-bottom:8px">📋 Meta Monitoring Changes (${alerts.length})</h3>
+      <h3 style="font-size:15px;margin:20px 0 10px;color:#2d3748;border-bottom:2px solid #e2e8f0;padding-bottom:8px">📋 ${translate(lang, 'emails.digest.meta_changes', { count: alerts.length })}</h3>
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <tr style="background:#f7fafc;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#718096">
           <th style="padding:6px 10px;text-align:left">URL</th><th style="padding:6px 10px;text-align:left">Field</th>
@@ -169,15 +184,15 @@ async function sendDigest({ to, frequency, periodLabel, alerts, incidents, sslEx
       <tr style="border-bottom:1px solid #f0f4f8">
         <td style="padding:8px 10px;font-size:13px">${escapeHtml(inc.monitor_name || inc.monitor_url || '')}</td>
         <td style="padding:8px 10px;font-size:12px;color:#718096">${new Date(inc.started_at).toUTCString().replace(' GMT','')}</td>
-        <td style="padding:8px 10px;font-size:12px">${inc.resolved_at ? `<span style="color:#38a169">Resolved (${Math.round(inc.duration_seconds / 60)}m)</span>` : '<span style="color:#e53e3e">Ongoing</span>'}</td>
+        <td style="padding:8px 10px;font-size:12px">${inc.resolved_at ? `<span style="color:#38a169">${translate(lang, 'emails.digest.resolved')} (${Math.round(inc.duration_seconds / 60)}m)</span>` : `<span style="color:#e53e3e">${translate(lang, 'emails.digest.ongoing')}</span>`}</td>
         <td style="padding:8px 10px;font-size:11px;color:#718096">${escapeHtml(inc.cause || '—')}</td>
       </tr>`).join('');
     uptimeHtml = `
-      <h3 style="font-size:15px;margin:20px 0 10px;color:#2d3748;border-bottom:2px solid #e2e8f0;padding-bottom:8px">🔔 Uptime Incidents (${incidents.length})</h3>
+      <h3 style="font-size:15px;margin:20px 0 10px;color:#2d3748;border-bottom:2px solid #e2e8f0;padding-bottom:8px">🔔 ${translate(lang, 'emails.digest.uptime_incidents', { count: incidents.length })}</h3>
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <tr style="background:#f7fafc;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#718096">
-          <th style="padding:6px 10px;text-align:left">Monitor</th><th style="padding:6px 10px;text-align:left">Started</th>
-          <th style="padding:6px 10px;text-align:left">Status</th><th style="padding:6px 10px;text-align:left">Cause</th>
+          <th style="padding:6px 10px;text-align:left">${translate(lang, 'emails.digest.monitor')}</th><th style="padding:6px 10px;text-align:left">${translate(lang, 'emails.digest.started')}</th>
+          <th style="padding:6px 10px;text-align:left">${translate(lang, 'emails.digest.status')}</th><th style="padding:6px 10px;text-align:left">${translate(lang, 'emails.digest.cause')}</th>
         </tr>${rows}
       </table>`;
   }
@@ -188,11 +203,11 @@ async function sendDigest({ to, frequency, periodLabel, alerts, incidents, sslEx
     const rows = sslExpirations.map(s => `
       <tr style="border-bottom:1px solid #f0f4f8">
         <td style="padding:8px 10px;font-size:12px"><a href="${escapeHtml(dashboardUrl)}/urls/${s.url_id}" style="color:#4299e1;text-decoration:none">${escapeHtml(s.url.substring(0, 60))}</a></td>
-        <td style="padding:8px 10px;font-size:12px;color:#718096">${new Date(s.ssl_expires_at).toLocaleDateString()}</td>
+        <td style="padding:8px 10px;font-size:12px;color:#718096">${new Date(s.ssl_expires_at).toLocaleDateString(locale)}</td>
         <td style="padding:8px 10px;font-size:12px;color:${s.days_left <= 7 ? '#e53e3e' : '#ed8936'};font-weight:600">${s.days_left} days</td>
       </tr>`).join('');
     sslHtml = `
-      <h3 style="font-size:15px;margin:20px 0 10px;color:#2d3748;border-bottom:2px solid #e2e8f0;padding-bottom:8px">🔒 Upcoming SSL Expirations</h3>
+      <h3 style="font-size:15px;margin:20px 0 10px;color:#2d3748;border-bottom:2px solid #e2e8f0;padding-bottom:8px">🔒 ${translate(lang, 'emails.digest.ssl_expiring')}</h3>
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <tr style="background:#f7fafc;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#718096">
           <th style="padding:6px 10px;text-align:left">URL</th><th style="padding:6px 10px;text-align:left">Expires</th><th style="padding:6px 10px;text-align:left">Days Left</th>
@@ -203,15 +218,15 @@ async function sendDigest({ to, frequency, periodLabel, alerts, incidents, sslEx
   const html = `<!DOCTYPE html>
 <html><body style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:20px;color:#2d3748;background:#f7fafc">
   <div style="background:#1a202c;color:white;padding:16px 24px;border-radius:8px 8px 0 0">
-    <h2 style="margin:0;font-size:18px;font-weight:600">👁 MetaWatch — ${frequency === 'weekly' ? 'Weekly' : 'Daily'} Report</h2>
+    <h2 style="margin:0;font-size:18px;font-weight:600">👁 MetaWatch — ${frequency === 'weekly' ? translate(lang, 'emails.digest.weekly_report') : translate(lang, 'emails.digest.daily_report')}</h2>
     <p style="margin:4px 0 0;font-size:13px;color:#a0aec0">${periodLabel || dateRange || today}</p>
   </div>
   <div style="background:white;border:1px solid #e2e8f0;border-top:none;padding:20px 24px 24px;border-radius:0 0 8px 8px">
     ${metaHtml}${uptimeHtml}${sslHtml}
     <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
     <p style="color:#718096;font-size:12px;margin:0">
-      <a href="${escapeHtml(dashboardUrl)}" style="color:#4299e1">Open MetaWatch Dashboard</a>
-      &nbsp;·&nbsp; <a href="${escapeHtml(dashboardUrl)}/profile" style="color:#718096">Manage digest settings</a>
+      <a href="${escapeHtml(dashboardUrl)}" style="color:#4299e1">${translate(lang, 'emails.digest.open_dashboard')}</a>
+      &nbsp;·&nbsp; <a href="${escapeHtml(dashboardUrl)}/profile" style="color:#718096">${translate(lang, 'emails.digest.manage_digest')}</a>
     </p>
   </div>
 </body></html>`;

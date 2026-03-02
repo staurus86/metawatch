@@ -156,11 +156,12 @@ router.post('/register', async (req, res) => {
     const apiKey = generateApiKey();
     const apiKeyHash = hashApiKey(apiKey);
     const apiKeyLast4 = apiKey.slice(-4);
+    const userLang = req.lang || 'en';
 
     const { rows: [user] } = await pool.query(
-      `INSERT INTO users (email, password_hash, role, api_key, api_key_hash, api_key_last4)
-       VALUES ($1, $2, 'admin', $3, $4, $5) RETURNING *`,
-      [email.trim().toLowerCase(), hash, apiKey, apiKeyHash, apiKeyLast4]
+      `INSERT INTO users (email, password_hash, role, api_key, api_key_hash, api_key_last4, language)
+       VALUES ($1, $2, 'admin', $3, $4, $5, $6) RETURNING *`,
+      [email.trim().toLowerCase(), hash, apiKey, apiKeyHash, apiKeyLast4, userLang]
     );
 
     const token = signToken(user.id);
@@ -235,11 +236,12 @@ router.post('/invite/:token', async (req, res) => {
     const apiKey = generateApiKey();
     const apiKeyHash = hashApiKey(apiKey);
     const apiKeyLast4 = apiKey.slice(-4);
+    const userLang = req.lang || 'en';
 
     const { rows: [user] } = await pool.query(
-      `INSERT INTO users (email, password_hash, role, api_key, api_key_hash, api_key_last4, invited_by_id)
-       VALUES ($1, $2, 'viewer', $3, $4, $5, $6) RETURNING *`,
-      [email.trim().toLowerCase(), hash, apiKey, apiKeyHash, apiKeyLast4, invite.invited_by_id]
+      `INSERT INTO users (email, password_hash, role, api_key, api_key_hash, api_key_last4, invited_by_id, language)
+       VALUES ($1, $2, 'viewer', $3, $4, $5, $6, $7) RETURNING *`,
+      [email.trim().toLowerCase(), hash, apiKey, apiKeyHash, apiKeyLast4, invite.invited_by_id, userLang]
     );
 
     await pool.query('UPDATE invites SET used = true WHERE id = $1', [invite.id]);

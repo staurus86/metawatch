@@ -68,7 +68,8 @@ router.post('/invite', requireAdmin, async (req, res) => {
         field: 'Invitation',
         oldValue: '',
         newValue: `You have been invited to MetaWatch. Click here to register: ${inviteUrl}`,
-        timestamp: new Date()
+        timestamp: new Date(),
+        language: req.user.language
       }).catch(() => false);
     }
 

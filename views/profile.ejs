@@ -125,6 +125,14 @@
             <option value="50" <%= Number(locals.user.pref_rows_per_page) === 50 ? 'selected' : '' %>>50</option>
           </select>
         </div>
+        <div class="form-group">
+          <label class="form-label"><%= t('profile.language') %></label>
+          <select name="language" class="form-select">
+            <option value="en" <%= (locals.user.language || 'en') === 'en' ? 'selected' : '' %>>English</option>
+            <option value="ru" <%= locals.user.language === 'ru' ? 'selected' : '' %>>Русский</option>
+          </select>
+          <p class="form-hint"><%= t('profile.language_hint') %></p>
+        </div>
       </div>
 
       <div class="form-actions">

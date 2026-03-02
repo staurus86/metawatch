@@ -305,7 +305,7 @@ async function sendHourlyDigests() {
 
     // Find digest_settings rows due this hour
     const { rows: settings } = await pool.query(`
-      SELECT ds.*, u.email AS user_email, u.id AS uid
+      SELECT ds.*, u.email AS user_email, u.id AS uid, COALESCE(u.language, 'en') AS user_language
       FROM digest_settings ds
       JOIN users u ON u.id = ds.user_id
       WHERE ds.enabled = true
@@ -362,13 +362,17 @@ async function sendHourlyDigests() {
         continue;
       }
 
-      const rangeEnd = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      const rangeStart = new Date(since).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const locale = String(ds.user_language || 'en').toLowerCase() === 'ru' ? 'ru-RU' : 'en-US';
+      const rangeEnd = now.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
+      const rangeStart = new Date(since).toLocaleDateString(locale, { month: 'short', day: 'numeric' });
       const dateRange = ds.frequency === 'weekly' ? `${rangeStart} - ${rangeEnd}` : rangeEnd;
-      const periodLabel = ds.frequency === 'weekly' ? `Last 7 days (${dateRange})` : 'Last 24 hours';
+      const periodLabel = ds.frequency === 'weekly'
+        ? (locale === 'ru-RU' ? `Последние 7 дней (${dateRange})` : `Last 7 days (${dateRange})`)
+        : (locale === 'ru-RU' ? 'Последние 24 часа' : 'Last 24 hours');
 
       const sent = await sendDigest({
         to, frequency: ds.frequency, periodLabel, dateRange,
+        language: ds.user_language,
         alerts, incidents, sslExpirations
       });
 

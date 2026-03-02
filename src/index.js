@@ -9,6 +9,7 @@ const migrate = require('./migrate');
 const { startScheduler } = require('./scheduler');
 const { loadUserMiddleware } = require('./auth');
 const { loadUserPlanMiddleware } = require('./plans');
+const { i18nMiddleware } = require('./i18n');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -76,6 +77,7 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 // Load current user into req.user + res.locals.user for all routes
 app.use(loadUserMiddleware);
 app.use(loadUserPlanMiddleware);
+app.use(i18nMiddleware);
 
 // Custom-domain status pages: rewrite root requests to matching status page.
 app.use(async (req, res, next) => {
@@ -99,6 +101,7 @@ app.use(async (req, res, next) => {
 // Routes — auth (no auth required)
 app.use('/', require('./routes/auth'));
 app.use('/', require('./routes/landing'));
+app.use('/', require('./routes/help'));
 
 // Routes — protected
 app.use('/', require('./routes/dashboard'));

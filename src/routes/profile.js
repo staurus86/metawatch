@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../db');
 const { requireAuth, generateApiKey, hashApiKey, hashPassword, comparePassword, clearAuthCookie } = require('../auth');
 const { auditFromRequest } = require('../audit');
+const { normalizeLanguage } = require('../i18n');
 
 function sanitizeRowsPerPage(val) {
   const n = parseInt(val, 10);
@@ -99,7 +100,16 @@ router.post('/digest/test', requireAuth, async (req, res) => {
   );
 
   try {
-    await sendDigest({ to, frequency: 'daily', periodLabel, dateRange: periodLabel, alerts, incidents, sslExpirations: [] });
+    await sendDigest({
+      to,
+      frequency: 'daily',
+      periodLabel,
+      dateRange: periodLabel,
+      alerts,
+      incidents,
+      sslExpirations: [],
+      language: req.user.language
+    });
     res.redirect('/profile?msg=Test+digest+sent+to+' + encodeURIComponent(to));
   } catch (err) {
     res.redirect('/profile?msg=Error:+' + encodeURIComponent(err.message));
@@ -115,7 +125,8 @@ router.post('/preferences', requireAuth, async (req, res) => {
     default_webhook_url,
     pref_dashboard_view,
     pref_timezone,
-    pref_rows_per_page
+    pref_rows_per_page,
+    language
   } = req.body;
 
   const dashboardView = (pref_dashboard_view === 'projects' || pref_dashboard_view === 'grouped')
@@ -123,6 +134,7 @@ router.post('/preferences', requireAuth, async (req, res) => {
     : 'list';
   const timezone = sanitizeTimezone(pref_timezone);
   const rowsPerPage = sanitizeRowsPerPage(pref_rows_per_page);
+  const lang = normalizeLanguage(language);
 
   try {
     await pool.query(
@@ -133,8 +145,9 @@ router.post('/preferences', requireAuth, async (req, res) => {
          default_webhook_url = $4,
          pref_dashboard_view = $5,
          pref_timezone = $6,
-         pref_rows_per_page = $7
-       WHERE id = $8`,
+         pref_rows_per_page = $7,
+         language = $8
+       WHERE id = $9`,
       [
         default_alert_email?.trim() || null,
         default_telegram_token?.trim() || null,
@@ -143,6 +156,7 @@ router.post('/preferences', requireAuth, async (req, res) => {
         dashboardView,
         timezone,
         rowsPerPage,
+        lang,
         req.user.id
       ]
     );

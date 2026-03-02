@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="<%= lang || 'en' %>" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title || 'Help Center' %> — MetaWatch</title>
+  <script src="/theme-init.js"></script>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    body { margin: 0; background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%); }
+    [data-theme="dark"] body { background: linear-gradient(180deg, #101626 0%, #111827 100%); }
+    .help-wrap { max-width: 980px; margin: 0 auto; padding: 22px 16px 56px; }
+    .help-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+    .help-logo { font-weight: 800; font-size: 20px; color: var(--text); text-decoration: none; display: inline-flex; align-items: center; gap: 10px; }
+    .help-nav { display: flex; gap: 8px; flex-wrap: wrap; }
+    .help-hero { padding: 24px; border-radius: 16px; background: var(--card-bg); border: 1px solid var(--border); box-shadow: var(--shadow); }
+    .help-title { margin: 0; font-size: 34px; line-height: 1.1; letter-spacing: -0.02em; }
+    .help-sub { margin-top: 10px; color: var(--text-muted); font-size: 14px; }
+    .help-grid { display: grid; grid-template-columns: 260px 1fr; gap: 16px; margin-top: 16px; }
+    .toc, .help-main { background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); }
+    .toc { padding: 14px; height: fit-content; position: sticky; top: 14px; }
+    .toc h3 { margin: 4px 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+    .toc ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+    .toc a { color: var(--text); text-decoration: none; font-size: 13px; padding: 6px 8px; border-radius: 8px; display: block; }
+    .toc a:hover { background: var(--bg-secondary); }
+    .help-main { padding: 16px; }
+    .help-search { margin-bottom: 12px; }
+    .help-section { margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-secondary); }
+    .help-section h2 { margin: 0 0 10px; font-size: 18px; }
+    .help-section h3 { margin: 12px 0 6px; font-size: 14px; }
+    .help-section p, .help-section li { color: var(--text-muted); font-size: 13px; line-height: 1.6; }
+    .help-section ul { margin: 0; padding-left: 18px; }
+    .kbd { padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--card-bg); font-size: 12px; }
+    .hide { display: none; }
+    @media (max-width: 900px) {
+      .help-grid { grid-template-columns: 1fr; }
+      .toc { position: static; }
+      .help-title { font-size: 28px; }
+    }
+  </style>
+</head>
+<body>
+  <%
+    const isRu = String(lang || 'en') === 'ru';
+    const text = isRu ? {
+      title: 'Справка MetaWatch',
+      sub: 'Быстрые инструкции по запуску мониторинга, настройке алертов и интеграций.',
+      toc: 'Разделы',
+      search: 'Поиск по справке',
+      searchHint: 'Поиск по заголовкам и тексту, либо используйте Ctrl+F / Cmd+F.',
+      getting: 'Быстрый старт',
+      meta: 'Мониторинг мета',
+      uptime: 'Мониторинг аптайма',
+      integrations: 'Интеграции',
+      api: 'API Reference',
+      apiText: 'Полная спецификация API доступна по ссылке ниже.'
+    } : {
+      title: 'MetaWatch Help Center',
+      sub: 'Quick instructions for setup, alerts, uptime, and integrations.',
+      toc: 'Sections',
+      search: 'Search Help',
+      searchHint: 'Search headings and content, or use Ctrl+F / Cmd+F.',
+      getting: 'Getting Started',
+      meta: 'Meta Monitoring',
+      uptime: 'Uptime Monitoring',
+      integrations: 'Integrations',
+      api: 'API Reference',
+      apiText: 'Full API docs are available at the link below.'
+    };
+  %>
+  <div class="help-wrap">
+    <div class="help-top">
+      <a href="/" class="help-logo"><span>👁</span><span>MetaWatch</span></a>
+      <div class="help-nav">
+        <% if (locals.user) { %>
+          <a href="/dashboard" class="btn btn-ghost"><%= isRu ? 'Дашборд' : 'Dashboard' %></a>
+          <a href="/profile" class="btn btn-ghost"><%= isRu ? 'Профиль' : 'Profile' %></a>
+        <% } else { %>
+          <a href="/login" class="btn btn-ghost"><%= isRu ? 'Вход' : 'Login' %></a>
+          <a href="/register" class="btn btn-primary"><%= isRu ? 'Регистрация' : 'Register' %></a>
+        <% } %>
+      </div>
+    </div>
+
+    <section class="help-hero">
+      <h1 class="help-title"><%= text.title %></h1>
+      <div class="help-sub"><%= text.sub %></div>
+    </section>
+
+    <div class="help-grid">
+      <aside class="toc">
+        <h3><%= text.toc %></h3>
+        <ul>
+          <li><a href="#getting-started"><%= text.getting %></a></li>
+          <li><a href="#meta-monitoring"><%= text.meta %></a></li>
+          <li><a href="#uptime-monitoring"><%= text.uptime %></a></li>
+          <li><a href="#integrations"><%= text.integrations %></a></li>
+          <li><a href="#api-reference"><%= text.api %></a></li>
+        </ul>
+      </aside>
+
+      <main class="help-main">
+        <div class="help-search">
+          <label class="form-label" for="help-filter"><%= text.search %></label>
+          <input id="help-filter" type="search" class="form-input" placeholder="<%= text.search %>">
+          <p class="form-hint"><%= text.searchHint %> <span class="kbd">Ctrl+F</span></p>
+        </div>
+
+        <section class="help-section" id="getting-started" data-help-section>
+          <h2><%= text.getting %></h2>
+          <% if (isRu) { %>
+            <h3>Добавление первого URL</h3>
+            <p>Откройте <code>/urls/add</code>, вставьте страницу и выберите поля для мониторинга: title, description, H1, canonical, robots, status code.</p>
+            <h3>Настройка алертов</h3>
+            <p>В карточке URL укажите email, Telegram или webhook. Для каждой проверки MetaWatch отправляет уведомление только при реальном изменении.</p>
+            <h3>Уровни критичности</h3>
+            <ul>
+              <li><strong>Critical</strong>: ошибки ответа, блокировки, недоступность.</li>
+              <li><strong>Warning</strong>: изменения ключевых SEO-полей.</li>
+              <li><strong>Info</strong>: второстепенные изменения.</li>
+            </ul>
+          <% } else { %>
+            <h3>Adding your first URL</h3>
+            <p>Open <code>/urls/add</code>, paste a page URL, and select fields to monitor: title, description, H1, canonical, robots, status code.</p>
+            <h3>Setting up alerts</h3>
+            <p>Configure email, Telegram, or webhook in the URL settings. Notifications are sent only when an actual change is detected.</p>
+            <h3>Severity levels</h3>
+            <ul>
+              <li><strong>Critical</strong>: response errors, blocks, downtime.</li>
+              <li><strong>Warning</strong>: important SEO field changes.</li>
+              <li><strong>Info</strong>: informational changes.</li>
+            </ul>
+          <% } %>
+        </section>
+
+        <section class="help-section" id="meta-monitoring" data-help-section>
+          <h2><%= text.meta %></h2>
+          <% if (isRu) { %>
+            <h3>Какие поля отслеживаются</h3>
+            <p>Title, Meta Description, H1, Canonical, Robots, hreflang, OG-теги, статус ответа и редиректы.</p>
+            <h3>Как работает reference</h3>
+            <p>После подтверждения изменения текущий снимок становится эталоном. Новые алерты считаются уже от него.</p>
+            <h3>Подтверждение изменений</h3>
+            <p>На странице URL доступны действия <strong>Accept Selected</strong> и <strong>Accept All</strong>.</p>
+          <% } else { %>
+            <h3>What fields are monitored</h3>
+            <p>Title, Meta Description, H1, Canonical, Robots, hreflang, OG tags, response code, and redirects.</p>
+            <h3>How references work</h3>
+            <p>Once accepted, the current snapshot becomes the baseline. New alerts are compared against that baseline.</p>
+            <h3>Accepting changes</h3>
+            <p>Use <strong>Accept Selected</strong> or <strong>Accept All</strong> on each URL detail page.</p>
+          <% } %>
+        </section>
+
+        <section class="help-section" id="uptime-monitoring" data-help-section>
+          <h2><%= text.uptime %></h2>
+          <% if (isRu) { %>
+            <h3>Статусы</h3>
+            <p><strong>UP</strong> — сервис доступен, <strong>DEGRADED</strong> — медленный/нестабильный ответ, <strong>DOWN</strong> — недоступен.</p>
+            <h3>Жизненный цикл инцидента</h3>
+            <p>Инцидент открывается при DOWN/DEGRADED и закрывается автоматически при восстановлении.</p>
+            <h3>SSL мониторинг</h3>
+            <p>Система отслеживает срок действия сертификатов и предупреждает об истечении.</p>
+          <% } else { %>
+            <h3>Status definitions</h3>
+            <p><strong>UP</strong> means available, <strong>DEGRADED</strong> means slow/unstable, <strong>DOWN</strong> means unavailable.</p>
+            <h3>Incident lifecycle</h3>
+            <p>Incidents open on DOWN/DEGRADED and auto-resolve when uptime recovers.</p>
+            <h3>SSL monitoring</h3>
+            <p>MetaWatch tracks certificate expiration and raises early warnings.</p>
+          <% } %>
+        </section>
+
+        <section class="help-section" id="integrations" data-help-section>
+          <h2><%= text.integrations %></h2>
+          <% if (isRu) { %>
+            <h3>Email</h3>
+            <p>Проверьте SMTP-переменные в окружении. Тестовое письмо можно отправить из профиля.</p>
+            <h3>Telegram</h3>
+            <p>Укажите токен бота и chat_id в URL-настройках или в глобальных настройках профиля.</p>
+            <h3>Webhook</h3>
+            <p>Payload отправляется в JSON. Для подписи используйте <code>WEBHOOK_SIGNING_SECRET</code>.</p>
+            <h3>Browser Extension</h3>
+            <p>Расширение добавляет быстрый переход к карточке URL и запуск проверки из браузера.</p>
+          <% } else { %>
+            <h3>Email</h3>
+            <p>Set SMTP environment variables correctly. You can trigger a test digest from profile settings.</p>
+            <h3>Telegram</h3>
+            <p>Provide bot token and chat ID per URL or as user defaults in profile.</p>
+            <h3>Webhook</h3>
+            <p>Payload is sent as JSON. Use <code>WEBHOOK_SIGNING_SECRET</code> to validate signatures.</p>
+            <h3>Browser Extension</h3>
+            <p>The extension provides quick access to URL details and manual checks from your browser.</p>
+          <% } %>
+        </section>
+
+        <section class="help-section" id="api-reference" data-help-section>
+          <h2><%= text.api %></h2>
+          <p><%= text.apiText %></p>
+          <p><a href="/api/docs" class="btn btn-ghost">/api/docs</a></p>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const input = document.getElementById('help-filter');
+      const sections = Array.from(document.querySelectorAll('[data-help-section]'));
+      if (!input || sections.length === 0) return;
+
+      const applyFilter = () => {
+        const q = String(input.value || '').trim().toLowerCase();
+        if (!q) {
+          sections.forEach((s) => s.classList.remove('hide'));
+          return;
+        }
+        sections.forEach((section) => {
+          const text = section.textContent.toLowerCase();
+          section.classList.toggle('hide', !text.includes(q));
+        });
+      };
+
+      input.addEventListener('input', applyFilter);
+    })();
+  </script>
+</body>
+</html>

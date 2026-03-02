@@ -209,9 +209,11 @@ async function migrate() {
     // ALTER: users digest column
     const userExtra = [
       "ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_frequency VARCHAR(10) DEFAULT NULL",
-      "ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_email VARCHAR(255) DEFAULT NULL"
+      "ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_email VARCHAR(255) DEFAULT NULL",
+      "ALTER TABLE users ADD COLUMN IF NOT EXISTS language VARCHAR(8) NOT NULL DEFAULT 'en'"
     ];
     for (const sql of userExtra) await client.query(sql);
+    await client.query("UPDATE users SET language = 'en' WHERE language IS NULL OR language = ''");
 
     // ─── uptime_monitors ──────────────────────────────────────────────────────
     await client.query(`

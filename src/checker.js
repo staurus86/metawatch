@@ -230,7 +230,11 @@ async function checkUrl(urlId) {
 
   try {
     const { rows } = await pool.query(
-      'SELECT * FROM monitored_urls WHERE id = $1 AND is_active = true',
+      `SELECT mu.*, COALESCE(u.language, 'en') AS user_language
+       FROM monitored_urls mu
+       LEFT JOIN users u ON u.id = mu.user_id
+       WHERE mu.id = $1
+         AND mu.is_active = true`,
       [urlId]
     );
     const urlRecord = rows[0];

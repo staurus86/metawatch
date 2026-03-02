@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="<%= lang || 'en' %>" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -21,64 +21,68 @@
       <nav class="sidebar-nav">
         <a href="/dashboard" class="nav-link <%= typeof title !== 'undefined' && title === 'Dashboard' ? 'active' : '' %>">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-          Dashboard
+          <%= t('nav.dashboard') %>
         </a>
         <a href="/billing" class="nav-link <%= typeof title !== 'undefined' && title === 'Billing & Plan' ? 'active' : '' %>">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
-          Billing
+          <%= t('nav.billing') %>
         </a>
         <a href="/projects" class="nav-link <%= typeof title !== 'undefined' && title === 'Projects' ? 'active' : '' %>">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h7v10H3z"/><path d="M14 3h7v6h-7z"/><path d="M14 13h7v8h-7z"/></svg>
-          Projects
+          <%= t('nav.projects') %>
         </a>
         <a href="/uptime" class="nav-link <%= typeof title !== 'undefined' && (title === 'Uptime' || title === 'Add Monitor') ? 'active' : '' %>">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-          Uptime
+          <%= t('nav.uptime') %>
         </a>
         <a href="/?tab=problems" class="nav-link">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          Problems
+          <%= t('nav.problems') %>
         </a>
         <a href="/urls/add" class="nav-link nav-link--add">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-          Add URL
+          <%= t('nav.add_url') %>
         </a>
         <a href="/urls/bulk" class="nav-link">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          Bulk Import
+          <%= t('nav.bulk_import') %>
         </a>
         <a href="/export/report.xlsx" class="nav-link">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-          Export XLSX
+          <%= t('nav.export_xlsx') %>
         </a>
         <a href="/export/alerts.csv" class="nav-link">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>
-          Alerts CSV
+          <%= t('nav.alerts_csv') %>
         </a>
         <a href="/notifications" class="nav-link <%= typeof title !== 'undefined' && title === 'Notification History' ? 'active' : '' %>">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
-          Notifications
+          <%= t('nav.notifications') %>
         </a>
         <a href="/alert-rules" class="nav-link <%= typeof title !== 'undefined' && (title === 'Alert Rules' || title === 'New Alert Rule' || title === 'Edit Alert Rule') ? 'active' : '' %>">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M7 12h10"/><path d="M10 18h4"/></svg>
-          Alert Rules
+          <%= t('nav.alert_rules') %>
         </a>
         <a href="/tags" class="nav-link <%= typeof title !== 'undefined' && title === 'Tags' ? 'active' : '' %>">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-          Tags
+          <%= t('nav.tags') %>
         </a>
         <a href="/status-pages" class="nav-link <%= typeof title !== 'undefined' && title === 'Status Pages' ? 'active' : '' %>">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          Status Pages
+          <%= t('nav.status_pages') %>
         </a>
         <a href="/competitors" class="nav-link <%= typeof title !== 'undefined' && title === 'Competitor Monitoring' ? 'active' : '' %>">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          Competitors
+          <%= t('nav.competitors') %>
+        </a>
+        <a href="/help" class="nav-link <%= typeof title !== 'undefined' && title === 'Help Center' ? 'active' : '' %>">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 015.8 1c0 2-3 2-3 4"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <%= t('nav.help') %>
         </a>
         <% if (locals.user && locals.user.role === 'admin') { %>
         <a href="/admin/users" class="nav-link nav-link--admin">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-          Admin
+          <%= t('nav.admin') %>
         </a>
         <% } %>
       </nav>
@@ -88,17 +92,17 @@
             <div class="user-email"><%= locals.user.email %></div>
             <div class="user-role-badge"><%= locals.user.role %></div>
           </div>
-          <a href="/profile" class="footer-link">Profile & API Key</a>
+          <a href="/profile" class="footer-link"><%= t('nav.profile') %></a>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
             <form action="/logout" method="POST">
-              <button type="submit" class="logout-btn">Sign Out</button>
+              <button type="submit" class="logout-btn"><%= t('nav.sign_out') %></button>
             </form>
             <button id="dark-mode-toggle" class="dark-mode-btn" title="Toggle dark mode">
               <span id="theme-icon">🌙</span>
             </button>
           </div>
         <% } else { %>
-          <a href="/api/health" target="_blank" class="health-link">API Health</a>
+          <a href="/api/health" target="_blank" class="health-link"><%= t('nav.api_health') %></a>
         <% } %>
       </div>
     </aside>

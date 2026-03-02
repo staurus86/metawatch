@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="<%= lang || 'en' %>">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title><%= monitor.name %> — Status</title>
+  <title><%= monitor.name %> — <%= t('status.title_suffix') %></title>
   <link rel="stylesheet" href="/style.css">
   <style>
     body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
@@ -31,7 +31,7 @@
     .metric-value--ok { color: #276749; }
     .metric-value--warn { color: #7b341e; }
     .metric-value--error { color: #9b2c2c; }
-    .simple-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 14px; }
+    .simple-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 14px; }
     .simple-cell { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 10px; text-align: center; }
     .simple-cell b { display: block; font-size: 18px; margin-top: 4px; }
     .status-section { margin-top: 16px; }
@@ -71,7 +71,7 @@
     <% const st = latestCheck ? latestCheck.status : 'pending'; %>
     <div class="status-grid">
       <div class="status-card">
-        <div class="status-card-title">Current Status</div>
+        <div class="status-card-title"><%= t('status.current_status') %></div>
         <div class="status-big status-big--<%= st %>">
           <% if (st === 'up') { %><div style="font-size:52px">✅</div>
           <% } else if (st === 'down') { %><div style="font-size:52px">🔴</div>
@@ -80,10 +80,10 @@
           <% } %>
           <div class="status-big-label"><%= st.toUpperCase() %></div>
           <% if (openIncident) { %>
-            <div class="status-big-sub">Incident ongoing since <%= new Date(openIncident.started_at).toUTCString() %></div>
+            <div class="status-big-sub"><%= t('status.incident_ongoing_since', { time: new Date(openIncident.started_at).toUTCString() }) %></div>
           <% } else if (latestCheck) { %>
             <div class="status-big-sub">
-              Last checked <%= new Date(latestCheck.checked_at).toUTCString() %>
+              <%= t('status.last_checked_at', { time: new Date(latestCheck.checked_at).toUTCString() }) %>
               <% if (latestCheck.response_time_ms != null) { %>· <%= latestCheck.response_time_ms %>ms<% } %>
               <% if (latestCheck.status_code != null) { %>· HTTP <%= latestCheck.status_code %><% } %>
             </div>
@@ -92,7 +92,7 @@
       </div>
 
       <div class="status-card">
-        <div class="status-card-title">Uptime</div>
+        <div class="status-card-title"><%= t('status.uptime') %></div>
         <div class="metric-list">
           <% ['24h', '7d', '30d'].forEach(function(period) { const v = uptimeWindows && uptimeWindows[period]; %>
             <div class="metric">
@@ -107,21 +107,29 @@
     </div>
 
     <div class="status-card status-section">
-      <div class="status-card-title">Performance & Incidents (last 24h / 30d)</div>
+      <div class="status-card-title"><%= t('status.performance_incidents') %></div>
       <div class="simple-grid">
-        <div class="simple-cell">Avg RT<b><%= responseStats?.avg_ms != null ? responseStats.avg_ms + 'ms' : '—' %></b></div>
-        <div class="simple-cell">Min RT<b><%= responseStats?.min_ms != null ? responseStats.min_ms + 'ms' : '—' %></b></div>
-        <div class="simple-cell">Max RT<b><%= responseStats?.max_ms != null ? responseStats.max_ms + 'ms' : '—' %></b></div>
-        <div class="simple-cell">Incidents 30d<b><%= incidentSummary?.incidents_30d || 0 %></b></div>
+        <div class="simple-cell"><%= t('status.avg_rt') %><b><%= responseStats?.avg_ms != null ? responseStats.avg_ms + 'ms' : '—' %></b></div>
+        <div class="simple-cell"><%= t('status.min_rt') %><b><%= responseStats?.min_ms != null ? responseStats.min_ms + 'ms' : '—' %></b></div>
+        <div class="simple-cell"><%= t('status.max_rt') %><b><%= responseStats?.max_ms != null ? responseStats.max_ms + 'ms' : '—' %></b></div>
+        <div class="simple-cell"><%= t('status.incidents_30d') %><b><%= incidentSummary?.incidents_30d || 0 %></b></div>
+        <div class="simple-cell"><%= t('status.check_interval') %><b><%= monitor.interval_minutes %>m</b></div>
+        <div class="simple-cell"><%= t('status.threshold') %><b><%= monitor.threshold_ms %>ms</b></div>
       </div>
       <div style="padding:0 14px 14px;font-size:12px;color:var(--text-muted)">
-        Downtime in last 30 days:
+        <%= t('status.downtime_30d') %>:
         <strong><%= incidentSummary?.downtime_seconds_30d ? fmtDuration(incidentSummary.downtime_seconds_30d) : '0s' %></strong>
       </div>
+      <% if (latestCheck && latestCheck.error_message) { %>
+        <div style="padding:0 14px 14px;font-size:12px;color:var(--text-muted)">
+          <%= t('status.last_error') %>:
+          <strong style="color:#c53030"><%= latestCheck.error_message.substring(0, 140) %></strong>
+        </div>
+      <% } %>
     </div>
 
     <div class="status-card status-section">
-      <div class="status-card-title">Last 90 Days</div>
+      <div class="status-card-title"><%= t('status.last_90_days') %></div>
       <div class="uptime-bars">
         <% dayBuckets.forEach(function(bucket) { %>
           <div class="uptime-bar uptime-bar--<%= bucket.status %>"
@@ -136,20 +144,20 @@
     </div>
 
     <div class="status-card status-section">
-      <div class="status-card-title">Recent Checks</div>
+      <div class="status-card-title"><%= t('status.recent_checks') %></div>
       <% if (!recentChecks || recentChecks.length === 0) { %>
-        <div style="padding:16px;color:var(--text-muted);font-size:13px">No checks yet.</div>
+        <div style="padding:16px;color:var(--text-muted);font-size:13px"><%= t('status.no_checks') %></div>
       <% } else { %>
         <div style="overflow-x:auto">
           <table class="checks-table">
             <thead>
-              <tr>
-                <th>Time (UTC)</th>
-                <th>Status</th>
-                <th>HTTP</th>
-                <th>Response</th>
-                <th>Error</th>
-              </tr>
+                <tr>
+                  <th><%= t('status.time_utc') %></th>
+                  <th><%= t('dashboard.status') %></th>
+                  <th>HTTP</th>
+                  <th><%= t('status.response') %></th>
+                  <th>Error</th>
+                </tr>
             </thead>
             <tbody>
               <% recentChecks.forEach(function(chk) { %>
@@ -168,9 +176,9 @@
     </div>
 
     <div class="status-card status-section">
-      <div class="status-card-title">Recent Incidents</div>
+      <div class="status-card-title"><%= t('status.recent_incidents') %></div>
       <% if (incidents.length === 0) { %>
-        <div style="padding:16px;color:var(--text-muted);font-size:13px">No incidents in the last 90 days.</div>
+        <div style="padding:16px;color:var(--text-muted);font-size:13px"><%= t('status.no_incidents') %></div>
       <% } else { %>
         <% incidents.forEach(function(inc) { %>
           <div class="incident-row">
@@ -178,11 +186,11 @@
               <div style="font-weight:600"><%= inc.cause || 'Outage' %></div>
               <div style="font-size:12px;color:var(--text-muted);margin-top:3px">
                 <%= new Date(inc.started_at).toUTCString().replace(' GMT','') %>
-                <% if (inc.duration_seconds) { %> · Duration: <%= fmtDuration(inc.duration_seconds) %><% } %>
+                <% if (inc.duration_seconds) { %> · <%= t('status.duration') %>: <%= fmtDuration(inc.duration_seconds) %><% } %>
               </div>
             </div>
             <span class="incident-badge incident-badge--<%= inc.resolved_at ? 'resolved' : 'open' %>">
-              <%= inc.resolved_at ? 'Resolved' : 'Ongoing' %>
+              <%= inc.resolved_at ? t('status.incident_resolved') : t('status.incident_ongoing') %>
             </span>
           </div>
         <% }) %>

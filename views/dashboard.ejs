@@ -45,10 +45,10 @@
 %>
 
 <div class="page-header">
-  <h1 class="page-title">Dashboard</h1>
+  <h1 class="page-title"><%= t('dashboard.title') %></h1>
   <div style="display:flex;gap:8px;align-items:center">
-    <button id="scan-all-btn" class="btn btn-ghost">⟳ Scan All</button>
-    <a href="/urls/add" class="btn btn-primary">+ Add URL</a>
+    <button id="scan-all-btn" class="btn btn-ghost">⟳ <%= t('dashboard.scan_all') %></button>
+    <a href="/urls/add" class="btn btn-primary">+ <%= t('dashboard.add_url') %></a>
   </div>
 </div>
 
@@ -82,19 +82,19 @@
 <div class="stats-row">
   <div class="stat-card">
     <div id="stat-total" class="stat-value"><%= stats.total %></div>
-    <div class="stat-label">Total URLs</div>
+    <div class="stat-label"><%= t('dashboard.total_urls') %></div>
   </div>
   <div class="stat-card stat-card--ok">
     <div id="stat-ok" class="stat-value"><%= stats.ok %></div>
-    <div class="stat-label">OK</div>
+    <div class="stat-label"><%= t('dashboard.ok') %></div>
   </div>
   <div class="stat-card stat-card--changed">
     <div id="stat-changed" class="stat-value"><%= stats.changed %></div>
-    <div class="stat-label">Changed</div>
+    <div class="stat-label"><%= t('dashboard.changed') %></div>
   </div>
   <div class="stat-card stat-card--error">
     <div id="stat-error" class="stat-value"><%= stats.error %></div>
-    <div class="stat-label">Error</div>
+    <div class="stat-label"><%= t('dashboard.error') %></div>
   </div>
 </div>
 
@@ -129,17 +129,17 @@
 <!-- Tabs + view + filters -->
 <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap">
   <div class="tabs" style="margin-bottom:0;flex:1">
-    <a href="<%= queryWith({ tab: 'all', page: null }) %>" class="tab-link <%= tab === 'all' ? 'tab-link--active' : '' %>">All URLs</a>
+    <a href="<%= queryWith({ tab: 'all', page: null }) %>" class="tab-link <%= tab === 'all' ? 'tab-link--active' : '' %>"><%= t('dashboard.all_urls') %></a>
     <a href="<%= queryWith({ tab: 'problems', page: null }) %>" class="tab-link <%= tab === 'problems' ? 'tab-link--active' : '' %>">
-      Problems
+      <%= t('dashboard.problems') %>
       <% if (stats.changed + stats.error > 0) { %>
         <span class="tab-badge"><%= stats.changed + stats.error %></span>
       <% } %>
     </a>
   </div>
   <div class="tabs" style="margin:0;gap:4px">
-    <a href="<%= queryWith({ view: 'projects', page: null }) %>" class="tab-link <%= view === 'projects' ? 'tab-link--active' : '' %>">Projects</a>
-    <a href="<%= queryWith({ view: 'list', page: null }) %>" class="tab-link <%= view === 'list' ? 'tab-link--active' : '' %>">URLs</a>
+    <a href="<%= queryWith({ view: 'projects', page: null }) %>" class="tab-link <%= view === 'projects' ? 'tab-link--active' : '' %>"><%= t('dashboard.projects') %></a>
+    <a href="<%= queryWith({ view: 'list', page: null }) %>" class="tab-link <%= view === 'list' ? 'tab-link--active' : '' %>"><%= t('dashboard.urls') %></a>
   </div>
 </div>
 
@@ -183,29 +183,29 @@
     type="search"
     class="form-input"
     style="width:260px;padding:6px 10px;font-size:13px"
-    placeholder="Search URL or domain"
+    placeholder="<%= t('dashboard.search_placeholder') %>"
     value="<%= q || '' %>"
     autocomplete="off">
 
   <select name="status" class="form-select" style="padding:6px 10px;font-size:13px;width:auto">
-    <option value="" <%= !statusFilter ? 'selected' : '' %>>All statuses</option>
-    <option value="ok" <%= statusFilter === 'ok' ? 'selected' : '' %>>OK</option>
-    <option value="changed" <%= statusFilter === 'changed' ? 'selected' : '' %>>Changed</option>
-    <option value="error" <%= statusFilter === 'error' ? 'selected' : '' %>>Error</option>
-    <option value="paused" <%= statusFilter === 'paused' ? 'selected' : '' %>>Paused</option>
+    <option value="" <%= !statusFilter ? 'selected' : '' %>><%= t('dashboard.all_statuses') %></option>
+    <option value="ok" <%= statusFilter === 'ok' ? 'selected' : '' %>><%= t('dashboard.status_ok') %></option>
+    <option value="changed" <%= statusFilter === 'changed' ? 'selected' : '' %>><%= t('dashboard.status_changed') %></option>
+    <option value="error" <%= statusFilter === 'error' ? 'selected' : '' %>><%= t('dashboard.status_error') %></option>
+    <option value="paused" <%= statusFilter === 'paused' ? 'selected' : '' %>><%= t('dashboard.status_paused') %></option>
   </select>
 
-  <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">Apply</button>
-  <a href="<%= queryWith({ q: null, status: null, page: null }) %>" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">Reset</a>
+  <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:6px 12px"><%= t('dashboard.apply') %></button>
+  <a href="<%= queryWith({ q: null, status: null, page: null }) %>" class="btn btn-ghost" style="font-size:12px;padding:6px 12px"><%= t('dashboard.reset') %></a>
 </form>
 
 <!-- Projects view -->
 <% if (view === 'projects') { %>
   <div class="card" style="border-top-left-radius:0">
     <div class="card-header">
-      <h2 class="card-title">Meta Monitoring by Project</h2>
+      <h2 class="card-title"><%= t('dashboard.meta_by_project') %></h2>
       <div style="display:flex;gap:8px;align-items:center">
-        <a href="/projects" class="btn btn-ghost" style="font-size:12px;padding:5px 10px">Manage Projects</a>
+        <a href="/projects" class="btn btn-ghost" style="font-size:12px;padding:5px 10px"><%= t('dashboard.manage_projects') %></a>
       </div>
     </div>
 
@@ -320,16 +320,16 @@
     <% } else { %>
       <div style="display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-muted)">
         <a href="<%= sortLink('last_checked') %>" style="text-decoration:none;color:inherit">
-          Last Checked <%= sortArrow('last_checked') %>
+          <%= t('dashboard.last_checked') %> <%= sortArrow('last_checked') %>
         </a>
         <a href="<%= sortLink('status') %>" style="text-decoration:none;color:inherit">
-          Status <%= sortArrow('status') %>
+          <%= t('dashboard.status') %> <%= sortArrow('status') %>
         </a>
         <a href="<%= sortLink('url') %>" style="text-decoration:none;color:inherit">
-          URL <%= sortArrow('url') %>
+          <%= t('dashboard.url') %> <%= sortArrow('url') %>
         </a>
         <a href="<%= sortLink('changes') %>" style="text-decoration:none;color:inherit">
-          Changes <%= sortArrow('changes') %>
+          <%= t('dashboard.changes') %> <%= sortArrow('changes') %>
         </a>
       </div>
       <div class="url-list">
@@ -397,8 +397,8 @@
 <div class="card" style="margin-top:24px">
   <div class="card-header">
     <h2 class="card-title">
-      Recent Alerts
-      <span class="text-muted" style="font-size:14px;font-weight:400">(last 24h)</span>
+      <%= t('dashboard.recent_alerts') %>
+      <span class="text-muted" style="font-size:14px;font-weight:400">(<%= t('dashboard.last_24h') %>)</span>
     </h2>
     <% if (alertFields.length > 0) { %>
       <div style="display:flex;align-items:center;gap:8px">

@@ -1,5 +1,6 @@
 const pool = require('./db');
 const { sendEmail, isEmailConfigured } = require('./mailer');
+const { normalizeLanguage } = require('./i18n');
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -72,61 +73,95 @@ async function sendStepEmail(userRow, step) {
   if (!userRow?.email) return false;
   if (!isEmailConfigured()) return false;
 
+  const lang = normalizeLanguage(userRow.language);
+  const isRu = lang === 'ru';
   const base = appBaseUrl();
   let subject = '';
   let html = '';
 
   if (step === STEPS.DAY0_WELCOME) {
-    subject = 'Welcome to MetaWatch - add your first URL';
+    subject = isRu ? 'Добро пожаловать в MetaWatch — добавьте первый URL' : 'Welcome to MetaWatch - add your first URL';
     html = renderEmailShell({
-      title: 'Welcome to MetaWatch',
-      subtitle: 'Start monitoring in a couple of minutes',
-      bodyHtml: `
-        <p>Your workspace is ready. Quick start:</p>
-        <ol style="padding-left:20px;margin:8px 0">
-          <li>Add your first page URL.</li>
-          <li>Choose check interval and fields.</li>
-          <li>Run the first check and review Changes.</li>
-        </ol>
-        <p style="color:#4a5568">No credit card required for Free plan.</p>
-      `,
-      ctaText: 'Add First URL',
+      title: isRu ? 'Добро пожаловать в MetaWatch' : 'Welcome to MetaWatch',
+      subtitle: isRu ? 'Начните мониторинг за пару минут' : 'Start monitoring in a couple of minutes',
+      bodyHtml: isRu
+        ? `
+          <p>Ваш рабочий кабинет готов. Быстрый старт:</p>
+          <ol style="padding-left:20px;margin:8px 0">
+            <li>Добавьте первый URL страницы.</li>
+            <li>Выберите интервал и поля мониторинга.</li>
+            <li>Запустите первую проверку и откройте вкладку Changes.</li>
+          </ol>
+          <p style="color:#4a5568">Для Free тарифа не нужна банковская карта.</p>
+        `
+        : `
+          <p>Your workspace is ready. Quick start:</p>
+          <ol style="padding-left:20px;margin:8px 0">
+            <li>Add your first page URL.</li>
+            <li>Choose check interval and fields.</li>
+            <li>Run the first check and review Changes.</li>
+          </ol>
+          <p style="color:#4a5568">No credit card required for Free plan.</p>
+        `,
+      ctaText: isRu ? 'Добавить URL' : 'Add First URL',
       ctaUrl: `${base}/urls/add`
     });
   } else if (step === STEPS.DAY1_REMINDER) {
-    subject = 'Reminder: add your first URL in 2 minutes';
+    subject = isRu ? 'Напоминание: добавьте первый URL за 2 минуты' : 'Reminder: add your first URL in 2 minutes';
     html = renderEmailShell({
-      title: 'Quick reminder',
-      subtitle: 'You still have 0 monitored URLs',
-      bodyHtml: `
-        <p>Add your first URL to start receiving change alerts.</p>
-        <p style="margin:10px 0;color:#4a5568">
-          Tip: use one homepage first, then bulk import later.
-        </p>
-        <p style="margin:10px 0">
-          Mini demo GIF:
-          <a href="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExd3Z0NnN4ZTI5ZWQ2Ym5tbzlqbGptdHd3aWJyaTN6Nmd4NHE5aDJvbiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/l3q2K5jinAlChoCLS/giphy.gif">
-            watch
-          </a>
-        </p>
-      `,
-      ctaText: 'Add URL Now',
+      title: isRu ? 'Короткое напоминание' : 'Quick reminder',
+      subtitle: isRu ? 'У вас пока 0 отслеживаемых URL' : 'You still have 0 monitored URLs',
+      bodyHtml: isRu
+        ? `
+          <p>Добавьте первый URL и начните получать алерты об изменениях.</p>
+          <p style="margin:10px 0;color:#4a5568">
+            Совет: начните с главной страницы, а затем используйте массовый импорт.
+          </p>
+          <p style="margin:10px 0">
+            Мини-демо GIF:
+            <a href="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExd3Z0NnN4ZTI5ZWQ2Ym5tbzlqbGptdHd3aWJyaTN6Nmd4NHE5aDJvbiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/l3q2K5jinAlChoCLS/giphy.gif">
+              открыть
+            </a>
+          </p>
+        `
+        : `
+          <p>Add your first URL to start receiving change alerts.</p>
+          <p style="margin:10px 0;color:#4a5568">
+            Tip: use one homepage first, then bulk import later.
+          </p>
+          <p style="margin:10px 0">
+            Mini demo GIF:
+            <a href="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExd3Z0NnN4ZTI5ZWQ2Ym5tbzlqbGptdHd3aWJyaTN6Nmd4NHE5aDJvbiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/l3q2K5jinAlChoCLS/giphy.gif">
+              watch
+            </a>
+          </p>
+        `,
+      ctaText: isRu ? 'Добавить URL' : 'Add URL Now',
       ctaUrl: `${base}/urls/add`
     });
   } else if (step === STEPS.DAY3_UPTIME) {
-    subject = 'Did you know? Uptime checks every 5 minutes';
+    subject = isRu ? 'Знаете ли вы? Проверка аптайма каждые 5 минут' : 'Did you know? Uptime checks every 5 minutes';
     html = renderEmailShell({
-      title: 'Enable uptime monitoring',
-      subtitle: 'Get incidents and recovery alerts',
-      bodyHtml: `
-        <p>You can monitor availability separately from metadata changes.</p>
-        <ul style="padding-left:18px;margin:8px 0">
-          <li>Statuses: up / degraded / down</li>
-          <li>Incident timeline and duration</li>
-          <li>Public status page per monitor or group</li>
-        </ul>
-      `,
-      ctaText: 'Create Uptime Monitor',
+      title: isRu ? 'Включите мониторинг аптайма' : 'Enable uptime monitoring',
+      subtitle: isRu ? 'Получайте алерты об инцидентах и восстановлении' : 'Get incidents and recovery alerts',
+      bodyHtml: isRu
+        ? `
+          <p>Вы можете отслеживать доступность сайта отдельно от изменений метаданных.</p>
+          <ul style="padding-left:18px;margin:8px 0">
+            <li>Статусы: up / degraded / down</li>
+            <li>Таймлайн и длительность инцидентов</li>
+            <li>Публичная статус-страница для монитора или группы</li>
+          </ul>
+        `
+        : `
+          <p>You can monitor availability separately from metadata changes.</p>
+          <ul style="padding-left:18px;margin:8px 0">
+            <li>Statuses: up / degraded / down</li>
+            <li>Incident timeline and duration</li>
+            <li>Public status page per monitor or group</li>
+          </ul>
+        `,
+      ctaText: isRu ? 'Создать uptime-монитор' : 'Create Uptime Monitor',
       ctaUrl: `${base}/uptime/add`
     });
   } else if (step === STEPS.DAY7_REPORT) {
@@ -137,36 +172,45 @@ async function sendStepEmail(userRow, step) {
     const uptimePct = asNumber(userRow.uptime_pct_7d);
     const uptimeText = uptimePct == null ? 'n/a' : `${uptimePct}%`;
 
-    subject = 'Your first week report in MetaWatch';
+    subject = isRu ? 'Ваш отчёт за первую неделю в MetaWatch' : 'Your first week report in MetaWatch';
     html = renderEmailShell({
-      title: 'Week 1 report',
-      subtitle: 'Your monitoring activity summary',
+      title: isRu ? 'Отчёт за первую неделю' : 'Week 1 report',
+      subtitle: isRu ? 'Сводка активности мониторинга' : 'Your monitoring activity summary',
       bodyHtml: `
         <table style="border-collapse:collapse;width:100%;max-width:420px">
-          <tr><td style="padding:6px 0;color:#718096">URLs monitored</td><td style="padding:6px 0;text-align:right;font-weight:700">${urls}</td></tr>
-          <tr><td style="padding:6px 0;color:#718096">Uptime monitors</td><td style="padding:6px 0;text-align:right;font-weight:700">${monitors}</td></tr>
-          <tr><td style="padding:6px 0;color:#718096">Checks run</td><td style="padding:6px 0;text-align:right;font-weight:700">${checks}</td></tr>
-          <tr><td style="padding:6px 0;color:#718096">Changes detected</td><td style="padding:6px 0;text-align:right;font-weight:700">${changes}</td></tr>
-          <tr><td style="padding:6px 0;color:#718096">Uptime (7d)</td><td style="padding:6px 0;text-align:right;font-weight:700">${uptimeText}</td></tr>
+          <tr><td style="padding:6px 0;color:#718096">${isRu ? 'URL под мониторингом' : 'URLs monitored'}</td><td style="padding:6px 0;text-align:right;font-weight:700">${urls}</td></tr>
+          <tr><td style="padding:6px 0;color:#718096">${isRu ? 'Uptime-мониторы' : 'Uptime monitors'}</td><td style="padding:6px 0;text-align:right;font-weight:700">${monitors}</td></tr>
+          <tr><td style="padding:6px 0;color:#718096">${isRu ? 'Проверок выполнено' : 'Checks run'}</td><td style="padding:6px 0;text-align:right;font-weight:700">${checks}</td></tr>
+          <tr><td style="padding:6px 0;color:#718096">${isRu ? 'Изменений обнаружено' : 'Changes detected'}</td><td style="padding:6px 0;text-align:right;font-weight:700">${changes}</td></tr>
+          <tr><td style="padding:6px 0;color:#718096">${isRu ? 'Аптайм (7д)' : 'Uptime (7d)'}</td><td style="padding:6px 0;text-align:right;font-weight:700">${uptimeText}</td></tr>
         </table>
       `,
-      ctaText: 'Open Dashboard',
+      ctaText: isRu ? 'Открыть дашборд' : 'Open Dashboard',
       ctaUrl: `${base}/dashboard`
     });
   } else if (step === STEPS.DAY14_UPGRADE) {
-    subject = "You're on Free plan - see what you're missing";
+    subject = isRu ? 'Вы на Free тарифе — посмотрите, что вы упускаете' : "You're on Free plan - see what you're missing";
     html = renderEmailShell({
-      title: 'Ready to upgrade?',
-      subtitle: 'Unlock tighter intervals and higher limits',
-      bodyHtml: `
-        <p>Free is great to start. Paid plans add:</p>
-        <ul style="padding-left:18px;margin:8px 0">
-          <li>More URLs and uptime monitors</li>
-          <li>Shorter check intervals</li>
-          <li>Agency features for status pages</li>
-        </ul>
-      `,
-      ctaText: 'Compare Plans',
+      title: isRu ? 'Готовы улучшить тариф?' : 'Ready to upgrade?',
+      subtitle: isRu ? 'Более частые проверки и увеличенные лимиты' : 'Unlock tighter intervals and higher limits',
+      bodyHtml: isRu
+        ? `
+          <p>Free отлично подходит для старта. Платные тарифы дают:</p>
+          <ul style="padding-left:18px;margin:8px 0">
+            <li>Больше URL и uptime-мониторов</li>
+            <li>Более короткие интервалы проверок</li>
+            <li>Agency-функции для статус-страниц</li>
+          </ul>
+        `
+        : `
+          <p>Free is great to start. Paid plans add:</p>
+          <ul style="padding-left:18px;margin:8px 0">
+            <li>More URLs and uptime monitors</li>
+            <li>Shorter check intervals</li>
+            <li>Agency features for status pages</li>
+          </ul>
+        `,
+      ctaText: isRu ? 'Сравнить тарифы' : 'Compare Plans',
       ctaUrl: `${base}/billing`
     });
   } else {
@@ -186,7 +230,7 @@ async function triggerWelcomeOnboarding(userId) {
     if (existing) return;
 
     const { rows: [userRow] } = await pool.query(
-      'SELECT id, email FROM users WHERE id = $1',
+      'SELECT id, email, language FROM users WHERE id = $1',
       [userId]
     );
     if (!userRow) return;
@@ -208,6 +252,7 @@ async function runOnboardingSequenceDaily() {
       SELECT
         u.id,
         u.email,
+        u.language,
         u.created_at,
         COALESCE(lp.plan_name, 'Free') AS plan_name,
         (SELECT COUNT(*)::int FROM monitored_urls mu WHERE mu.user_id = u.id) AS urls_count,
