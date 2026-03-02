@@ -182,24 +182,35 @@
         Headless rendering is requested for this URL, but headless checks are disabled or unavailable on this server.
       </div>
       <% } %>
-      <% if (latest.js_rendered) { %>
+      <% if (accessChallengeDetected) { %>
       <div class="alert-banner alert-banner--info" style="margin:16px 20px 0">
-        ⚠️ Page may be JavaScript-rendered. Consider headless rendering for higher accuracy.
+        Anti-bot/browser verification page detected (<%= accessChallengeReason || 'access challenge' %>). Metadata can be temporary until the challenge is cleared.
+      </div>
+      <% } %>
+      <% if (latest.js_rendered && !accessChallengeDetected) { %>
+      <div class="alert-banner alert-banner--info" style="margin:16px 20px 0">
+        Static check captured minimal HTML. This page may require JS rendering for accurate metadata.
       </div>
       <% } %>
       <div style="padding:20px">
         <div class="snapshot-grid">
           <div class="snap-field">
             <div class="snap-label">Title</div>
-            <div class="snap-val"><%= latest.title || '—' %></div>
+            <div class="snap-val">
+              <%= accessChallengeDetected ? 'Temporarily unavailable (challenge page)' : (latest.title || '—') %>
+            </div>
           </div>
           <div class="snap-field">
             <div class="snap-label">Meta Description</div>
-            <div class="snap-val"><%= latest.description || '—' %></div>
+            <div class="snap-val">
+              <%= accessChallengeDetected ? 'Temporarily unavailable (challenge page)' : (latest.description || '—') %>
+            </div>
           </div>
           <div class="snap-field">
             <div class="snap-label">H1</div>
-            <div class="snap-val"><%= latest.h1 || '—' %></div>
+            <div class="snap-val">
+              <%= accessChallengeDetected ? 'Temporarily unavailable (challenge page)' : (latest.h1 || '—') %>
+            </div>
           </div>
           <div class="snap-field">
             <div class="snap-label">Canonical</div>

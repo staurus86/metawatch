@@ -2,6 +2,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const crypto = require('crypto');
 const https = require('https');
+const { detectAccessChallenge } = require('./access-challenge');
 const { assertSafeOutboundUrl } = require('./net-safety');
 
 function sha256(text) {
@@ -108,6 +109,8 @@ async function scrapeUrl(url, options = {}) {
     response_time_ms: null,
     soft_404: false,
     js_rendered: false,
+    challenge_detected: false,
+    challenge_reason: null,
     error: null
   };
 
@@ -240,8 +243,21 @@ async function scrapeUrl(url, options = {}) {
       normalizeUrlForCompare(result.canonical) !== normalizeUrlForCompare(finalUrl || safeUrl)
     );
 
+    const challenge = detectAccessChallenge({
+      title: result.title,
+      description: result.description,
+      h1: result.h1,
+      bodyText,
+      statusCode: result.status_code
+    });
+    result.challenge_detected = challenge.detected;
+    result.challenge_reason = challenge.reason;
+
     // JS-rendered detection: very little text and no title = likely client-rendered
     if (bodyText.length < 500 && !result.title) {
+      result.js_rendered = true;
+    }
+    if (challenge.detected) {
       result.js_rendered = true;
     }
 

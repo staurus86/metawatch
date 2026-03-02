@@ -7,6 +7,7 @@ const { XMLParser } = require('fast-xml-parser');
 const axios = require('axios');
 const pool = require('../db');
 const { checkUrl } = require('../checker');
+const { detectAccessChallenge } = require('../access-challenge');
 const { sendPagerDuty } = require('../notifier');
 const { scheduleUrl, unscheduleUrl, triggerUrlCheckNow } = require('../scheduler');
 const { requireAuth } = require('../auth');
@@ -917,6 +918,16 @@ router.get('/:id', requireAuth, async (req, res) => {
       robotsDiff = Diff.diffLines(refSnapshot.raw_robots_txt, snapshots[0].raw_robots_txt);
     }
 
+    const latestSnapshot = snapshots[0] || null;
+    const accessChallenge = latestSnapshot
+      ? detectAccessChallenge({
+        title: latestSnapshot.title,
+        description: latestSnapshot.description,
+        h1: latestSnapshot.h1,
+        statusCode: latestSnapshot.status_code
+      })
+      : { detected: false, reason: null };
+
     let nextCheck = null;
     if (snapshots.length > 0) {
       const lastChecked = new Date(snapshots[0].checked_at);
@@ -951,6 +962,8 @@ router.get('/:id', requireAuth, async (req, res) => {
       activeTab: req.query.tab || 'overview',
       uptimePct,
       textRules,
+      accessChallengeDetected: !!accessChallenge.detected,
+      accessChallengeReason: accessChallenge.reason || null,
       acceptedCount: req.query.accepted ? parseInt(req.query.accepted, 10) : null
     });
   } catch (err) {

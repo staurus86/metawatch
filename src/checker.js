@@ -3,6 +3,7 @@ const pool = require('./db');
 const cron = require('node-cron');
 const { scrapeUrl, fetchRobotsTxt, checkSsl } = require('./scraper');
 const { scrapeUrlHeadless } = require('./headless-scraper');
+const { detectAccessChallenge } = require('./access-challenge');
 const { notify } = require('./notifier');
 
 const SSL_WARN_DAYS = parseInt(process.env.SSL_WARN_DAYS || '30', 10);
@@ -264,8 +265,27 @@ const FIELD_OVERRIDE_KEY_BY_FIELD_KEY = {
   http_state: 'response_code',
   text_rule: 'custom_text',
   ssl_warning: 'ssl',
-  response_time: 'response_time'
+  response_time: 'response_time',
+  access_challenge: 'response_code'
 };
+
+const CHALLENGE_SUPPRESSED_FIELD_KEYS = new Set([
+  'title',
+  'description',
+  'h1',
+  'body_text_hash',
+  'noindex',
+  'redirect_url',
+  'redirect_chain',
+  'canonical',
+  'canonical_issue',
+  'indexability_conflict',
+  'hreflang',
+  'og_title',
+  'og_description',
+  'og_image',
+  'custom_text_found'
+]);
 
 function parseFieldsNotificationConfig(raw) {
   if (!raw) return {};
@@ -558,6 +578,26 @@ async function checkUrl(urlId) {
       parseInt(urlRecord.alert_cooldown_minutes || DEFAULT_ALERT_COOLDOWN_MINUTES, 10) || DEFAULT_ALERT_COOLDOWN_MINUTES
     );
     const fieldsNotificationConfig = parseFieldsNotificationConfig(urlRecord.fields_notification_config);
+    const currentChallenge = detectAccessChallenge({
+      title: scraped.title,
+      description: scraped.description,
+      h1: scraped.h1,
+      statusCode: scraped.status_code
+    });
+    if (scraped.challenge_detected && !currentChallenge.detected) {
+      currentChallenge.detected = true;
+      currentChallenge.reason = scraped.challenge_reason || 'Browser verification challenge detected';
+    } else if (scraped.challenge_detected && currentChallenge.detected && !currentChallenge.reason) {
+      currentChallenge.reason = scraped.challenge_reason || 'Browser verification challenge detected';
+    }
+    const previousChallenge = lastSnapshot
+      ? detectAccessChallenge({
+        title: lastSnapshot.title,
+        description: lastSnapshot.description,
+        h1: lastSnapshot.h1,
+        statusCode: lastSnapshot.status_code
+      })
+      : { detected: false, reason: null };
 
     // Load user's alert rules (for this URL's owner)
     let alertRules = [];
@@ -613,6 +653,9 @@ async function checkUrl(urlId) {
       if (field.monitorKey === '_custom_text') {
         if (!urlRecord.custom_text) continue;
       } else if (!urlRecord[field.monitorKey]) {
+        continue;
+      }
+      if (currentChallenge.detected && CHALLENGE_SUPPRESSED_FIELD_KEYS.has(field.key)) {
         continue;
       }
 
@@ -743,6 +786,104 @@ async function checkUrl(urlId) {
       }
     }
 
+    // Access challenge transition alert (anti-bot / browser verification pages)
+    if (currentChallenge.detected !== previousChallenge.detected) {
+      const enteringChallenge = currentChallenge.detected;
+      const statusCodeNow = parseInt(snap.status_code || 0, 10);
+      const challengeSeverity = enteringChallenge
+        ? ((statusCodeNow === 0 || statusCodeNow >= 400) ? 'critical' : 'warning')
+        : 'info';
+      const challengeOldValue = enteringChallenge
+        ? (previousChallenge.reason || 'No access challenge')
+        : (previousChallenge.reason || 'Access challenge detected');
+      const challengeNewValue = enteringChallenge
+        ? (currentChallenge.reason || 'Browser verification challenge detected')
+        : 'Challenge cleared';
+
+      const challengeState = await evaluateAlertState({
+        urlId,
+        fieldKey: 'Access Challenge',
+        stateValue: `${enteringChallenge ? 'enter' : 'clear'}:${challengeNewValue}`,
+        cooldownMinutes
+      });
+
+      if (challengeState.recordAlert) {
+        const { rows: [createdChallengeAlert] } = await pool.query(
+          `INSERT INTO alerts (url_id, field_changed, old_value, new_value, severity)
+           VALUES ($1, 'Access Challenge', $2, $3, $4)
+           RETURNING id`,
+          [urlId, challengeOldValue, challengeNewValue, challengeSeverity]
+        );
+        const challengeAlertId = createdChallengeAlert?.id;
+        alertsGenerated.push(`Access Challenge: ${enteringChallenge ? 'detected' : 'cleared'}`);
+
+        const challengeOverride = resolveFieldOverride({
+          config: fieldsNotificationConfig,
+          overrideKey: FIELD_OVERRIDE_KEY_BY_FIELD_KEY.access_challenge,
+          severity: challengeSeverity,
+          urlRecord
+        });
+
+        if (challengeState.notify && !silenced && !challengeOverride.suppress) {
+          try {
+            const notifyResults = await notify({
+              urlRecord,
+              field: 'Access Challenge',
+              oldValue: challengeOldValue,
+              newValue: challengeNewValue,
+              severity: challengeSeverity,
+              timestamp: new Date(),
+              ruleActions: challengeOverride.overrideRuleActions || undefined,
+              alertId: challengeAlertId
+            });
+            const anyNotified = Object.values(notifyResults || {}).some(Boolean);
+            if (challengeAlertId && anyNotified) {
+              await pool.query(
+                'UPDATE alerts SET notified = true, email_sent = $1 WHERE id = $2',
+                [!!notifyResults?.email, challengeAlertId]
+              );
+            }
+            await logChannelResults({
+              urlId,
+              fieldChanged: 'Access Challenge',
+              severity: challengeSeverity,
+              notifyResults
+            });
+            if (anyNotified) {
+              await logNotification({ urlId, channel: 'multi', fieldChanged: 'Access Challenge', severity: challengeSeverity, status: 'sent' });
+            } else {
+              await logNotification({
+                urlId,
+                channel: 'suppressed',
+                fieldChanged: 'Access Challenge',
+                severity: challengeSeverity,
+                status: 'suppressed',
+                suppressionReason: 'no_channel_target'
+              });
+            }
+          } catch (challengeNotifyErr) {
+            await logNotification({
+              urlId,
+              channel: 'multi',
+              fieldChanged: 'Access Challenge',
+              severity: challengeSeverity,
+              status: 'failed',
+              errorMessage: challengeNotifyErr.message
+            });
+          }
+        } else if (challengeOverride.suppress) {
+          await logNotification({
+            urlId,
+            channel: 'suppressed',
+            fieldChanged: 'Access Challenge',
+            severity: challengeSeverity,
+            status: 'suppressed',
+            suppressionReason: challengeOverride.suppressionReason || 'suppressed'
+          });
+        }
+      }
+    }
+
     // Transition alert: error state to recovery (and vice versa) based on last check, not baseline
     if (lastSnapshot && urlRecord.monitor_status_code) {
       const prevErr = isHttpErrorState(lastSnapshot.status_code, lastSnapshot.soft_404);
@@ -841,7 +982,7 @@ async function checkUrl(urlId) {
     }
 
     // JS-rendered warning state (first detection only, then cooldown based)
-    if (snap.js_rendered) {
+    if (snap.js_rendered && !currentChallenge.detected) {
       const jsState = await evaluateAlertState({
         urlId,
         fieldKey: 'JS Render Warning',
@@ -852,14 +993,14 @@ async function checkUrl(urlId) {
         await pool.query(
           `INSERT INTO alerts (url_id, field_changed, old_value, new_value, severity)
            VALUES ($1, 'JS Render Warning', $2, $3, 'info')`,
-          [urlId, 'Unknown', 'Page may require JavaScript rendering']
+          [urlId, 'Unknown', 'Static check captured minimal HTML. This page may require JS rendering or browser verification.']
         );
         alertsGenerated.push('JS Render Warning');
       }
     }
 
     // ── Text rule change detection ────────────────────────────────────────────
-    if (textRules.length > 0 && scraped.textRuleResults && refSnapshot) {
+    if (!currentChallenge.detected && textRules.length > 0 && scraped.textRuleResults && refSnapshot) {
       let refRuleResults = [];
       try { refRuleResults = JSON.parse(refSnapshot.text_rules_json || '[]'); } catch { refRuleResults = []; }
 

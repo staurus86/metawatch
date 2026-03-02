@@ -1,5 +1,6 @@
 const cheerio = require('cheerio');
 const crypto = require('crypto');
+const { detectAccessChallenge } = require('./access-challenge');
 const { assertSafeOutboundUrl } = require('./net-safety');
 
 const DEFAULT_USER_AGENT = 'MetaWatch/2.0 (metadata monitor; +https://metawatch.app/bot)';
@@ -179,6 +180,8 @@ async function scrapeUrlHeadless(url, options = {}) {
     response_time_ms: null,
     soft_404: false,
     js_rendered: true,
+    challenge_detected: false,
+    challenge_reason: null,
     error: null
   };
 
@@ -263,6 +266,16 @@ async function scrapeUrlHeadless(url, options = {}) {
       result.canonical &&
       normalizeUrlForCompare(result.canonical) !== normalizeUrlForCompare(finalUrl || safeUrl)
     );
+
+    const challenge = detectAccessChallenge({
+      title: result.title,
+      description: result.description,
+      h1: result.h1,
+      bodyText,
+      statusCode: result.status_code
+    });
+    result.challenge_detected = challenge.detected;
+    result.challenge_reason = challenge.reason;
 
     if (customText) {
       result.custom_text_found = bodyText.includes(customText);
