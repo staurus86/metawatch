@@ -23,6 +23,7 @@
     <h2 class="card-title">Add Project</h2>
   </div>
   <form action="/projects/add" method="POST" class="form" style="padding:16px">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
     <div class="form-row" style="grid-template-columns:1fr auto">
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label" for="project-name">Project name</label>
@@ -81,10 +82,12 @@
                   <a href="/export/project/<%= project.id %>.pdf" class="btn btn-ghost" style="font-size:12px;padding:5px 10px">Report PDF</a>
                   <a href="/export/project/<%= project.id %>.xlsx" class="btn btn-ghost" style="font-size:12px;padding:5px 10px">Report XLSX</a>
                   <form action="/projects/<%= project.id %>/rename" method="POST" style="display:flex;gap:6px;align-items:center">
+                    <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
                     <input type="text" name="name" value="<%= project.name %>" class="form-input" style="width:150px;padding:5px 8px;font-size:12px">
                     <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:5px 10px">Rename</button>
                   </form>
                   <form action="/projects/<%= project.id %>/delete" method="POST" data-confirm="Delete this project? URLs will stay monitored but become unassigned.">
+                    <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
                     <button type="submit" class="btn btn-danger" style="font-size:12px;padding:5px 10px">Delete</button>
                   </form>
                 </div>

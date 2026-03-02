@@ -9,6 +9,7 @@
     </a>
     <form action="/urls/<%= urlRecord.id %>/clone" method="POST" style="display:inline"
           data-confirm="Clone this URL with all its settings?">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
       <button type="submit" class="btn btn-ghost" style="font-size:12px">⎘ Clone</button>
     </form>
     <button id="test-notify-btn" class="btn btn-ghost" style="font-size:12px"
@@ -25,20 +26,24 @@
 <!-- Actions bar -->
 <div class="actions-bar">
   <form action="/urls/<%= urlRecord.id %>/check-now" method="POST" style="display:inline">
+    <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
     <button type="submit" class="btn btn-primary">▶ Check Now</button>
   </form>
   <form action="/urls/<%= urlRecord.id %>/toggle" method="POST" style="display:inline">
+    <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
     <button type="submit" class="btn btn-ghost">
       <%= urlRecord.is_active ? '⏸ Pause' : '▶ Resume' %>
     </button>
   </form>
   <% if (alerts.length > 0) { %>
     <form action="/urls/<%= urlRecord.id %>/accept-changes" method="POST" style="display:inline">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
       <button type="submit" class="btn btn-ghost">✓ Accept Changes</button>
     </form>
   <% } %>
   <form action="/urls/<%= urlRecord.id %>/delete" method="POST" style="display:inline"
         data-confirm="Delete this URL and all its history? This cannot be undone.">
+    <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
     <button type="submit" class="btn btn-danger">✕ Delete</button>
   </form>
 </div>
@@ -344,6 +349,7 @@
     <% } %>
     <% if (alerts.length > 0) { %>
       <form action="/urls/<%= urlRecord.id %>/accept-selected" method="POST">
+        <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
         <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px 0">
           <button type="submit" class="btn btn-ghost" style="font-size:12px">✓ Accept Selected</button>
         </div>
@@ -450,6 +456,7 @@
       <!-- Add rule form -->
       <div class="card" style="margin-bottom:16px;padding:16px">
         <form action="/urls/<%= urlRecord.id %>/text-rules" method="POST">
+          <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
           <div style="display:grid;grid-template-columns:1fr 1fr auto auto;gap:10px;align-items:end">
             <div>
               <label class="form-label" style="font-size:11px">Label</label>
@@ -500,12 +507,14 @@
                   </td>
                   <td style="display:flex;gap:6px">
                     <form action="/urls/<%= urlRecord.id %>/text-rules/<%= rule.id %>/toggle" method="POST" style="display:inline">
+                      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
                       <button type="submit" class="btn btn-ghost" style="font-size:11px;padding:4px 10px">
                         <%= rule.is_active ? '⏸ Pause' : '▶ Resume' %>
                       </button>
                     </form>
                     <form action="/urls/<%= urlRecord.id %>/text-rules/<%= rule.id %>/delete" method="POST" style="display:inline"
                           data-confirm="Delete this text rule?">
+                      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
                       <button type="submit" class="btn btn-danger" style="font-size:11px;padding:4px 10px">✕</button>
                     </form>
                   </td>

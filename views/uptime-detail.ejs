@@ -17,11 +17,13 @@
 <!-- Actions -->
 <div class="actions-bar">
   <form action="/uptime/<%= monitor.id %>/check-now" method="POST" style="display:inline">
+    <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
     <button type="submit" class="btn btn-primary">▶ Check Now</button>
   </form>
   <a href="/export/uptime/<%= monitor.id %>.pdf" class="btn btn-ghost">PDF Report</a>
   <a href="/export/uptime/<%= monitor.id %>.xlsx" class="btn btn-ghost">XLSX Report</a>
   <form action="/uptime/<%= monitor.id %>/toggle" method="POST" style="display:inline">
+    <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
     <button type="submit" class="btn btn-ghost">
       <%= monitor.is_active ? '⏸ Pause' : '▶ Resume' %>
     </button>
@@ -31,6 +33,7 @@
   <% } %>
   <form action="/uptime/<%= monitor.id %>/delete" method="POST" style="display:inline"
         data-confirm="Delete this monitor and all its history?">
+    <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
     <button type="submit" class="btn btn-danger">✕ Delete</button>
   </form>
 </div>
@@ -198,6 +201,7 @@
                       <%= inc.postmortem_text ? '✎ Edit post-mortem' : '+ Add post-mortem' %>
                     </summary>
                     <form action="/uptime/<%= monitor.id %>/incidents/<%= inc.id %>/postmortem" method="POST" style="margin-top:8px">
+                      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
                       <textarea name="postmortem_text" class="form-input" rows="3" style="font-size:13px;margin-bottom:6px"
                         placeholder="What caused this? How was it fixed?"><%= inc.postmortem_text || '' %></textarea>
                       <button type="submit" class="btn btn-primary" style="font-size:12px;padding:5px 12px">Save</button>

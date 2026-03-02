@@ -24,6 +24,7 @@ const actionsValue = isEdit && Array.isArray(rule.actions)
 
 <div class="card" style="max-width:860px">
   <form action="<%= formAction %>" method="POST" class="form" style="padding:20px">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
     <div class="form-group">
       <label class="form-label" for="name">Rule Name</label>
       <input id="name" name="name" class="form-input" type="text" required maxlength="120"

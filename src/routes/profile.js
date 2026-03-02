@@ -67,7 +67,7 @@ router.post('/regenerate-key', requireAuth, async (req, res) => {
     res.redirect('/profile?msg=API+key+regenerated');
   } catch (err) {
     console.error(err);
-    res.redirect('/profile?msg=Error:+' + encodeURIComponent(err.message));
+    res.redirect('/profile?msg=Error:+failed+to+regenerate+API+key');
   }
 });
 
@@ -103,7 +103,7 @@ router.post('/digest', requireAuth, async (req, res) => {
     res.redirect('/profile?msg=Digest+settings+saved');
   } catch (err) {
     console.error(err);
-    res.redirect('/profile?msg=Error:+' + encodeURIComponent(err.message));
+    res.redirect('/profile?msg=Error:+failed+to+save+digest+settings');
   }
 });
 
@@ -141,7 +141,8 @@ router.post('/digest/test', requireAuth, async (req, res) => {
     });
     res.redirect('/profile?msg=Test+digest+sent+to+' + encodeURIComponent(to));
   } catch (err) {
-    res.redirect('/profile?msg=Error:+' + encodeURIComponent(err.message));
+    console.error(err);
+    res.redirect('/profile?msg=Error:+failed+to+send+test+digest');
   }
 });
 
@@ -191,7 +192,7 @@ router.post('/push/subscribe', requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({ ok: false, error: 'Failed to store push subscription' });
   }
 });
 
@@ -221,7 +222,7 @@ router.post('/push/unsubscribe', requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({ ok: false, error: 'Failed to remove push subscription' });
   }
 });
 
@@ -382,7 +383,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
     res.redirect('/profile?msg=Password+changed+successfully');
   } catch (err) {
     console.error(err);
-    renderErr(err.message);
+    renderErr('Failed to change password. Please try again.');
   }
 });
 

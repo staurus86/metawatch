@@ -8,6 +8,7 @@
 <div class="card" style="max-width:600px">
   <% if (error) { %><div class="alert-banner alert-banner--error"><%= error %></div><% } %>
   <form action="/competitors" method="POST" class="form">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
     <div class="form-group">
       <label class="form-label">Competitor Name <span class="required">*</span></label>
       <input type="text" name="name" class="form-input" value="<%= values.name || '' %>" required placeholder="e.g. Competitor Inc">

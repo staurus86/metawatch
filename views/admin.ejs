@@ -15,6 +15,7 @@
     <h2 class="card-title">Invite User</h2>
   </div>
   <form action="/admin/invite" method="POST" class="form" style="padding:20px">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
     <div class="form-group" style="margin-bottom:12px">
       <label class="form-label" for="inv-email">Email address</label>
       <input type="email" id="inv-email" name="email" class="form-input"
@@ -91,6 +92,7 @@
             <td>
               <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start">
                 <form action="/admin/users/<%= u.id %>/plan" method="POST" style="display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap">
+                  <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
                   <select name="plan_id" class="form-select" style="padding:3px 6px;font-size:12px;width:auto" required>
                     <% plans.forEach(function(plan) { %>
                       <option value="<%= plan.id %>" <%= Number(u.current_plan_id) === Number(plan.id) ? 'selected' : '' %>><%= plan.name %></option>
@@ -105,6 +107,7 @@
                 </form>
                 <% if (u.id !== locals.user.id) { %>
                   <form action="/admin/users/<%= u.id %>/role" method="POST" style="display:inline-flex;gap:4px">
+                    <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
                     <select name="role" class="form-select" style="padding:3px 6px;font-size:12px;width:auto">
                       <option value="admin" <%= u.role === 'admin' ? 'selected' : '' %>>admin</option>
                       <option value="viewer" <%= u.role === 'viewer' ? 'selected' : '' %>>viewer</option>
@@ -113,6 +116,7 @@
                   </form>
                   <form action="/admin/users/<%= u.id %>/revoke" method="POST"
                         data-confirm="Remove user <%= u.email %>? This cannot be undone.">
+                    <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
                     <button type="submit" class="btn btn-danger" style="font-size:11px;padding:3px 8px">
                       Revoke
                     </button>

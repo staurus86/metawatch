@@ -14,6 +14,7 @@
 <div class="card" style="margin-bottom:20px;padding:20px">
   <div class="form-section-title" style="margin-top:0">Create New Tag</div>
   <form action="/tags" method="POST" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+    <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
     <div>
       <label class="form-label" style="font-size:11px">Tag Name</label>
       <input name="name" type="text" class="form-input" placeholder="e.g. priority" maxlength="30"
@@ -58,6 +59,7 @@
               </td>
               <td>
                 <form action="/tags/<%= tag.id %>/update" method="POST" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                  <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
                   <% palette.forEach(function(c) { %>
                     <label style="cursor:pointer">
                       <input type="radio" name="color" value="<%= c %>" <%= tag.color === c ? 'checked' : '' %> style="display:none" class="color-radio" data-submit-on-change="1">
@@ -70,6 +72,7 @@
               <td>
                 <form action="/tags/<%= tag.id %>/delete" method="POST" style="display:inline"
                       data-confirm="Delete tag '<%= tag.name %>'? It will be removed from all URLs.">
+                  <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
                   <button type="submit" class="btn btn-danger" style="font-size:11px;padding:4px 10px">✕ Delete</button>
                 </form>
               </td>

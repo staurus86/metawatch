@@ -14,6 +14,7 @@
 
 <div class="card" style="max-width:760px">
   <form action="/status-pages/<%= page.id %>/edit" method="POST" class="form">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
     <div class="form-group">
       <label class="form-label">Title</label>
       <input type="text" name="title" class="form-input" value="<%= page.title %>" required>
@@ -113,6 +114,7 @@
   <div style="padding:0 18px 18px">
     <form action="/status-pages/<%= page.id %>/delete" method="POST" style="display:inline"
           data-confirm="Delete this status page?">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
       <button type="submit" class="btn btn-danger">Delete</button>
     </form>
   </div>

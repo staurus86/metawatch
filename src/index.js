@@ -12,6 +12,7 @@ const { startQueueWorkers, isQueueWorkersEnabled } = require('./workers');
 const { loadUserMiddleware } = require('./auth');
 const { loadUserPlanMiddleware } = require('./plans');
 const { i18nMiddleware } = require('./i18n');
+const { csrfProtection } = require('./csrf');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -88,6 +89,7 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use(loadUserMiddleware);
 app.use(loadUserPlanMiddleware);
 app.use(i18nMiddleware);
+app.use(csrfProtection);
 
 // Custom-domain status pages: rewrite root requests to matching status page.
 app.use(async (req, res, next) => {
@@ -143,8 +145,11 @@ app.use((req, res) => {
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).render('error', { title: 'Error', error: err.message });
+  console.error(`[Error] ${req.method} ${req.originalUrl} user=${req.user?.id || 'anon'}`, err.stack);
+  const userMessage = process.env.NODE_ENV === 'production'
+    ? 'An internal error occurred. Please try again later.'
+    : err.message;
+  res.status(500).render('error', { title: 'Error', error: userMessage });
 });
 
 async function start() {
@@ -176,13 +181,53 @@ async function start() {
     } else {
       console.log('[Scheduler] Disabled by ENABLE_SCHEDULER=false');
     }
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       console.log(`✓ MetaWatch v2 running on http://localhost:${PORT}`);
     });
+
+    // Graceful shutdown
+    let shuttingDown = false;
+    async function gracefulShutdown(signal) {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      console.log(`\n[Shutdown] ${signal} received — closing server...`);
+
+      server.close(() => {
+        console.log('[Shutdown] HTTP server closed');
+      });
+
+      // Close queue connections
+      try {
+        const { closeBullQueues } = require('./queue');
+        await closeBullQueues();
+        console.log('[Shutdown] Queue connections closed');
+      } catch { /* queue may not be enabled */ }
+
+      // Drain DB pool
+      try {
+        await pool.end();
+        console.log('[Shutdown] DB pool drained');
+      } catch { /* already closed */ }
+
+      process.exit(0);
+    }
+
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
   } catch (err) {
     console.error('Startup failed:', err);
     process.exit(1);
   }
 }
+
+// Process-level error handlers
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Process] Unhandled promise rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[Process] Uncaught exception:', err);
+  process.exit(1);
+});
 
 start();

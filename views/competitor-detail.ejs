@@ -5,10 +5,12 @@
   </div>
   <div style="display:flex;gap:8px">
     <form action="/competitors/<%= comp.id %>/check-now" method="POST" style="display:inline">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
       <button type="submit" class="btn btn-primary">▶ Check Now</button>
     </form>
     <form action="/competitors/<%= comp.id %>/delete" method="POST" style="display:inline"
           data-confirm="Delete this competitor?">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
       <button type="submit" class="btn btn-danger">✕ Delete</button>
     </form>
   </div>

@@ -90,7 +90,8 @@ async function requireApiKey(req, res, next) {
     }
     next();
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[Auth] API key validation error:', err.message);
+    res.status(500).json({ error: 'Internal authentication error' });
   }
 }
 

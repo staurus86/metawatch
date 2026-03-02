@@ -113,6 +113,11 @@ router.get('/health', async (req, res) => {
       version: APP_VERSION,
       uptime: process.uptime(),
       db_latency_ms: dbLatencyMs,
+      db_pool: {
+        total: pool.totalCount,
+        idle: pool.idleCount,
+        waiting: pool.waitingCount
+      },
       pending_webhooks: pendingWebhooks,
       scheduler
     });

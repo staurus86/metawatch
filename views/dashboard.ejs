@@ -323,6 +323,7 @@
       <div style="display:flex;gap:8px;align-items:center">
         <% if (tab === 'problems' && urls.length > 0) { %>
           <form action="/urls/accept-all-changes" method="POST">
+            <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
             <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:4px 10px">
               ✓ Accept All Changes
             </button>
@@ -335,6 +336,7 @@
     <div id="bulk-action-bar" style="display:none;align-items:center;gap:8px;padding:8px 16px;background:var(--bg-secondary);border-bottom:1px solid var(--border);font-size:13px">
       <span><strong id="bulk-count">0</strong> selected</span>
       <form id="bulk-form" action="/urls/bulk-action" method="POST" style="display:flex;gap:6px">
+        <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
         <button type="submit" name="action" value="pause" class="btn btn-ghost" style="font-size:12px;padding:3px 10px">⏸ Pause</button>
         <button type="submit" name="action" value="resume" class="btn btn-ghost" style="font-size:12px;padding:3px 10px">▶ Resume</button>
         <button type="submit" name="action" value="accept" class="btn btn-ghost" style="font-size:12px;padding:3px 10px">✓ Accept</button>

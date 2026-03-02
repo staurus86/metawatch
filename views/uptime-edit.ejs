@@ -13,6 +13,7 @@
   </div>
 
   <form action="/uptime/<%= monitor.id %>/edit" method="POST" class="form">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
     <div class="form-section-title">Monitor Settings</div>
 
     <div class="form-row">

@@ -1,5 +1,15 @@
 /* MetaWatch v2 frontend JS */
 
+// ─── CSRF helper ───
+function getCsrfToken() {
+  const m = document.cookie.match(/(?:^|;\s*)mw_csrf=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
+function csrfHeaders() {
+  return { 'X-CSRF-Token': getCsrfToken() };
+}
+
 // ─── Relative time display ───
 function timeAgo(dateStr, mode) {
   const date = new Date(dateStr);
@@ -103,7 +113,7 @@ if (scanAllBtn) {
     scanAllBtn.textContent = '⏳ Starting...';
 
     try {
-      const resp = await fetch('/urls/scan-all', { method: 'POST' });
+      const resp = await fetch('/urls/scan-all', { method: 'POST', headers: csrfHeaders() });
       const data = await resp.json();
 
       if (!data.ok) {
@@ -452,7 +462,7 @@ if (testNotifyBtn) {
     this.textContent = 'Sending…';
     this.disabled = true;
     try {
-      const r = await fetch('/urls/' + urlId + '/test-notify', { method: 'POST' });
+      const r = await fetch('/urls/' + urlId + '/test-notify', { method: 'POST', headers: csrfHeaders() });
       const data = await r.json();
       this.textContent = data.ok ? '✓ Sent!' : '⚠ ' + data.message;
       setTimeout(() => {
@@ -516,7 +526,7 @@ if (uptimeTestBtn) {
     this.textContent = 'Sending…';
     this.disabled = true;
     try {
-      const r = await fetch('/uptime/' + id + '/test-notify', { method: 'POST' });
+      const r = await fetch('/uptime/' + id + '/test-notify', { method: 'POST', headers: csrfHeaders() });
       const data = await r.json();
       this.textContent = data.ok ? '✓ Sent!' : '⚠ ' + data.message;
       setTimeout(() => { this.textContent = orig; this.disabled = false; }, 4000);
@@ -634,7 +644,7 @@ window.obNext = function(step) {
 window.obFinish = function() {
   const modal = document.getElementById('onboarding-modal');
   if (modal) modal.style.display = 'none';
-  fetch('/urls/onboarding-complete', { method: 'POST' }).catch(() => {});
+  fetch('/urls/onboarding-complete', { method: 'POST', headers: csrfHeaders() }).catch(() => {});
 };
 
 // ─── Competitor title-length chart ───────────────────────────────────────────

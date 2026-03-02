@@ -81,12 +81,14 @@ function summarizeAction(a) {
               <td style="display:flex;gap:6px;flex-wrap:wrap">
                 <a href="/alert-rules/<%= rule.id %>/edit" class="btn btn-ghost" style="font-size:11px;padding:4px 10px">✎ Edit</a>
                 <form action="/alert-rules/<%= rule.id %>/toggle" method="POST" style="display:inline">
+                  <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
                   <button type="submit" class="btn btn-ghost" style="font-size:11px;padding:4px 10px">
                     <%= rule.is_active ? '⏸ Pause' : '▶ Activate' %>
                   </button>
                 </form>
                 <form action="/alert-rules/<%= rule.id %>/delete" method="POST" style="display:inline"
                       data-confirm="Delete rule '<%= rule.name %>'?">
+                  <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
                   <button type="submit" class="btn btn-danger" style="font-size:11px;padding:4px 10px">✕ Delete</button>
                 </form>
               </td>

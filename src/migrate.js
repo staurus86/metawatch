@@ -719,7 +719,10 @@ async function migrate() {
       'CREATE INDEX IF NOT EXISTS idx_alerts_url_field_new_detected ON alerts(url_id, field_changed, new_value, detected_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_monitored_urls_user_health ON monitored_urls(user_id, health_score)',
       'CREATE INDEX IF NOT EXISTS idx_notification_log_status_sent ON notification_log(status, sent_at DESC)',
-      'CREATE INDEX IF NOT EXISTS idx_audit_log_user_created ON audit_log(user_id, created_at DESC)'
+      'CREATE INDEX IF NOT EXISTS idx_audit_log_user_created ON audit_log(user_id, created_at DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_text_monitors_url_active ON text_monitors(url_id, is_active)',
+      'CREATE INDEX IF NOT EXISTS idx_digest_settings_schedule ON digest_settings(enabled, hour, frequency)',
+      'CREATE INDEX IF NOT EXISTS idx_webhook_retry_pending ON webhook_delivery_log(status, next_retry_at) WHERE status = \'pending\''
     ];
     for (const sql of scaleIndexes) await client.query(sql);
 

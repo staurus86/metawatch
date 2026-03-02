@@ -117,6 +117,7 @@
                 <span class="badge badge--pending">Included</span>
               <% } else if (checkoutEnabledByPlan && checkoutEnabledByPlan[p.name]) { %>
                 <form action="/billing/checkout" method="POST" style="display:inline">
+                  <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
                   <input type="hidden" name="plan" value="<%= p.name %>">
                   <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:4px 10px">
                     Upgrade

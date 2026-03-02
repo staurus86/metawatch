@@ -31,9 +31,11 @@
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <form action="/integrations/slack/test" method="POST">
+          <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
           <button type="submit" class="btn btn-ghost">Send Test</button>
         </form>
         <form action="/integrations/slack/disconnect" method="POST" data-confirm="Disconnect Slack integration?">
+          <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
           <button type="submit" class="btn btn-danger">Disconnect</button>
         </form>
       </div>
@@ -62,15 +64,18 @@
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
         <form action="/integrations/pagerduty/test" method="POST">
+          <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
           <button type="submit" class="btn btn-ghost">Trigger Test Incident</button>
         </form>
         <form action="/integrations/pagerduty/disconnect" method="POST" data-confirm="Disconnect PagerDuty integration?">
+          <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
           <button type="submit" class="btn btn-danger">Disconnect</button>
         </form>
       </div>
     <% } %>
 
     <form action="/integrations/pagerduty/connect" method="POST" class="form">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
       <div class="form-grid">
         <div class="form-group">
           <label class="form-label" for="service_name">Service Name</label>

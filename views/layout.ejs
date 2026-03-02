@@ -99,6 +99,7 @@
           <a href="/profile" class="footer-link"><%= t('nav.profile') %></a>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
             <form action="/logout" method="POST">
+              <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
               <button type="submit" class="logout-btn"><%= t('nav.sign_out') %></button>
             </form>
             <button id="dark-mode-toggle" class="dark-mode-btn" title="Toggle dark mode">

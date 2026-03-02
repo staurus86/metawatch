@@ -50,6 +50,7 @@
 
       <% if (preview.rows.length > 0) { %>
         <form action="/urls/bulk" method="POST">
+          <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
           <input type="hidden" name="source" value="<%= preview.source %>">
           <input type="hidden" name="urls_text" value="<%= preview.urls_text || '' %>">
           <input type="hidden" name="sitemap_url" value="<%= preview.sitemap_url || '' %>">
@@ -154,6 +155,7 @@
     <div class="card">
       <div class="card-header"><h2 class="card-title">Paste URLs</h2></div>
       <form action="/urls/bulk" method="POST" class="form" style="padding:16px">
+        <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
         <input type="hidden" name="source" value="text">
         <div class="form-group">
           <label class="form-label">Project</label>
@@ -178,6 +180,7 @@
     <div class="card">
       <div class="card-header"><h2 class="card-title">Upload CSV / XLSX</h2></div>
       <form action="/urls/bulk" method="POST" enctype="multipart/form-data" class="form" style="padding:16px">
+        <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
         <input type="hidden" name="source" value="file">
         <div class="form-group">
           <label class="form-label">Project</label>
@@ -204,6 +207,7 @@
     <div class="card">
       <div class="card-header"><h2 class="card-title">Sitemap URL</h2></div>
       <form action="/urls/bulk" method="POST" class="form" style="padding:16px">
+        <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
         <input type="hidden" name="source" value="sitemap">
         <div class="form-group">
           <label class="form-label">Project</label>

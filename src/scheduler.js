@@ -443,38 +443,36 @@ async function sendHourlyDigests() {
         : (ds.last_sent_at || new Date(Date.now() - (ds.frequency === 'weekly' ? 7 * 86400000 : 86400000)));
       const sinceIso = since.toISOString();
 
-      // Section 1: Meta alerts
-      const { rows: alerts } = await pool.query(`
-        SELECT a.*, mu.url, mu.id AS url_id
-        FROM alerts a
-        JOIN monitored_urls mu ON mu.id = a.url_id
-        WHERE mu.user_id = $1 AND a.detected_at > $2
-        ORDER BY a.detected_at DESC LIMIT 200
-      `, [ds.uid, sinceIso]);
-
-      // Section 2: Uptime incidents
-      const { rows: incidents } = await pool.query(`
-        SELECT ui.*, um.name AS monitor_name, um.url AS monitor_url
-        FROM uptime_incidents ui
-        JOIN uptime_monitors um ON um.id = ui.monitor_id
-        WHERE um.user_id = $1 AND ui.started_at > $2
-        ORDER BY ui.started_at DESC LIMIT 50
-      `, [ds.uid, sinceIso]);
-
-      // Section 3: SSL expirations in next 30 days
-      const { rows: sslExpirations } = await pool.query(`
-        SELECT mu.url, mu.id AS url_id, s.ssl_expires_at,
-               EXTRACT(DAY FROM s.ssl_expires_at - NOW())::int AS days_left
-        FROM monitored_urls mu
-        JOIN LATERAL (
-          SELECT ssl_expires_at FROM snapshots
-          WHERE url_id = mu.id AND ssl_expires_at IS NOT NULL
-          ORDER BY checked_at DESC LIMIT 1
-        ) s ON true
-        WHERE mu.user_id = $1
-          AND s.ssl_expires_at BETWEEN NOW() AND NOW() + INTERVAL '30 days'
-        ORDER BY s.ssl_expires_at ASC
-      `, [ds.uid]);
+      // Fetch all 3 sections in parallel
+      const [{ rows: alerts }, { rows: incidents }, { rows: sslExpirations }] = await Promise.all([
+        pool.query(`
+          SELECT a.*, mu.url, mu.id AS url_id
+          FROM alerts a
+          JOIN monitored_urls mu ON mu.id = a.url_id
+          WHERE mu.user_id = $1 AND a.detected_at > $2
+          ORDER BY a.detected_at DESC LIMIT 200
+        `, [ds.uid, sinceIso]),
+        pool.query(`
+          SELECT ui.*, um.name AS monitor_name, um.url AS monitor_url
+          FROM uptime_incidents ui
+          JOIN uptime_monitors um ON um.id = ui.monitor_id
+          WHERE um.user_id = $1 AND ui.started_at > $2
+          ORDER BY ui.started_at DESC LIMIT 50
+        `, [ds.uid, sinceIso]),
+        pool.query(`
+          SELECT mu.url, mu.id AS url_id, s.ssl_expires_at,
+                 EXTRACT(DAY FROM s.ssl_expires_at - NOW())::int AS days_left
+          FROM monitored_urls mu
+          JOIN LATERAL (
+            SELECT ssl_expires_at FROM snapshots
+            WHERE url_id = mu.id AND ssl_expires_at IS NOT NULL
+            ORDER BY checked_at DESC LIMIT 1
+          ) s ON true
+          WHERE mu.user_id = $1
+            AND s.ssl_expires_at BETWEEN NOW() AND NOW() + INTERVAL '30 days'
+          ORDER BY s.ssl_expires_at ASC
+        `, [ds.uid])
+      ]);
 
       if (alerts.length === 0 && incidents.length === 0 && sslExpirations.length === 0) {
         await pool.query('UPDATE digest_settings SET last_sent_at = NOW() WHERE id = $1', [ds.id]);

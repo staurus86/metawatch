@@ -446,29 +446,24 @@ async function checkUrl(urlId) {
     const urlRecord = rows[0];
     if (!urlRecord) return { skipped: true };
 
-    // Get latest snapshot (for state transition checks)
-    const { rows: prevRows } = await pool.query(
-      'SELECT * FROM snapshots WHERE url_id = $1 ORDER BY checked_at DESC LIMIT 1',
-      [urlId]
-    );
+    // Fetch last snapshot, reference snapshot, and text rules in parallel
+    const refId = urlRecord.reference_snapshot_id;
+    const [{ rows: prevRows }, { rows: refRows }, { rows: textRules }] = await Promise.all([
+      pool.query(
+        'SELECT * FROM snapshots WHERE url_id = $1 ORDER BY checked_at DESC LIMIT 1',
+        [urlId]
+      ),
+      refId
+        ? pool.query('SELECT * FROM snapshots WHERE id = $1', [refId])
+        : Promise.resolve({ rows: [] }),
+      pool.query(
+        'SELECT * FROM text_monitors WHERE url_id = $1 AND is_active = true',
+        [urlId]
+      )
+    ]);
     const lastSnapshot = prevRows[0] || null;
-
-    // Get reference snapshot (if set) or latest snapshot as baseline
-    let refSnapshot = null;
-    if (urlRecord.reference_snapshot_id) {
-      const { rows: refRows } = await pool.query(
-        'SELECT * FROM snapshots WHERE id = $1',
-        [urlRecord.reference_snapshot_id]
-      );
-      refSnapshot = refRows[0] || null;
-    }
+    let refSnapshot = refRows[0] || null;
     if (!refSnapshot) refSnapshot = lastSnapshot;
-
-    // Load active text rules for this URL
-    const { rows: textRules } = await pool.query(
-      'SELECT * FROM text_monitors WHERE url_id = $1 AND is_active = true',
-      [urlId]
-    );
 
     const scrapeOptions = {
       userAgent: urlRecord.user_agent || undefined,

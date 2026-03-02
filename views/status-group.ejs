@@ -557,6 +557,7 @@
         <div class="subscribe-title">Get Status Updates</div>
         <div class="subscribe-sub"><%= subscriberCount %> subscriber<%= subscriberCount !== 1 ? 's' : '' %></div>
         <form action="/status/page/<%= page.slug %>/subscribe" method="POST" class="subscribe-form">
+          <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
           <input type="email" name="email" placeholder="you@company.com" required>
           <button type="submit">Subscribe</button>
         </form>

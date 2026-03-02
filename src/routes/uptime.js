@@ -89,19 +89,51 @@ router.get('/', requireAuth, async (req, res) => {
       ORDER BY um.created_at ASC
     `, params);
 
-    // For each monitor: compute uptime % (24h), last 50 checks for sparkline
-    const monitorData = await Promise.all(monitors.map(async (m) => {
-      const pct24h = await uptimePct(m.id, '24 hours');
+    // Batch: compute uptime % (24h) for all monitors in one query
+    const monitorIds = monitors.map(m => m.id);
+    let uptimeMap = {};
+    let checksMap = {};
 
-      const { rows: checks } = await pool.query(
-        `SELECT status, response_time_ms, checked_at
-         FROM uptime_checks
-         WHERE monitor_id = $1
-         ORDER BY checked_at DESC LIMIT 50`,
-        [m.id]
-      );
+    if (monitorIds.length > 0) {
+      const [uptimeResult, checksResult] = await Promise.all([
+        pool.query(
+          `SELECT monitor_id,
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE status = 'up' OR status = 'degraded') AS ok_count
+           FROM uptime_checks
+           WHERE monitor_id = ANY($1) AND checked_at > NOW() - INTERVAL '24 hours'
+           GROUP BY monitor_id`,
+          [monitorIds]
+        ),
+        pool.query(
+          `SELECT uc.monitor_id, uc.status, uc.response_time_ms, uc.checked_at
+           FROM uptime_checks uc
+           WHERE uc.monitor_id = ANY($1)
+             AND uc.checked_at > NOW() - INTERVAL '3 days'
+           ORDER BY uc.monitor_id, uc.checked_at DESC`,
+          [monitorIds]
+        )
+      ]);
 
-      return { ...m, pct24h, recentChecks: checks.reverse() };
+      for (const row of uptimeResult.rows) {
+        const total = parseInt(row.total);
+        const ok = parseInt(row.ok_count);
+        uptimeMap[row.monitor_id] = total > 0 ? Math.round((ok / total) * 1000) / 10 : null;
+      }
+
+      // Group checks by monitor, keep last 50 per monitor
+      for (const row of checksResult.rows) {
+        if (!checksMap[row.monitor_id]) checksMap[row.monitor_id] = [];
+        if (checksMap[row.monitor_id].length < 50) {
+          checksMap[row.monitor_id].push(row);
+        }
+      }
+    }
+
+    const monitorData = monitors.map(m => ({
+      ...m,
+      pct24h: uptimeMap[m.id] ?? null,
+      recentChecks: (checksMap[m.id] || []).reverse()
     }));
 
     // Summary counts

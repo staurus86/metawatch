@@ -16,6 +16,7 @@
   </div>
 
   <form action="/urls/<%= urlRecord.id %>/edit" method="POST" class="form">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
     <% const projectsList = Array.isArray(projects) ? projects : []; %>
 
     <!-- Basic settings -->

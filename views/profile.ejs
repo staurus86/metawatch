@@ -52,6 +52,7 @@
       </div>
       <form action="/profile/regenerate-key" method="POST" style="margin-top:12px"
             data-confirm="Regenerate API key? The old key will stop working immediately.">
+        <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
         <button type="submit" class="btn btn-ghost">Regenerate Key</button>
       </form>
 
@@ -70,6 +71,7 @@
   <div class="card" style="grid-column:1/-1;max-width:860px">
     <div class="card-header"><h2 class="card-title">Preferences</h2></div>
     <form action="/profile/preferences" method="POST" class="form" style="padding:20px">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
       <div class="form-section-title" style="margin-top:0">Notification Defaults</div>
       <p class="text-muted" style="font-size:13px;margin-bottom:12px">
         These values auto-fill the Add URL form (you can override per URL).
@@ -150,6 +152,7 @@
       <% } %>
     </div>
     <form action="/profile/digest" method="POST" class="form" style="padding:20px">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
       <p class="text-muted" style="font-size:13px;margin-bottom:16px">
         Receive a summary covering meta changes, uptime incidents, and upcoming SSL expirations.
       </p>
@@ -249,6 +252,7 @@
           Disable in this browser
         </button>
         <form action="/profile/push/test" method="POST" style="display:inline">
+          <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
           <button type="submit" class="btn btn-ghost" <%= (pushDiagnostics && pushDiagnostics.enabled) ? '' : 'disabled' %>>
             Send test push
           </button>
@@ -268,6 +272,7 @@
   <div class="card" style="grid-column:1/-1;max-width:480px">
     <div class="card-header"><h2 class="card-title">Change Password</h2></div>
     <form action="/profile/change-password" method="POST" class="form" style="padding:20px">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
       <div class="form-group">
         <label class="form-label" for="current_password">Current Password</label>
         <input type="password" id="current_password" name="current_password" class="form-input" required>
@@ -304,11 +309,13 @@
           <div class="text-muted" style="font-size:12px">Removes all monitored URLs and related history.</div>
         </div>
         <form action="/profile/delete-urls" method="POST" data-confirm="Delete all your monitored URLs? This cannot be undone.">
+          <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
           <button type="submit" class="btn btn-danger" style="font-size:12px">Delete All URLs</button>
         </form>
       </div>
 
       <form action="/profile/delete-account" method="POST" data-confirm="Delete your account permanently? This cannot be undone.">
+        <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
         <div style="font-weight:600;margin-bottom:6px">Delete account</div>
         <div class="text-muted" style="font-size:12px;margin-bottom:8px">
           Type your email (<code><%= locals.user.email %></code>) to confirm.
