@@ -1,0 +1,29 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Payment Successful</h1>
+    <div class="text-muted" style="font-size:13px;margin-top:4px">
+      Your checkout completed successfully.
+    </div>
+  </div>
+  <a href="/billing" class="btn btn-ghost">← Billing</a>
+</div>
+
+<div class="card" style="max-width:760px">
+  <div style="padding:20px">
+    <div class="alert-banner alert-banner--ok" style="margin-bottom:14px">
+      ✓ Subscription has been activated. Plan limits update automatically after webhook processing.
+    </div>
+    <% if (sessionInfo) { %>
+      <div style="display:grid;gap:8px;font-size:13px;color:var(--text-muted)">
+        <% if (sessionInfo.planName) { %><div>Plan: <strong style="color:var(--text)"><%= sessionInfo.planName %></strong></div><% } %>
+        <% if (sessionInfo.status) { %><div>Checkout status: <strong style="color:var(--text)"><%= sessionInfo.status %></strong></div><% } %>
+        <% if (sessionInfo.paymentStatus) { %><div>Payment status: <strong style="color:var(--text)"><%= sessionInfo.paymentStatus %></strong></div><% } %>
+        <div>Session ID: <code><%= sessionInfo.id %></code></div>
+      </div>
+    <% } %>
+    <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+      <a href="/billing" class="btn btn-primary">Open Billing</a>
+      <a href="/dashboard" class="btn btn-ghost">Go to Dashboard</a>
+    </div>
+  </div>
+</div>

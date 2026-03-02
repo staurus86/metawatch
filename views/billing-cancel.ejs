@@ -1,0 +1,26 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Checkout Cancelled</h1>
+    <div class="text-muted" style="font-size:13px;margin-top:4px">
+      No payment was processed.
+    </div>
+  </div>
+  <a href="/billing" class="btn btn-ghost">← Billing</a>
+</div>
+
+<div class="card" style="max-width:760px">
+  <div style="padding:20px">
+    <div class="alert-banner alert-banner--info" style="margin-bottom:14px">
+      Checkout was cancelled, your current plan remains unchanged.
+    </div>
+    <% if (cancelledPlan) { %>
+      <div class="text-muted" style="font-size:13px">
+        Requested plan: <strong style="color:var(--text)"><%= cancelledPlan %></strong>
+      </div>
+    <% } %>
+    <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+      <a href="/billing" class="btn btn-primary">Back to Billing</a>
+      <a href="/dashboard" class="btn btn-ghost">Go to Dashboard</a>
+    </div>
+  </div>
+</div>

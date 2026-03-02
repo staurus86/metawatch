@@ -35,7 +35,13 @@ app.use(helmet({
 
 // Middleware
 app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => {
+    if (req.originalUrl && req.originalUrl.startsWith('/billing/webhook')) {
+      req.rawBody = buf.toString('utf8');
+    }
+  }
+}));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 

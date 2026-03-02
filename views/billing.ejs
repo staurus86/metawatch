@@ -8,6 +8,18 @@
   <a href="/dashboard" class="btn btn-ghost">← Dashboard</a>
 </div>
 
+<% if (billingError) { %>
+  <div class="alert-banner alert-banner--error" style="margin-bottom:14px"><%= billingError %></div>
+<% } %>
+<% if (billingMessage) { %>
+  <div class="alert-banner alert-banner--ok" style="margin-bottom:14px"><%= billingMessage %></div>
+<% } %>
+<% if (!stripeEnabled) { %>
+  <div class="alert-banner alert-banner--info" style="margin-bottom:14px">
+    Stripe is not configured yet. Set Stripe ENV variables to enable online upgrades.
+  </div>
+<% } %>
+
 <div class="card" style="margin-bottom:18px">
   <div class="card-header">
     <h2 class="card-title">Current Plan</h2>
@@ -84,8 +96,17 @@
             <td>
               <% if (String(p.name).toLowerCase() === String(plan.name).toLowerCase()) { %>
                 <span class="badge badge--ok">Current</span>
+              <% } else if (Number(p.price_usd || 0) <= 0) { %>
+                <span class="badge badge--pending">Included</span>
+              <% } else if (checkoutEnabledByPlan && checkoutEnabledByPlan[p.name]) { %>
+                <form action="/billing/checkout" method="POST" style="display:inline">
+                  <input type="hidden" name="plan" value="<%= p.name %>">
+                  <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:4px 10px">
+                    Upgrade
+                  </button>
+                </form>
               <% } else { %>
-                <a href="/billing?upgrade=<%= encodeURIComponent(p.name) %>" class="btn btn-ghost" style="font-size:12px;padding:4px 10px">Upgrade</a>
+                <span class="badge badge--paused">Unavailable</span>
               <% } %>
             </td>
           </tr>
@@ -93,9 +114,9 @@
       </tbody>
     </table>
   </div>
-<% if (requestedUpgrade) { %>
+<% if (requestedUpgrade && !billingError) { %>
   <div class="alert-banner alert-banner--info" style="margin:14px">
-      Upgrade flow is prepared on UI; checkout integration will be enabled in the next step.
+      Requested upgrade target: <strong><%= requestedUpgrade %></strong>
   </div>
 <% } %>
 </div>
