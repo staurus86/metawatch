@@ -195,14 +195,17 @@
       <div class="form-section-title" style="margin-top:6px">PDF Report Attachment</div>
       <div class="form-group">
         <label class="checkbox-label" style="margin-bottom:8px">
-          <input type="checkbox" name="pdf_report_enabled" value="1" <%= digestSettings && digestSettings.pdf_report_enabled ? 'checked' : '' %>>
+          <input type="checkbox" name="pdf_report_enabled" value="1" <%= digestSettings && digestSettings.pdf_report_enabled ? 'checked' : '' %> <%= reportCaps && reportCaps.scheduledPdfDigest ? '' : 'disabled' %>>
           <strong>Include PDF report in digest email</strong>
         </label>
         <p class="form-hint">Adds a generated MetaWatch PDF report as email attachment.</p>
+        <% if (!(reportCaps && reportCaps.scheduledPdfDigest)) { %>
+          <p class="form-hint" style="color:var(--error)">Available on Starter plan or higher. <a href="/billing">Upgrade plan</a>.</p>
+        <% } %>
       </div>
       <div class="form-group" style="max-width:260px">
         <label class="form-label">PDF frequency</label>
-        <select name="pdf_report_frequency" class="form-select">
+        <select name="pdf_report_frequency" class="form-select" <%= reportCaps && reportCaps.scheduledPdfDigest ? '' : 'disabled' %>>
           <option value="weekly" <%= !digestSettings || digestSettings.pdf_report_frequency === 'weekly' ? 'selected' : '' %>>Weekly</option>
           <option value="monthly" <%= digestSettings && digestSettings.pdf_report_frequency === 'monthly' ? 'selected' : '' %>>Monthly (1st day)</option>
         </select>

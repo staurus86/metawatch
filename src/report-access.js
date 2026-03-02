@@ -13,7 +13,8 @@ const REPORT_PLAN_CAPS = {
     uptimeGlobalXlsx: false,
     uptimeSitePdf: true,
     uptimeSiteXlsx: false,
-    alertsCsv: true
+    alertsCsv: true,
+    scheduledPdfDigest: false
   },
   starter: {
     maxRangeDays: 90,
@@ -27,7 +28,8 @@ const REPORT_PLAN_CAPS = {
     uptimeGlobalXlsx: true,
     uptimeSitePdf: true,
     uptimeSiteXlsx: true,
-    alertsCsv: true
+    alertsCsv: true,
+    scheduledPdfDigest: true
   },
   pro: {
     maxRangeDays: 365,
@@ -41,7 +43,8 @@ const REPORT_PLAN_CAPS = {
     uptimeGlobalXlsx: true,
     uptimeSitePdf: true,
     uptimeSiteXlsx: true,
-    alertsCsv: true
+    alertsCsv: true,
+    scheduledPdfDigest: true
   },
   agency: {
     maxRangeDays: null,
@@ -56,6 +59,7 @@ const REPORT_PLAN_CAPS = {
     uptimeSitePdf: true,
     uptimeSiteXlsx: true,
     alertsCsv: true,
+    scheduledPdfDigest: true,
     whiteLabelPdf: true
   }
 };

@@ -4,6 +4,7 @@ const pool = require('../db');
 const { requireAuth, generateApiKey, hashApiKey, hashPassword, comparePassword, clearAuthCookie } = require('../auth');
 const { auditFromRequest } = require('../audit');
 const { normalizeLanguage } = require('../i18n');
+const { getReportPlanCaps } = require('../report-access');
 
 function sanitizeRowsPerPage(val) {
   const n = parseInt(val, 10);
@@ -27,11 +28,13 @@ router.get('/', requireAuth, async (req, res) => {
     'SELECT * FROM digest_settings WHERE user_id = $1',
     [req.user.id]
   );
+  const reportCaps = getReportPlanCaps(req.userPlan?.name);
   res.render('profile', {
     title: 'My Profile',
     message: req.query.msg || null,
     error: null,
-    digestSettings: digestSettings || null
+    digestSettings: digestSettings || null,
+    reportCaps
   });
 });
 
@@ -63,7 +66,9 @@ router.post('/digest', requireAuth, async (req, res) => {
   } = req.body;
   const isEnabled = enabled === '1' || enabled === 'on' || enabled === 'true';
   const freq = ['daily', 'weekly'].includes(frequency) ? frequency : 'daily';
-  const pdfEnabled = pdf_report_enabled === '1' || pdf_report_enabled === 'on' || pdf_report_enabled === 'true';
+  const requestedPdfEnabled = pdf_report_enabled === '1' || pdf_report_enabled === 'on' || pdf_report_enabled === 'true';
+  const reportCaps = getReportPlanCaps(req.userPlan?.name);
+  const pdfEnabled = reportCaps.scheduledPdfDigest ? requestedPdfEnabled : false;
   const pdfFrequency = ['weekly', 'monthly'].includes(pdf_report_frequency) ? pdf_report_frequency : 'weekly';
   const h = Math.max(0, Math.min(23, parseInt(hour || '8', 10)));
   const dow = Math.max(0, Math.min(6, parseInt(day_of_week || '1', 10)));
@@ -79,6 +84,9 @@ router.post('/digest', requireAuth, async (req, res) => {
             pdf_report_enabled = $7, pdf_report_frequency = $8
     `, [req.user.id, isEnabled, freq, h, dow, alt_email?.trim() || null, pdfEnabled, pdfFrequency]);
 
+    if (requestedPdfEnabled && !reportCaps.scheduledPdfDigest) {
+      return res.redirect('/profile?msg=PDF+digest+attachments+are+available+on+Starter+plan+or+higher');
+    }
     res.redirect('/profile?msg=Digest+settings+saved');
   } catch (err) {
     console.error(err);
@@ -226,7 +234,9 @@ router.post('/change-password', requireAuth, async (req, res) => {
   const renderErr = (msg) => res.render('profile', {
     title: 'My Profile',
     message: null,
-    error: msg
+    error: msg,
+    digestSettings: null,
+    reportCaps: getReportPlanCaps(req.userPlan?.name)
   });
 
   if (!current_password || !new_password) return renderErr('All fields are required.');
