@@ -27,9 +27,16 @@ async function scrapeWithRetry(fn, retries = 3) {
 
 function normalizeForHash(text) {
   return String(text || '')
+    .replace(/\b(?:mon|tue|wed|thu|fri|sat|sun),?\s+\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\s+\d{4}\s+\d{1,2}:\d{2}(?::\d{2})?\s+gmt\b/gi, ' ')
+    .replace(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b/gi, ' ')
+    .replace(/\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{4}\b/gi, ' ')
+    .replace(/\b(?:version|ver|v)\s*\d+(?:\.\d+){1,3}\b/gi, ' ')
+    .replace(/\b(?:build|release|commit)\s*[:#-]?\s*[0-9a-f]{7,40}\b/gi, ' ')
     .replace(/\b\d{4}-\d{2}-\d{2}(?:[ t]\d{2}:\d{2}(?::\d{2})?)?\b/gi, ' ')
     .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\s?(?:am|pm)?\b/gi, ' ')
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, ' ')
+    .replace(/\b[0-9a-f]{16,}\b/gi, ' ')
+    .replace(/\b[a-z0-9_-]{24,}\b/gi, ' ')
     .replace(/\b\d{10,}\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -220,7 +227,13 @@ async function scrapeUrl(url, options = {}) {
       '[id*="cookie"][id*="consent"]', '[class*="cookie-consent"]',
       'time', '[data-time]', '[data-timestamp]', '[data-date]',
       '[class*="timestamp"]', '[id*="timestamp"]', '[class*="time-ago"]',
-      '.live-counter', '[class*="counter"]'
+      '.live-counter', '[class*="counter"]',
+      '[class*="last-updated"]', '[id*="last-updated"]',
+      '[class*="updated-at"]', '[id*="updated-at"]',
+      '[data-last-modified]', '[data-updated]',
+      '[class*="build-version"]', '[id*="build-version"]',
+      '[data-build-id]', '[data-release-id]',
+      '.clock', '[class*="clock"]', '[id*="clock"]'
     ];
     dynamicSelectors.forEach(sel => {
       try { $(sel).remove(); } catch { /* ignore bad selectors */ }
@@ -338,4 +351,4 @@ async function checkSsl(url) {
   }
 }
 
-module.exports = { scrapeUrl, fetchRobotsTxt, sha256, checkSsl };
+module.exports = { scrapeUrl, fetchRobotsTxt, sha256, checkSsl, normalizeForHash };

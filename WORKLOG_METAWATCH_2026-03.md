@@ -1,6 +1,19 @@
 # MetaWatch — Worklog & Improvement Plan
 
-Обновлено: 2026-03-02
+Обновлено: 2026-03-03
+
+### WIP `2026-03-03` — Iteration A follow-up (uncommitted)
+
+- Добавлен короткий in-memory cache для `/admin/system` (TTL через `ADMIN_SYSTEM_CACHE_TTL_MS`, bypass через `?refresh=1`).
+- В `/api/health` добавлен стандартизированный блок `checks` и `runtime` при сохранении legacy полей (backward-compatible).
+- Обновлены `README`, `.env.example`, `OPS_RUNBOOK_RAILWAY.md`, добавлена индикация cache-hit/miss в `admin-system` UI.
+- Для dashboard list-view добавлена keyset pagination для default-sort (`last_checked desc`) с cursor-based `next/prev`; для остальных сортировок/сценариев сохранён fallback на offset pagination.
+- Добавлены дополнительные scale-индексы в миграции под top-heavy запросы dashboard/admin/scheduler: `monitored_urls(project_id)`, `monitored_urls(is_active, check_interval_minutes, id)`, `alerts(detected_at, url_id)`, `alerts(url_id, field_changed, detected_at)`.
+- Для `/api/v2/urls` добавлен cursor-based keyset режим при `sort=last_checked&dir=desc` (с `next_cursor`/`prev_cursor`, fallback на offset для остальных сортировок).
+- Для `/api/v2/stats` добавлен короткий in-memory cache (TTL через `API_V2_STATS_CACHE_TTL_MS`, по ключам `admin:all` / `user:<id>`).
+- Расширена нормализация body-контента в `scraper` (доп. паттерны дат/версий/длинных токенов и динамических блоков), добавлены unit-тесты `test/scraper-normalize.test.js`.
+- Улучшен robots blocking parser в `checker`: корректная обработка групп `User-agent`, wildcard `*`, end-anchor `$`, правило longest-match и при равенстве приоритет `Allow`; добавлены тесты `test/robots-blocking.test.js`.
+- Добавлены операционные скрипты `db:migrate` и `db:explain` для staging preflight (`EXPLAIN ANALYZE + BUFFERS` с отчётом `db-explain-report.json`).
 
 ## 1) Ключевые изменения, которые были внесены
 
@@ -178,4 +191,3 @@
 - Canary deploy + мониторинг `/api/health` и ошибок уведомлений.
 - Проверка критических флоу: auth, dashboard, bulk import, exports, extension, uptime.
 - Явный rollback: отключение флагов + откат deploy.
-

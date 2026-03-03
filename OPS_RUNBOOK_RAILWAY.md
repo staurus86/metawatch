@@ -43,6 +43,11 @@ Primary checks:
 2. `GET /admin/system` (admin)
 3. `GET /admin/queues` (admin, requires Redis mode)
 
+Notes:
+
+- `/api/health` keeps legacy flat fields and also exposes structured blocks under `checks` and `runtime`.
+- `/admin/system` uses short-lived in-memory caching; use `/admin/system?refresh=1` for a forced fresh snapshot.
+
 Expected in Redis mode:
 
 - `queue_backend: "redis (bullmq)"`
@@ -86,6 +91,15 @@ npm run doctor:web
 npm run doctor:worker
 ```
 
+Optional DB preflight (requires `DATABASE_URL`):
+
+```bash
+npm run db:migrate
+npm run db:explain
+```
+
+`db:explain` writes `db-explain-report.json` with `EXPLAIN (ANALYZE, BUFFERS)` summaries for top-heavy queries.
+
 ## 6. Post-Deploy Checklist
 
 1. Open `/api/health` and confirm DB connected.
@@ -93,4 +107,3 @@ npm run doctor:worker
 3. Trigger one manual URL check and one uptime check.
 4. Verify `notification_log` receives fresh records.
 5. Verify reports export (`/reports`) opens and generates files.
-

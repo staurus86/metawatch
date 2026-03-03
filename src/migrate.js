@@ -713,9 +713,13 @@ async function migrate() {
     const scaleIndexes = [
       'CREATE INDEX IF NOT EXISTS idx_monitored_urls_user_active_created ON monitored_urls(user_id, is_active, created_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_monitored_urls_user_project_created ON monitored_urls(user_id, project_id, created_at DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_monitored_urls_project_id ON monitored_urls(project_id)',
+      'CREATE INDEX IF NOT EXISTS idx_monitored_urls_active_interval_id ON monitored_urls(is_active, check_interval_minutes, id)',
       'CREATE INDEX IF NOT EXISTS idx_uptime_monitors_user_active_created ON uptime_monitors(user_id, is_active, created_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_snapshots_checked_at ON snapshots(checked_at)',
       'CREATE INDEX IF NOT EXISTS idx_alerts_detected_at ON alerts(detected_at DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_alerts_detected_url ON alerts(detected_at DESC, url_id)',
+      'CREATE INDEX IF NOT EXISTS idx_alerts_url_field_detected_at ON alerts(url_id, field_changed, detected_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_alerts_url_field_new_detected ON alerts(url_id, field_changed, new_value, detected_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_monitored_urls_user_health ON monitored_urls(user_id, health_score)',
       'CREATE INDEX IF NOT EXISTS idx_notification_log_status_sent ON notification_log(status, sent_at DESC)',

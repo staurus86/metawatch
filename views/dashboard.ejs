@@ -425,16 +425,28 @@
       </div>
 
       <!-- Pagination -->
-      <% if (totalPages > 1) { %>
-      <div class="pagination">
-        <% if (page > 1) { %>
-          <a href="<%= queryWith({ page: page - 1 }) %>" class="btn btn-ghost btn-sm">← Prev</a>
+      <% if (paginationMode === 'keyset') { %>
+        <% if (hasPrevPage || hasNextPage) { %>
+          <div class="pagination">
+            <% if (hasPrevPage && prevCursor) { %>
+              <a href="<%= queryWith({ page: Math.max(1, page - 1), cursor: prevCursor, cursor_dir: 'prev' }) %>" class="btn btn-ghost btn-sm">← Prev</a>
+            <% } %>
+            <span class="pagination-info">Page <%= page %> &nbsp;·&nbsp; <%= totalCount %> URLs &nbsp;·&nbsp; <%= perPage %> / page</span>
+            <% if (hasNextPage && nextCursor) { %>
+              <a href="<%= queryWith({ page: page + 1, cursor: nextCursor, cursor_dir: 'next' }) %>" class="btn btn-ghost btn-sm">Next →</a>
+            <% } %>
+          </div>
         <% } %>
-        <span class="pagination-info">Page <%= page %> of <%= totalPages %> &nbsp;·&nbsp; <%= totalCount %> URLs &nbsp;·&nbsp; <%= perPage %> / page</span>
-        <% if (page < totalPages) { %>
-          <a href="<%= queryWith({ page: page + 1 }) %>" class="btn btn-ghost btn-sm">Next →</a>
-        <% } %>
-      </div>
+      <% } else if (totalPages > 1) { %>
+        <div class="pagination">
+          <% if (page > 1) { %>
+            <a href="<%= queryWith({ page: page - 1 }) %>" class="btn btn-ghost btn-sm">← Prev</a>
+          <% } %>
+          <span class="pagination-info">Page <%= page %> of <%= totalPages %> &nbsp;·&nbsp; <%= totalCount %> URLs &nbsp;·&nbsp; <%= perPage %> / page</span>
+          <% if (page < totalPages) { %>
+            <a href="<%= queryWith({ page: page + 1 }) %>" class="btn btn-ghost btn-sm">Next →</a>
+          <% } %>
+        </div>
       <% } %>
     <% } %>
   </div>

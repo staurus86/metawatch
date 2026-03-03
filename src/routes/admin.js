@@ -12,6 +12,35 @@ const { clearPlanCache } = require('../plans');
 const { version: APP_VERSION } = require('../../package.json');
 
 const SUBSCRIPTION_STATUSES = ['active', 'trial', 'expired', 'cancelled'];
+const ADMIN_SYSTEM_CACHE_TTL_MS = Math.max(0, parseInt(process.env.ADMIN_SYSTEM_CACHE_TTL_MS || '30000', 10) || 30000);
+let adminSystemCache = { ts: 0, snapshot: null };
+
+function getAdminSystemCachedSnapshot() {
+  if (ADMIN_SYSTEM_CACHE_TTL_MS <= 0) return null;
+  if (!adminSystemCache.snapshot || !adminSystemCache.ts) return null;
+  const ageMs = Date.now() - adminSystemCache.ts;
+  if (ageMs < 0 || ageMs >= ADMIN_SYSTEM_CACHE_TTL_MS) return null;
+  return { snapshot: adminSystemCache.snapshot, ageMs };
+}
+
+function saveAdminSystemSnapshot(snapshot) {
+  if (ADMIN_SYSTEM_CACHE_TTL_MS <= 0) return;
+  adminSystemCache = {
+    ts: Date.now(),
+    snapshot
+  };
+}
+
+function buildAdminSystemCacheMeta({ hit, ageMs = 0, forced = false }) {
+  return {
+    enabled: ADMIN_SYSTEM_CACHE_TTL_MS > 0,
+    hit: Boolean(hit),
+    forcedRefresh: Boolean(forced),
+    ageMs: Math.max(0, Math.round(ageMs)),
+    ttlMs: ADMIN_SYSTEM_CACHE_TTL_MS,
+    refreshedAt: adminSystemCache.ts ? new Date(adminSystemCache.ts).toISOString() : null
+  };
+}
 
 async function loadUsersForAdmin() {
   const { rows } = await pool.query(
@@ -261,6 +290,20 @@ router.post('/users/:id/plan', requireAdmin, async (req, res) => {
 // GET /admin/system — operational metrics
 router.get('/system', requireAdmin, async (req, res) => {
   try {
+    const forceRefresh = String(req.query.refresh || '').trim() === '1';
+    if (!forceRefresh) {
+      const cached = getAdminSystemCachedSnapshot();
+      if (cached) {
+        return res.render('admin-system', {
+          title: 'Admin — System',
+          system: {
+            ...cached.snapshot,
+            cache: buildAdminSystemCacheMeta({ hit: true, ageMs: cached.ageMs })
+          }
+        });
+      }
+    }
+
     const startedAtMs = Date.now();
     const [
       usersRes,
@@ -367,37 +410,43 @@ router.get('/system', requireAdmin, async (req, res) => {
       ? pool.getSlowQueryThreshold()
       : parseInt(process.env.SLOW_QUERY_MS || '250', 10);
 
+    const systemSnapshot = {
+      appVersion: APP_VERSION,
+      uptimeSeconds: Math.round(process.uptime()),
+      generatedAt: new Date().toISOString(),
+      collectMs: Date.now() - startedAtMs,
+      users: usersRes.rows[0]?.total || 0,
+      urlsTotal: urlsRes.rows[0]?.total || 0,
+      urlsActive: urlsRes.rows[0]?.active || 0,
+      monitorsTotal: monitorsRes.rows[0]?.total || 0,
+      monitorsActive: monitorsRes.rows[0]?.active || 0,
+      snapshotsTotal: snapRes.rows[0]?.total || 0,
+      snapshots24h: snapRes.rows[0]?.last_24h || 0,
+      alertsTotal: alertsRes.rows[0]?.total || 0,
+      alerts24h: alertsRes.rows[0]?.last_24h || 0,
+      alertsCritical24h: alertsRes.rows[0]?.critical_24h || 0,
+      notificationsTotal: notifRes.rows[0]?.total || 0,
+      notificationsFailed24h: notifRes.rows[0]?.failed_24h || 0,
+      webhookPending: webhookRes.rows[0]?.pending || 0,
+      webhookFailed: webhookRes.rows[0]?.failed || 0,
+      pendingChecks: queueDepthRes.rows[0]?.pending_checks || 0,
+      lastCheckRanAt: lastCheckRes.rows[0]?.last_check_ran_at || null,
+      schedulerBuckets: schedulerBucketsRes.rows || [],
+      tableSizes: tableSizesRes.rows || [],
+      queueStats: queueStats || null,
+      workerStatus,
+      slowQueries,
+      slowQueryThreshold,
+      dbSize: dbSizeRes.rows[0]?.db_size || 'unknown',
+      scheduler
+    };
+    saveAdminSystemSnapshot(systemSnapshot);
+
     res.render('admin-system', {
       title: 'Admin — System',
       system: {
-        appVersion: APP_VERSION,
-        uptimeSeconds: Math.round(process.uptime()),
-        generatedAt: new Date().toISOString(),
-        collectMs: Date.now() - startedAtMs,
-        users: usersRes.rows[0]?.total || 0,
-        urlsTotal: urlsRes.rows[0]?.total || 0,
-        urlsActive: urlsRes.rows[0]?.active || 0,
-        monitorsTotal: monitorsRes.rows[0]?.total || 0,
-        monitorsActive: monitorsRes.rows[0]?.active || 0,
-        snapshotsTotal: snapRes.rows[0]?.total || 0,
-        snapshots24h: snapRes.rows[0]?.last_24h || 0,
-        alertsTotal: alertsRes.rows[0]?.total || 0,
-        alerts24h: alertsRes.rows[0]?.last_24h || 0,
-        alertsCritical24h: alertsRes.rows[0]?.critical_24h || 0,
-        notificationsTotal: notifRes.rows[0]?.total || 0,
-        notificationsFailed24h: notifRes.rows[0]?.failed_24h || 0,
-        webhookPending: webhookRes.rows[0]?.pending || 0,
-        webhookFailed: webhookRes.rows[0]?.failed || 0,
-        pendingChecks: queueDepthRes.rows[0]?.pending_checks || 0,
-        lastCheckRanAt: lastCheckRes.rows[0]?.last_check_ran_at || null,
-        schedulerBuckets: schedulerBucketsRes.rows || [],
-        tableSizes: tableSizesRes.rows || [],
-        queueStats: queueStats || null,
-        workerStatus,
-        slowQueries,
-        slowQueryThreshold,
-        dbSize: dbSizeRes.rows[0]?.db_size || 'unknown',
-        scheduler
+        ...systemSnapshot,
+        cache: buildAdminSystemCacheMeta({ hit: false, forced: forceRefresh })
       }
     });
   } catch (err) {

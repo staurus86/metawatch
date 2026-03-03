@@ -37,6 +37,8 @@ Useful checks:
 npm run doctor:web
 npm run doctor:worker
 npm run smoke:code
+npm run db:migrate
+npm run db:explain
 ```
 
 ## Production hardening flags
@@ -47,12 +49,14 @@ Key production flags (see `.env.example` for full list):
 - `ENABLE_ALERT_STATE_ENGINE=true` enables cooldown/state-based alert suppression.
 - `DEFAULT_ALERT_COOLDOWN_MINUTES=60` controls duplicate alert cooldown.
 - `SLOW_QUERY_MS=250` logs slow SQL queries.
+- `ADMIN_SYSTEM_CACHE_TTL_MS=30000` caches heavy `/admin/system` snapshot for a short TTL (`0` disables cache).
 - `WEBHOOK_SIGNING_SECRET=` adds `X-MetaWatch-Signature` HMAC header to outgoing webhooks.
 - `ENABLE_SCHEDULER=true` controls cron startup (useful for web/worker split).
 - `ENABLE_WEB` and `ENABLE_QUEUE_WORKERS` control split runtime roles.
 - `REDIS_URL` enables BullMQ queues and `/admin/queues`.
 - `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` enable browser push notifications.
 - `API_RATE_LIMIT_WINDOW_MS` and `API_RATE_LIMIT_MAX` tune `/api` rate limiting.
+- `API_V2_STATS_CACHE_TTL_MS=60000` enables short-lived cache for `/api/v2/stats` (`0` disables cache).
 - `ALERT_RETENTION_DAYS`, `NOTIFICATION_LOG_RETENTION_DAYS`, `WEBHOOK_LOG_RETENTION_DAYS` control data retention.
 
 ## Reports & Plans

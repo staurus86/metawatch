@@ -11,6 +11,9 @@ const router = express.Router();
 const MAX_PER_PAGE = 100;
 const API_RATE_LIMIT_WINDOW_MS = Math.max(1000, parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || '60000', 10) || 60000);
 const API_RATE_LIMIT_MAX = Math.max(1, parseInt(process.env.API_RATE_LIMIT_MAX || '100', 10) || 100);
+const API_V2_STATS_CACHE_TTL_MS = Math.max(0, parseInt(process.env.API_V2_STATS_CACHE_TTL_MS || '60000', 10) || 60000);
+const API_V2_STATS_CACHE_MAX_KEYS = 2000;
+const apiV2StatsCache = new Map();
 
 const apiLimiter = rateLimit({
   windowMs: API_RATE_LIMIT_WINDOW_MS,
@@ -54,6 +57,110 @@ function parsePagination(query) {
 function buildMeta(total, page, perPage) {
   const pages = Math.max(1, Math.ceil((total || 0) / perPage));
   return { total: total || 0, page, per_page: perPage, pages };
+}
+
+function pruneApiV2StatsCache() {
+  const now = Date.now();
+  for (const [key, value] of apiV2StatsCache.entries()) {
+    if (!value || (now - value.ts) > API_V2_STATS_CACHE_TTL_MS * 3) {
+      apiV2StatsCache.delete(key);
+    }
+  }
+  if (apiV2StatsCache.size <= API_V2_STATS_CACHE_MAX_KEYS) return;
+  const oldest = [...apiV2StatsCache.entries()]
+    .sort((a, b) => (a[1]?.ts || 0) - (b[1]?.ts || 0))
+    .slice(0, apiV2StatsCache.size - API_V2_STATS_CACHE_MAX_KEYS);
+  oldest.forEach(([key]) => apiV2StatsCache.delete(key));
+}
+
+function canUseUrlsKeyset(sort, dir) {
+  return sort === 'last_checked' && dir === 'DESC';
+}
+
+function encodeUrlsCursor(row) {
+  if (!row) return null;
+  const id = parseInt(row.id, 10);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const payload = {
+    id,
+    lc: row.last_checked ? new Date(row.last_checked).toISOString() : null
+  };
+  return Buffer.from(JSON.stringify(payload)).toString('base64url');
+}
+
+function decodeUrlsCursor(token) {
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(String(token), 'base64url').toString('utf8'));
+    const id = parseInt(payload?.id, 10);
+    if (!Number.isFinite(id) || id <= 0) return null;
+
+    if (payload?.lc == null) {
+      return { id, lc: null };
+    }
+
+    const parsed = new Date(payload.lc);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return { id, lc: parsed.toISOString() };
+  } catch {
+    return null;
+  }
+}
+
+function buildUrlsKeysetWhereClause(cursor, cursorDir, startIndex) {
+  if (!cursor) return { clause: '', params: [] };
+  const isPrev = cursorDir === 'prev';
+
+  if (cursor.lc) {
+    const tsIdx = startIndex;
+    const idIdx = startIndex + 1;
+    if (isPrev) {
+      return {
+        clause: `
+          AND (
+            ls.checked_at IS NOT NULL
+            AND (
+              ls.checked_at > $${tsIdx}
+              OR (ls.checked_at = $${tsIdx} AND mu.id > $${idIdx})
+            )
+          )
+        `,
+        params: [cursor.lc, cursor.id]
+      };
+    }
+    return {
+      clause: `
+        AND (
+          (
+            ls.checked_at IS NOT NULL
+            AND (
+              ls.checked_at < $${tsIdx}
+              OR (ls.checked_at = $${tsIdx} AND mu.id < $${idIdx})
+            )
+          )
+          OR ls.checked_at IS NULL
+        )
+      `,
+      params: [cursor.lc, cursor.id]
+    };
+  }
+
+  const idIdx = startIndex;
+  if (isPrev) {
+    return {
+      clause: `
+        AND (
+          ls.checked_at IS NOT NULL
+          OR (ls.checked_at IS NULL AND mu.id > $${idIdx})
+        )
+      `,
+      params: [cursor.id]
+    };
+  }
+  return {
+    clause: `AND (ls.checked_at IS NULL AND mu.id < $${idIdx})`,
+    params: [cursor.id]
+  };
 }
 
 function parseDateParam(value) {
@@ -235,6 +342,8 @@ router.get('/urls', async (req, res) => {
 
   const rawProjectId = String(req.query.project_id || '').trim();
   const projectId = rawProjectId ? parseInt(rawProjectId, 10) : null;
+  const cursorToken = String(req.query.cursor || '').trim();
+  const cursorDir = String(req.query.cursor_dir || 'next').trim().toLowerCase() === 'prev' ? 'prev' : 'next';
   if (rawProjectId && !Number.isFinite(projectId)) {
     return fail(res, 400, 'Invalid project_id');
   }
@@ -258,6 +367,12 @@ router.get('/urls', async (req, res) => {
     url: 'mu.url'
   };
   const sortSql = sortMap[sort] || sortMap.last_checked;
+  const keysetRequested = canUseUrlsKeyset(sort, dir);
+  const decodedCursor = decodeUrlsCursor(cursorToken);
+  if (cursorToken && keysetRequested && !decodedCursor) {
+    return fail(res, 400, 'Invalid cursor');
+  }
+  const useKeyset = keysetRequested && (decodedCursor || (!cursorToken && page <= 1));
 
   const params = [];
   const where = [];
@@ -304,34 +419,94 @@ router.get('/urls', async (req, res) => {
 
     const { rows: [countRow] } = await pool.query(`SELECT COUNT(*)::int AS count ${fromSql}`, params);
     const total = countRow?.count || 0;
+    const listSelectSql = `
+      SELECT
+        mu.id,
+        mu.url,
+        mu.project_id,
+        mu.tags,
+        mu.is_active,
+        mu.render_mode,
+        mu.health_score,
+        mu.check_interval_minutes,
+        mu.created_at,
+        ls.checked_at AS last_checked,
+        ls.status_code,
+        ls.response_time_ms,
+        ls.noindex,
+        ls.redirect_url,
+        COALESCE(ch.change_count, 0)::int AS changes_count,
+        ${statusExpr} AS status
+      ${fromSql}
+    `;
 
-    const listParams = [...params, perPage, offset];
-    const { rows } = await pool.query(
-      `SELECT
-         mu.id,
-         mu.url,
-         mu.project_id,
-         mu.tags,
-         mu.is_active,
-         mu.render_mode,
-         mu.health_score,
-         mu.check_interval_minutes,
-         mu.created_at,
-         ls.checked_at AS last_checked,
-         ls.status_code,
-         ls.response_time_ms,
-         ls.noindex,
-         ls.redirect_url,
-         COALESCE(ch.change_count, 0)::int AS changes_count,
-         ${statusExpr} AS status
-       ${fromSql}
-       ORDER BY ${sortSql} ${dir} NULLS LAST, mu.id DESC
-       LIMIT $${listParams.length - 1}
-       OFFSET $${listParams.length}`,
-      listParams
-    );
+    let rows = [];
+    let hasNextPage = false;
+    let hasPrevPage = false;
+    let nextCursor = null;
+    let prevCursor = null;
 
-    return ok(res, rows, buildMeta(total, page, perPage));
+    if (useKeyset) {
+      const keysetParams = [...params];
+      const { clause: keysetWhere, params: keysetValues } = buildUrlsKeysetWhereClause(
+        decodedCursor,
+        cursorDir,
+        keysetParams.length + 1
+      );
+      keysetParams.push(...keysetValues);
+      const limitIdx = keysetParams.length + 1;
+      const orderSql = cursorDir === 'prev'
+        ? 'ls.checked_at ASC NULLS FIRST, mu.id ASC'
+        : 'ls.checked_at DESC NULLS LAST, mu.id DESC';
+      const { rows: rawRows } = await pool.query(
+        `
+          ${listSelectSql}
+          ${keysetWhere}
+          ORDER BY ${orderSql}
+          LIMIT $${limitIdx}
+        `,
+        [...keysetParams, perPage + 1]
+      );
+
+      const hasExtra = rawRows.length > perPage;
+      rows = rawRows.slice(0, perPage);
+      if (cursorDir === 'prev') {
+        rows = rows.reverse();
+        hasPrevPage = hasExtra;
+        hasNextPage = Boolean(decodedCursor);
+      } else {
+        hasPrevPage = Boolean(decodedCursor);
+        hasNextPage = hasExtra;
+      }
+
+      if (rows.length > 0) {
+        prevCursor = encodeUrlsCursor(rows[0]);
+        nextCursor = encodeUrlsCursor(rows[rows.length - 1]);
+      }
+    } else {
+      const listParams = [...params, perPage, offset];
+      const { rows: offsetRows } = await pool.query(
+        `
+          ${listSelectSql}
+          ORDER BY ${sortSql} ${dir} NULLS LAST, mu.id DESC
+          LIMIT $${listParams.length - 1}
+          OFFSET $${listParams.length}
+        `,
+        listParams
+      );
+      rows = offsetRows;
+      hasPrevPage = page > 1;
+      hasNextPage = page < Math.max(1, Math.ceil((total || 0) / perPage));
+    }
+
+    return ok(res, rows, {
+      ...buildMeta(total, page, perPage),
+      pagination: useKeyset ? 'keyset' : 'offset',
+      has_next_page: hasNextPage,
+      has_prev_page: hasPrevPage,
+      next_cursor: nextCursor,
+      prev_cursor: prevCursor
+    });
   } catch (err) {
     return fail(res, 500, err.message);
   }
@@ -840,7 +1015,19 @@ router.get('/alerts', async (req, res) => {
 // GET /api/v2/stats
 router.get('/stats', async (req, res) => {
   try {
+    const cacheKey = isAdminUser(req) ? 'admin:all' : `user:${req.user.id}`;
+    if (API_V2_STATS_CACHE_TTL_MS > 0) {
+      const cached = apiV2StatsCache.get(cacheKey);
+      if (cached && (Date.now() - cached.ts) < API_V2_STATS_CACHE_TTL_MS) {
+        return ok(res, cached.data, null);
+      }
+    }
+
     const payload = await buildStatsPayload(req);
+    if (API_V2_STATS_CACHE_TTL_MS > 0) {
+      pruneApiV2StatsCache();
+      apiV2StatsCache.set(cacheKey, { ts: Date.now(), data: payload });
+    }
     return ok(res, payload, null);
   } catch (err) {
     return fail(res, 500, err.message);

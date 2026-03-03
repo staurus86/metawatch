@@ -21,6 +21,8 @@ const SORT_COLUMNS = {
   health_score: 'mu.health_score',
   status: STATUS_SORT_SQL
 };
+const KEYSET_ORDER_SQL = 'ls.checked_at DESC NULLS LAST, mu.id DESC';
+const KEYSET_REVERSE_ORDER_SQL = 'ls.checked_at ASC NULLS FIRST, mu.id ASC';
 
 function normalizeSort(sort) {
   const key = String(sort || '').toLowerCase();
@@ -39,6 +41,96 @@ function buildOrderSql(sortKey, sortDir) {
     return `${col} ${dir} NULLS LAST, mu.created_at DESC`;
   }
   return `${col} ${dir}, mu.created_at DESC`;
+}
+
+function encodeListCursor(row) {
+  if (!row) return null;
+  const id = parseInt(row.id, 10);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const payload = {
+    id,
+    lc: row.last_checked ? new Date(row.last_checked).toISOString() : null
+  };
+  return Buffer.from(JSON.stringify(payload)).toString('base64url');
+}
+
+function decodeListCursor(token) {
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(String(token), 'base64url').toString('utf8'));
+    const id = parseInt(payload?.id, 10);
+    if (!Number.isFinite(id) || id <= 0) return null;
+
+    if (payload?.lc == null) {
+      return { id, lc: null };
+    }
+
+    const parsed = new Date(payload.lc);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return { id, lc: parsed.toISOString() };
+  } catch {
+    return null;
+  }
+}
+
+function canUseKeysetPagination({ view, sort, dir }) {
+  return view === 'list' && sort === 'last_checked' && dir === 'desc';
+}
+
+function buildKeysetWhereClause(cursor, cursorDir, startIndex) {
+  if (!cursor) return { clause: '', params: [] };
+  const isPrev = cursorDir === 'prev';
+
+  if (cursor.lc) {
+    const tsIdx = startIndex;
+    const idIdx = startIndex + 1;
+    if (isPrev) {
+      return {
+        clause: `
+          AND (
+            ls.checked_at IS NOT NULL
+            AND (
+              ls.checked_at > $${tsIdx}
+              OR (ls.checked_at = $${tsIdx} AND mu.id > $${idIdx})
+            )
+          )
+        `,
+        params: [cursor.lc, cursor.id]
+      };
+    }
+    return {
+      clause: `
+        AND (
+          (
+            ls.checked_at IS NOT NULL
+            AND (
+              ls.checked_at < $${tsIdx}
+              OR (ls.checked_at = $${tsIdx} AND mu.id < $${idIdx})
+            )
+          )
+          OR ls.checked_at IS NULL
+        )
+      `,
+      params: [cursor.lc, cursor.id]
+    };
+  }
+
+  const idIdx = startIndex;
+  if (isPrev) {
+    return {
+      clause: `
+        AND (
+          ls.checked_at IS NOT NULL
+          OR (ls.checked_at IS NULL AND mu.id > $${idIdx})
+        )
+      `,
+      params: [cursor.id]
+    };
+  }
+  return {
+    clause: `AND (ls.checked_at IS NULL AND mu.id < $${idIdx})`,
+    params: [cursor.id]
+  };
 }
 
 function computeStatus(u) {
@@ -109,7 +201,11 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
     const reqPerPage = parseInt(req.query.per_page || '', 10);
     const perPage = [10, 25, 50].includes(reqPerPage) ? reqPerPage : prefPerPage;
     const page = Math.max(1, parseInt(req.query.page || '1', 10));
-    const offset = (page - 1) * perPage;
+    const cursorToken = String(req.query.cursor || '').trim();
+    const cursorDir = String(req.query.cursor_dir || 'next').trim().toLowerCase() === 'prev' ? 'prev' : 'next';
+    const decodedCursor = decodeListCursor(cursorToken);
+    const shouldUseKeyset = canUseKeysetPagination({ view, sort, dir });
+    const keysetPagination = shouldUseKeyset && (decodedCursor || (!cursorToken && page <= 1));
     const importedCount = req.query.imported ? parseInt(req.query.imported, 10) : null;
     const importSkipped = req.query.skipped ? parseInt(req.query.skipped, 10) : null;
     const importTag = req.query.import_tag ? String(req.query.import_tag) : null;
@@ -268,11 +364,7 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
     const totalCount = parseInt(cnt, 10);
     const totalPages = Math.max(1, Math.ceil(totalCount / perPage));
 
-    // ── Paginated URL list with uptime ────────────────────────────────────────
-    const limitIdx = scopedParams.length + 1;
-    const offsetIdx = scopedParams.length + 2;
-
-    const { rows: urls } = await pool.query(`
+    const listSelectSql = `
       SELECT
         mu.*,
         p.name AS project_name,
@@ -321,9 +413,61 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
         WHERE url_id = mu.id AND checked_at > NOW() - INTERVAL '30 days'
       ) up ON true
       WHERE 1=1 ${userWhere} ${tagWhere} ${projectWhere} ${searchWhere} ${statusWhere} ${healthWhere} ${problemFilter}
-      ORDER BY ${orderSql}
-      LIMIT $${limitIdx} OFFSET $${offsetIdx}
-    `, [...scopedParams, perPage, offset]);
+    `;
+
+    // ── Paginated URL list with uptime ────────────────────────────────────────
+    let urls = [];
+    const paginationMode = keysetPagination ? 'keyset' : 'offset';
+    let hasNextPage = false;
+    let hasPrevPage = false;
+    let nextCursor = null;
+    let prevCursor = null;
+
+    if (keysetPagination) {
+      const keysetParams = [...scopedParams];
+      const { clause: keysetWhere, params: keysetValues } = buildKeysetWhereClause(
+        decodedCursor,
+        cursorDir,
+        keysetParams.length + 1
+      );
+      keysetParams.push(...keysetValues);
+      const keysetLimitIdx = keysetParams.length + 1;
+      const keysetOrderSql = cursorDir === 'prev' ? KEYSET_REVERSE_ORDER_SQL : KEYSET_ORDER_SQL;
+      const { rows: keysetRowsRaw } = await pool.query(`
+        ${listSelectSql}
+        ${keysetWhere}
+        ORDER BY ${keysetOrderSql}
+        LIMIT $${keysetLimitIdx}
+      `, [...keysetParams, perPage + 1]);
+
+      const hasExtra = keysetRowsRaw.length > perPage;
+      let keysetRows = keysetRowsRaw.slice(0, perPage);
+      if (cursorDir === 'prev') {
+        keysetRows = keysetRows.reverse();
+        hasPrevPage = hasExtra;
+        hasNextPage = Boolean(decodedCursor);
+      } else {
+        hasPrevPage = Boolean(decodedCursor);
+        hasNextPage = hasExtra;
+      }
+      urls = keysetRows;
+      if (urls.length > 0) {
+        prevCursor = encodeListCursor(urls[0]);
+        nextCursor = encodeListCursor(urls[urls.length - 1]);
+      }
+    } else {
+      const offset = (page - 1) * perPage;
+      const limitIdx = scopedParams.length + 1;
+      const offsetIdx = scopedParams.length + 2;
+      const { rows: offsetRows } = await pool.query(`
+        ${listSelectSql}
+        ORDER BY ${orderSql}
+        LIMIT $${limitIdx} OFFSET $${offsetIdx}
+      `, [...scopedParams, perPage, offset]);
+      urls = offsetRows;
+      hasPrevPage = page > 1;
+      hasNextPage = page < totalPages;
+    }
 
     const urlsWithStatus = urls.map(u => ({ ...u, status: computeStatus(u) }));
 
@@ -453,6 +597,11 @@ router.get(['/', '/dashboard'], requireAuth, async (req, res) => {
       totalPages,
       totalCount,
       perPage,
+      paginationMode,
+      hasNextPage,
+      hasPrevPage,
+      nextCursor,
+      prevCursor,
       importedCount,
       importSkipped,
       importTag,

@@ -50,6 +50,87 @@ function pruneStatsCache() {
   oldest.forEach(([key]) => statsCache.delete(key));
 }
 
+function buildHealthPayload({
+  ok,
+  dbLatencyMs = null,
+  scheduler = null,
+  workerStatus = null,
+  queueStats = null,
+  pendingChecks = null,
+  pendingWebhooks = null,
+  lastCheckRanAt = null,
+  error = null
+}) {
+  const uptimeSeconds = Math.round(process.uptime());
+  const schedulerRunning = Boolean(scheduler?.started && scheduler?.hasLock);
+  const queueBackend = scheduler?.queueBackend || 'in-memory';
+  const queueDepth = Number.isFinite(pendingChecks) && Number.isFinite(pendingWebhooks)
+    ? {
+      pending_checks: pendingChecks,
+      pending_webhooks: pendingWebhooks
+    }
+    : null;
+  const dbPool = ok
+    ? {
+      total: pool.totalCount,
+      idle: pool.idleCount,
+      waiting: pool.waitingCount
+    }
+    : null;
+
+  const payload = {
+    status: ok ? 'ok' : 'error',
+    timestamp: new Date().toISOString(),
+    db_connected: Boolean(ok),
+    scheduler_running: schedulerRunning,
+    scheduler_leader_lock: Boolean(scheduler?.hasLock),
+    queue_backend: queueBackend,
+    worker_status: workerStatus || null,
+    queue_stats: queueStats || null,
+    last_check_ran_at: lastCheckRanAt || null,
+    queue_depth: queueDepth,
+    uptime_seconds: uptimeSeconds,
+    version: APP_VERSION,
+    uptime: process.uptime(),
+    db_latency_ms: ok && Number.isFinite(dbLatencyMs) ? dbLatencyMs : null,
+    db_pool: dbPool,
+    pending_webhooks: queueDepth ? queueDepth.pending_webhooks : null,
+    scheduler,
+    checks: {
+      database: {
+        connected: Boolean(ok),
+        latency_ms: ok && Number.isFinite(dbLatencyMs) ? dbLatencyMs : null,
+        pool: dbPool
+      },
+      scheduler: {
+        started: Boolean(scheduler?.started),
+        leader_lock: Boolean(scheduler?.hasLock),
+        running: schedulerRunning,
+        queue_backend: queueBackend
+      },
+      workers: workerStatus || null,
+      queue: {
+        backend: queueBackend,
+        depth: queueDepth,
+        stats: queueStats || null,
+        last_check_ran_at: lastCheckRanAt || null
+      }
+    },
+    runtime: {
+      uptime_seconds: uptimeSeconds,
+      node: process.version,
+      pid: process.pid,
+      version: APP_VERSION
+    }
+  };
+
+  if (!ok && error) {
+    payload.error = String(error?.message || error);
+  }
+
+  return payload;
+}
+
 // GET /api/health — Railway health check
 router.get('/health', async (req, res) => {
   try {
@@ -96,42 +177,25 @@ router.get('/health', async (req, res) => {
 
     const pendingWebhooks = webhookRow?.pending_webhooks || 0;
     const pendingChecks = queueRow?.pending_checks || 0;
-    res.json({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      db_connected: true,
-      scheduler_running: !!(scheduler.started && scheduler.hasLock),
-      queue_backend: scheduler.queueBackend,
-      worker_status: workerStatus,
-      queue_stats: queueStats,
-      last_check_ran_at: lastCheckRow?.last_check_ran_at || null,
-      queue_depth: {
-        pending_checks: pendingChecks,
-        pending_webhooks: pendingWebhooks
-      },
-      uptime_seconds: Math.round(process.uptime()),
-      version: APP_VERSION,
-      uptime: process.uptime(),
-      db_latency_ms: dbLatencyMs,
-      db_pool: {
-        total: pool.totalCount,
-        idle: pool.idleCount,
-        waiting: pool.waitingCount
-      },
-      pending_webhooks: pendingWebhooks,
-      scheduler
-    });
+    res.json(buildHealthPayload({
+      ok: true,
+      dbLatencyMs,
+      scheduler,
+      workerStatus,
+      queueStats,
+      pendingChecks,
+      pendingWebhooks,
+      lastCheckRanAt: lastCheckRow?.last_check_ran_at || null
+    }));
   } catch (err) {
-    res.status(503).json({
-      status: 'error',
-      db_connected: false,
-      scheduler_running: false,
-      last_check_ran_at: null,
-      queue_depth: null,
-      uptime_seconds: Math.round(process.uptime()),
-      version: APP_VERSION,
-      error: err.message
-    });
+    const scheduler = getSchedulerStatus();
+    const workerStatus = getWorkerStatus();
+    res.status(503).json(buildHealthPayload({
+      ok: false,
+      scheduler,
+      workerStatus,
+      error: err
+    }));
   }
 });
 
@@ -681,7 +745,8 @@ router.get('/docs', (req, res) => {
   </table>
 
   <h2>API v2 Query Params</h2>
-  <p><code>/api/v2/urls</code>: <code>page</code>, <code>per_page</code>, <code>q</code>, <code>tag</code>, <code>project_id</code>, <code>status</code> (<code>ok|changed|error|paused</code>), <code>sort</code> (<code>last_checked|health_score|url</code>), <code>dir</code> (<code>asc|desc</code>).</p>
+  <p><code>/api/v2/urls</code>: <code>page</code>, <code>per_page</code>, <code>q</code>, <code>tag</code>, <code>project_id</code>, <code>status</code> (<code>ok|changed|error|paused</code>), <code>sort</code> (<code>last_checked|health_score|url</code>), <code>dir</code> (<code>asc|desc</code>), <code>cursor</code>, <code>cursor_dir</code> (<code>next|prev</code>).</p>
+  <p style="color:#718096;font-size:12px;margin-top:-2px">Cursor pagination is used when <code>sort=last_checked</code> and <code>dir=desc</code>; otherwise offset pagination is used.</p>
   <p><code>/api/v2/alerts</code>: <code>page</code>, <code>per_page</code>, <code>severity</code>, <code>field</code>, <code>from</code>, <code>to</code>, <code>url_id</code>.</p>
   <p><code>/api/v2/urls/:id/snapshots</code> and <code>/api/v2/urls/:id/alerts</code>: support <code>page</code>, <code>per_page</code>, <code>from</code>, <code>to</code>.</p>
 

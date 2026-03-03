@@ -1,6 +1,7 @@
 <div class="page-header">
   <h1 class="page-title">Admin — System Metrics</h1>
   <div style="display:flex;gap:8px">
+    <a href="/admin/system?refresh=1" class="btn btn-secondary">Refresh Snapshot</a>
     <a href="/admin/queues" class="btn btn-secondary">Queue Dashboard</a>
     <a href="/admin/users" class="btn btn-ghost">← Users</a>
   </div>
@@ -35,6 +36,13 @@
     <div><strong style="color:var(--text)">Last check ran at:</strong> <%= system.lastCheckRanAt ? new Date(system.lastCheckRanAt).toISOString() : 'n/a' %></div>
     <div><strong style="color:var(--text)">Snapshot generated:</strong> <%= system.generatedAt %></div>
     <div><strong style="color:var(--text)">Collection time:</strong> <%= system.collectMs %>ms</div>
+    <% if (system.cache && system.cache.enabled) { %>
+      <div><strong style="color:var(--text)">Snapshot cache:</strong> <%= system.cache.hit ? 'hit' : 'miss' %> (TTL <%= system.cache.ttlMs %>ms)</div>
+      <div><strong style="color:var(--text)">Cache age:</strong> <%= system.cache.ageMs %>ms</div>
+      <div><strong style="color:var(--text)">Cache refreshed at:</strong> <%= system.cache.refreshedAt || 'n/a' %></div>
+    <% } else { %>
+      <div><strong style="color:var(--text)">Snapshot cache:</strong> disabled</div>
+    <% } %>
   </div>
 </div>
 

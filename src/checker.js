@@ -152,8 +152,75 @@ async function evaluateAlertState({ urlId, fieldKey, stateValue, cooldownMinutes
 }
 
 function normalizeRobotsPath(path) {
-  if (!path) return '/';
-  return path.startsWith('/') ? path : `/${path}`;
+  const value = String(path || '').trim();
+  if (!value) return '/';
+  return value.startsWith('/') ? value : `/${value}`;
+}
+
+function parseRobotsGroups(rawRobotsTxt) {
+  const lines = String(rawRobotsTxt || '')
+    .split(/\r?\n/)
+    .map(line => line.replace(/#.*/, '').trim())
+    .filter(Boolean);
+
+  const groups = [];
+  let currentGroup = null;
+
+  for (const line of lines) {
+    const idx = line.indexOf(':');
+    if (idx === -1) continue;
+    const key = line.slice(0, idx).trim().toLowerCase();
+    const value = line.slice(idx + 1).trim();
+
+    if (key === 'user-agent') {
+      const ua = value.toLowerCase();
+      if (!currentGroup || currentGroup.rules.length > 0) {
+        currentGroup = { userAgents: [], rules: [] };
+        groups.push(currentGroup);
+      }
+      if (ua) currentGroup.userAgents.push(ua);
+      continue;
+    }
+
+    if (!currentGroup) continue;
+    if (key !== 'allow' && key !== 'disallow') continue;
+    if (!value) continue; // Empty Disallow means "allow all"; ignore as non-blocking rule.
+
+    currentGroup.rules.push({
+      type: key,
+      path: normalizeRobotsPath(value)
+    });
+  }
+
+  return groups;
+}
+
+function matchesUserAgentRule(ruleUa, uaToken) {
+  if (!ruleUa) return false;
+  const normalizedRule = String(ruleUa).toLowerCase();
+  if (normalizedRule === '*') return true;
+  const normalizedUa = String(uaToken || '').toLowerCase();
+  if (!normalizedUa) return false;
+  return normalizedUa.startsWith(normalizedRule);
+}
+
+function matchRobotsRulePath(targetPath, rulePath) {
+  const normalizedTarget = normalizeRobotsPath(targetPath);
+  const normalizedRule = normalizeRobotsPath(rulePath);
+
+  const hasEndAnchor = normalizedRule.endsWith('$');
+  const patternBody = hasEndAnchor ? normalizedRule.slice(0, -1) : normalizedRule;
+  const escaped = patternBody.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  const wildcardPattern = escaped.replace(/\*/g, '.*');
+
+  try {
+    const regex = new RegExp(`^${wildcardPattern}${hasEndAnchor ? '$' : ''}`);
+    const matched = regex.test(normalizedTarget);
+    if (!matched) return 0;
+    return patternBody.replace(/\*/g, '').length;
+  } catch {
+    return 0;
+  }
 }
 
 function isRobotsBlocked(rawRobotsTxt, pageUrl, userAgent) {
@@ -166,47 +233,64 @@ function isRobotsBlocked(rawRobotsTxt, pageUrl, userAgent) {
     return false;
   }
 
-  const uaToken = String(userAgent || '*').split(/[\/\s]/)[0].toLowerCase();
-  const lines = String(rawRobotsTxt).split(/\r?\n/).map(line => line.replace(/#.*/, '').trim()).filter(Boolean);
+  const uaToken = String(userAgent || '*')
+    .split(/[\/\s]/)[0]
+    .trim()
+    .toLowerCase();
+  const groups = parseRobotsGroups(rawRobotsTxt);
+  if (groups.length === 0) return false;
 
-  let activeMatch = false;
-  let hasMatchedGroup = false;
-  const allows = [];
-  const disallows = [];
+  let bestSpecificLen = 0;
+  const specificGroups = [];
+  const wildcardGroups = [];
 
-  for (const line of lines) {
-    const idx = line.indexOf(':');
-    if (idx === -1) continue;
-    const key = line.slice(0, idx).trim().toLowerCase();
-    const value = line.slice(idx + 1).trim();
-    if (key === 'user-agent') {
-      const ruleUa = value.toLowerCase();
-      activeMatch = (ruleUa === '*') || (uaToken && ruleUa.includes(uaToken));
-      hasMatchedGroup = hasMatchedGroup || activeMatch;
-      continue;
-    }
-    if (!activeMatch) continue;
-    if (key === 'disallow' && value) disallows.push(value);
-    if (key === 'allow' && value) allows.push(value);
-  }
+  for (const group of groups) {
+    let matchedSpecificLen = 0;
+    let matchedWildcard = false;
 
-  if (!hasMatchedGroup) return false;
-
-  const longestMatch = (rules) => {
-    let match = '';
-    for (const rule of rules) {
-      const norm = normalizeRobotsPath(rule);
-      if (targetPath.startsWith(norm) && norm.length > match.length) {
-        match = norm;
+    for (const ruleUa of group.userAgents) {
+      if (ruleUa === '*') {
+        matchedWildcard = true;
+        continue;
+      }
+      if (matchesUserAgentRule(ruleUa, uaToken)) {
+        matchedSpecificLen = Math.max(matchedSpecificLen, ruleUa.length);
       }
     }
-    return match;
-  };
 
-  const bestAllow = longestMatch(allows);
-  const bestDisallow = longestMatch(disallows);
-  if (!bestDisallow) return false;
-  return bestDisallow.length > bestAllow.length;
+    if (matchedSpecificLen > 0) {
+      if (matchedSpecificLen > bestSpecificLen) {
+        bestSpecificLen = matchedSpecificLen;
+        specificGroups.length = 0;
+      }
+      if (matchedSpecificLen === bestSpecificLen) {
+        specificGroups.push(group);
+      }
+    } else if (matchedWildcard) {
+      wildcardGroups.push(group);
+    }
+  }
+
+  const selectedGroups = specificGroups.length > 0 ? specificGroups : wildcardGroups;
+  if (selectedGroups.length === 0) return false;
+
+  let bestMatch = null;
+  for (const group of selectedGroups) {
+    for (const rule of group.rules) {
+      const matchLen = matchRobotsRulePath(targetPath, rule.path);
+      if (matchLen <= 0) continue;
+      if (!bestMatch || matchLen > bestMatch.length) {
+        bestMatch = { type: rule.type, length: matchLen };
+        continue;
+      }
+      if (matchLen === bestMatch.length && rule.type === 'allow' && bestMatch.type === 'disallow') {
+        bestMatch = { type: 'allow', length: matchLen };
+      }
+    }
+  }
+
+  if (!bestMatch) return false;
+  return bestMatch.type === 'disallow';
 }
 
 const MONITORED_FIELDS = [
@@ -1278,4 +1362,9 @@ async function checkUrl(urlId) {
   }
 }
 
-module.exports = { checkUrl, MONITORED_FIELDS };
+module.exports = {
+  checkUrl,
+  MONITORED_FIELDS,
+  isRobotsBlocked,
+  normalizeRobotsPath
+};
