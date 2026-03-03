@@ -46,7 +46,7 @@
     <div class="uptime-status-big-label"><%= st.toUpperCase() %></div>
     <% if (openIncident) { %>
       <div class="uptime-status-big-sub">
-        Down since <span class="time-ago" data-ts="<%= new Date(openIncident.started_at).toISOString() %>"></span>
+        Down since&nbsp;<span class="time-ago" data-ts="<%= new Date(openIncident.started_at).toISOString() %>"></span>
         (<%= openIncident.cause %>)
       </div>
     <% } else if (latestCheck) { %>

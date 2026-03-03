@@ -73,7 +73,7 @@
         <div class="uptime-card-footer">
           <% if (m.open_incident_id) { %>
             <span class="badge badge--error" style="font-size:10px">
-              🔴 Down since <span class="time-ago" data-ts="<%= new Date(m.incident_started_at).toISOString() %>"></span>
+              🔴 Down since&nbsp;<span class="time-ago" data-ts="<%= new Date(m.incident_started_at).toISOString() %>"></span>
             </span>
           <% } else if (m.last_checked) { %>
             <span style="font-size:11px;color:var(--text-muted)">
