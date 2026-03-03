@@ -3,7 +3,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const pool = require('../db');
 const { requireAdmin } = require('../auth');
-const { sendAlert } = require('../mailer');
+const { sendAlert, isEmailConfigured } = require('../mailer');
 const { auditFromRequest } = require('../audit');
 const { getSchedulerStatus } = require('../scheduler');
 const { getQueueStats } = require('../queue');
@@ -112,6 +112,10 @@ router.get('/users', requireAdmin, async (req, res) => {
 });
 
 // POST /admin/invite — create invite link
+router.get('/invite', requireAdmin, (req, res) => {
+  res.redirect('/admin/users');
+});
+
 router.post('/invite', requireAdmin, async (req, res) => {
   const { email } = req.body;
   if (!email || !email.trim()) {
@@ -119,33 +123,38 @@ router.post('/invite', requireAdmin, async (req, res) => {
   }
 
   try {
+    const inviteEmail = email.trim().toLowerCase();
     const token = crypto.randomBytes(32).toString('hex');
     await pool.query(
       `INSERT INTO invites (email, token, invited_by_id) VALUES ($1, $2, $3)`,
-      [email.trim().toLowerCase(), token, req.user.id]
+      [inviteEmail, token, req.user.id]
     );
     await auditFromRequest(req, {
       action: 'admin.invite.create',
       entityType: 'invite',
       entityId: token,
-      meta: { email: email.trim().toLowerCase() }
+      meta: { email: inviteEmail }
     });
 
     const baseUrl = process.env.BASE_URL || 'http://localhost:' + (process.env.PORT || 3000);
     const inviteUrl = `${baseUrl}/invite/${token}`;
 
-    // Try to send email
-    let emailSent = false;
-    if (process.env.SMTP_HOST) {
-      emailSent = await sendAlert({
-        to: email.trim(),
-        url: inviteUrl,
-        field: 'Invitation',
-        oldValue: '',
-        newValue: `You have been invited to MetaWatch. Click here to register: ${inviteUrl}`,
-        timestamp: new Date(),
-        language: req.user.language
-      }).catch(() => false);
+    // Send invite email in background to keep the UI responsive.
+    const smtpHostSet = !!String(process.env.SMTP_HOST || '').trim();
+    if (isEmailConfigured()) {
+      setImmediate(() => {
+        void sendAlert({
+          to: inviteEmail,
+          url: inviteUrl,
+          field: 'Invitation',
+          oldValue: '',
+          newValue: `You have been invited to MetaWatch. Click here to register: ${inviteUrl}`,
+          timestamp: new Date(),
+          language: req.user.language
+        }).catch((err) => {
+          console.error(`[Invite] Email send failed for ${inviteEmail}: ${err.message}`);
+        });
+      });
     }
 
     const [users, invites, plans] = await Promise.all([
@@ -160,7 +169,11 @@ router.post('/invite', requireAdmin, async (req, res) => {
       invites,
       plans,
       inviteLink: inviteUrl,
-      message: emailSent ? 'Invite email sent!' : null
+      message: isEmailConfigured()
+        ? 'Invite link created. Email delivery started in background.'
+        : (smtpHostSet
+          ? 'Invite link created. SMTP is partially configured, so the email was not sent.'
+          : 'Invite link created. SMTP is disabled, share the link manually.')
     });
   } catch (err) {
     console.error(err);
