@@ -193,40 +193,42 @@
 
       <!-- Manual Cookies Modal -->
       <div id="manual-cookies-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:none;align-items:center;justify-content:center">
-        <div class="card" style="max-width:600px;width:90%;max-height:90vh;overflow-y:auto;margin:auto;position:relative">
+        <div class="card" style="max-width:620px;width:90%;max-height:90vh;overflow-y:auto;margin:auto;position:relative">
           <div style="padding:20px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-              <h3 style="margin:0">Manual Cookies</h3>
+              <h3 style="margin:0">Manual Anti-Bot Session</h3>
               <button id="manual-cookies-close" class="btn btn-ghost" style="font-size:18px;padding:2px 8px">&times;</button>
             </div>
 
             <div class="alert-banner alert-banner--ok" style="margin-bottom:16px;font-size:13px">
-              <strong>Step 1:</strong> Open the site and pass the anti-bot check
+              <strong>Step 1:</strong> Open the site in your browser and pass the anti-bot check (CAPTCHA, waiting page, etc.)
             </div>
             <a href="<%= monitor.url %>" target="_blank" class="btn btn-primary" style="font-size:13px;margin-bottom:16px;display:inline-block">
               ↗ Open <%= new URL(monitor.url).hostname %> in new tab
             </a>
 
             <div class="alert-banner" style="margin-bottom:12px;font-size:13px;background:var(--bg-secondary);border:1px solid var(--border)">
-              <strong>Step 2:</strong> Copy cookies from your browser<br>
-              <span style="color:var(--text-muted)">Press F12 → Console tab → paste this and press Enter:</span>
+              <strong>Step 2:</strong> After the page loads, press <kbd style="background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:1px 5px;font-size:11px">F12</kbd> → Console → paste this command and press Enter:
             </div>
             <div style="position:relative;margin-bottom:16px">
-              <pre id="cookie-snippet" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:12px;overflow-x:auto;margin:0;cursor:pointer;white-space:pre-wrap;word-break:break-all"
-                   title="Click to copy">document.cookie</pre>
+              <pre id="cookie-snippet" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:11px;overflow-x:auto;margin:0;cursor:pointer;white-space:pre-wrap;word-break:break-all"
+                   title="Click to copy">JSON.stringify({c:document.cookie,u:navigator.userAgent})</pre>
               <button id="copy-snippet-btn" class="btn btn-ghost" style="position:absolute;top:4px;right:4px;font-size:11px;padding:2px 8px">Copy</button>
             </div>
 
             <div class="alert-banner" style="margin-bottom:12px;font-size:13px;background:var(--bg-secondary);border:1px solid var(--border)">
-              <strong>Step 3:</strong> Paste the result here
+              <strong>Step 3:</strong> Copy the result (starts with <code>{"c":"...</code>) and paste here:
             </div>
             <textarea id="manual-cookies-input" class="form-input" rows="4"
-                      placeholder="name1=value1; name2=value2; cf_clearance=..."
-                      style="font-size:12px;font-family:monospace;margin-bottom:12px"></textarea>
+                      placeholder='{"c":"cf_clearance=abc123; ...", "u":"Mozilla/5.0 ..."}'
+                      style="font-size:12px;font-family:monospace;margin-bottom:4px"></textarea>
+            <p class="form-hint" style="margin-top:0;margin-bottom:12px">
+              Also accepts plain cookies: <code>name=value; name2=value2</code>
+            </p>
 
             <div style="display:flex;gap:8px;align-items:center">
               <button id="manual-cookies-save" class="btn btn-primary" style="font-size:13px" data-id="<%= monitor.id %>">
-                Save Cookies
+                Save Cookies + User-Agent
               </button>
               <span id="manual-cookies-status" style="font-size:12px;color:var(--text-muted)"></span>
             </div>

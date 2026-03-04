@@ -599,7 +599,7 @@ if (manualCookiesBtn && manualCookiesModal) {
   const copySnippetBtn = document.getElementById('copy-snippet-btn');
   if (copySnippetBtn) {
     copySnippetBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText('document.cookie').then(() => {
+      navigator.clipboard.writeText('JSON.stringify({c:document.cookie,u:navigator.userAgent})').then(() => {
         copySnippetBtn.textContent = '✓';
         setTimeout(() => { copySnippetBtn.textContent = 'Copy'; }, 2000);
       });

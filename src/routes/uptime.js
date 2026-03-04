@@ -558,12 +558,26 @@ router.post('/:id/manual-cookies', requireAuth, async (req, res) => {
     const { rows: [monitor] } = await pool.query(query, params);
     if (!monitor) return res.status(404).json({ error: 'Not found' });
 
-    const { cookies: cookieString } = req.body;
-    if (!cookieString || !cookieString.trim()) {
+    const { cookies: rawInput } = req.body;
+    if (!rawInput || !rawInput.trim()) {
       return res.json({ ok: false, error: 'No cookies provided' });
     }
 
-    // Parse "name1=value1; name2=value2" format into tough-cookie jar
+    // Try JSON format: {"c":"cookies...", "u":"userAgent..."} (from snippet)
+    let cookieString = rawInput.trim();
+    let userAgent = null;
+
+    try {
+      const parsed = JSON.parse(cookieString);
+      if (parsed && typeof parsed.c === 'string') {
+        cookieString = parsed.c;
+        if (parsed.u) userAgent = parsed.u.trim();
+      }
+    } catch {
+      // Not JSON — treat as plain cookie string
+    }
+
+    // Parse "name1=value1; name2=value2" into tough-cookie jar
     const { CookieJar } = require('tough-cookie');
     const jar = new CookieJar();
     const domain = new URL(monitor.url).hostname;
@@ -588,12 +602,23 @@ router.post('/:id/manual-cookies', requireAuth, async (req, res) => {
 
     const serialized = jar.serializeSync();
     const json = JSON.stringify(serialized.cookies || []);
-    await pool.query(
-      'UPDATE uptime_monitors SET session_cookies = $1 WHERE id = $2',
-      [json, monitorId]
-    );
 
-    res.json({ ok: true, cookiesSaved: saved, message: `${saved} cookie(s) saved` });
+    // Save cookies + auto-set User-Agent to match the browser (critical for Cloudflare)
+    if (userAgent) {
+      await pool.query(
+        'UPDATE uptime_monitors SET session_cookies = $1, custom_user_agent = $2 WHERE id = $3',
+        [json, userAgent, monitorId]
+      );
+    } else {
+      await pool.query(
+        'UPDATE uptime_monitors SET session_cookies = $1 WHERE id = $2',
+        [json, monitorId]
+      );
+    }
+
+    const parts = [`${saved} cookie(s) saved`];
+    if (userAgent) parts.push('User-Agent synced');
+    res.json({ ok: true, cookiesSaved: saved, uaSynced: !!userAgent, message: parts.join(', ') });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
