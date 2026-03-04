@@ -97,8 +97,8 @@ function normalizeRenderMode(value) {
 }
 
 function canUseHeadless(userPlan) {
-  const planName = String(userPlan?.name || '').trim().toLowerCase();
-  return planName === 'pro' || planName === 'agency';
+  // Puppeteer is bundled — headless available for all plans
+  return true;
 }
 
 function normalizeImportUrl(value) {

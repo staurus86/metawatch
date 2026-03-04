@@ -126,8 +126,15 @@ async function ensureBrowser() {
   launchPromise = (async () => {
     const puppeteer = await loadPuppeteer();
     const launched = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      headless: 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--single-process',
+        '--disable-extensions'
+      ]
     });
     launched.on('disconnected', () => {
       browser = null;
@@ -193,9 +200,18 @@ async function scrapeUrlHeadless(url, options = {}) {
     await page.setUserAgent(ua);
 
     const t0 = Date.now();
-    const response = await page.goto(safeUrl, { waitUntil: 'networkidle2', timeout: 15000 });
+    const response = await page.goto(safeUrl, { waitUntil: 'networkidle2', timeout: 30000 });
     result.response_time_ms = Date.now() - t0;
     result.status_code = response ? response.status() : 0;
+
+    // If JS anti-bot challenge (503/403), wait for it to auto-resolve
+    if (result.status_code === 503 || result.status_code === 403) {
+      try {
+        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 });
+        result.status_code = 200; // challenge passed
+        result.response_time_ms = Date.now() - t0;
+      } catch { /* still on challenge page */ }
+    }
 
     const finalUrl = page.url();
     if (finalUrl && normalizeUrlForCompare(finalUrl) !== normalizeUrlForCompare(safeUrl)) {

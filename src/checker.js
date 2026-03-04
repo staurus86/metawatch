@@ -10,7 +10,9 @@ const SSL_WARN_DAYS = parseInt(process.env.SSL_WARN_DAYS || '30', 10);
 const DEFAULT_ALERT_COOLDOWN_MINUTES = parseInt(process.env.DEFAULT_ALERT_COOLDOWN_MINUTES || '60', 10);
 
 function isHeadlessEnabled() {
-  return String(process.env.ENABLE_HEADLESS || 'false').trim().toLowerCase() === 'true';
+  // Always enabled — Puppeteer is installed as a dependency.
+  // Falls back to static scrape if Puppeteer fails at runtime.
+  return true;
 }
 
 // Check if current time falls inside a maintenance window defined by a cron expression
