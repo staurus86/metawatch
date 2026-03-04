@@ -546,19 +546,9 @@ async function refreshSession(monitorId) {
       '--single-process'
     ];
 
-    // Find Chromium: env var → common system paths → Puppeteer's bundled
-    const candidatePaths = [
-      process.env.PUPPETEER_EXECUTABLE_PATH,
-      '/usr/bin/chromium',
-      '/usr/bin/chromium-browser',
-      '/usr/bin/google-chrome',
-      '/usr/bin/google-chrome-stable'
-    ].filter(Boolean);
-
-    let execPath = null;
-    for (const p of candidatePaths) {
-      try { if (fs.existsSync(p)) { execPath = p; break; } } catch {}
-    }
+    // Use only PUPPETEER_EXECUTABLE_PATH env if set; otherwise let Puppeteer
+    // use its own bundled Chromium (system chromium is a snap stub on Ubuntu)
+    const execPath = process.env.PUPPETEER_EXECUTABLE_PATH || null;
 
     browser = await puppeteer.launch({
       headless: 'new',
