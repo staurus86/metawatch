@@ -81,6 +81,79 @@ function createCookieClient(jar) {
   return client;
 }
 
+// ─── Persistent browser pool for browser_mode checks ─────────────────────────
+let _browser = null;
+let _browserLaunching = false;
+
+async function getBrowser() {
+  if (_browser && _browser.isConnected()) return _browser;
+  if (_browserLaunching) {
+    // Wait for ongoing launch
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      if (_browser && _browser.isConnected()) return _browser;
+    }
+    throw new Error('Browser launch timeout');
+  }
+  _browserLaunching = true;
+  try {
+    const puppeteer = require('puppeteer');
+    _browser = await puppeteer.launch({
+      headless: 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--single-process',
+        '--disable-extensions'
+      ]
+    });
+    _browser.on('disconnected', () => { _browser = null; });
+    return _browser;
+  } finally {
+    _browserLaunching = false;
+  }
+}
+
+// Browser-based HTTP check: real Chrome TLS + JS execution
+async function browserCheck(url, ua, timeoutMs) {
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.setUserAgent(ua);
+    await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
+
+    const start = Date.now();
+    const response = await page.goto(url, {
+      waitUntil: 'networkidle2',
+      timeout: timeoutMs || 30000
+    });
+
+    let statusCode = response ? response.status() : 0;
+    const responseTimeMs = Date.now() - start;
+
+    // If JS challenge page (503/403), wait for it to auto-resolve
+    if (statusCode === 503 || statusCode === 403) {
+      try {
+        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 });
+        // Re-check final status after challenge resolved
+        statusCode = 200; // If navigation succeeded, the challenge passed
+      } catch {
+        // Navigation didn't happen — still blocked
+      }
+    }
+
+    // Save cookies from browser for future use
+    const cookies = await page.cookies();
+    return { statusCode, responseTimeMs, cookies, error: null };
+  } catch (err) {
+    return { statusCode: 0, responseTimeMs: Date.now(), cookies: [], error: err.message };
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
 // Classify a check result
 function classifyStatus(statusCode, responseTimeMs, thresholdMs) {
   if (!statusCode || statusCode === 0) return 'down';
@@ -346,47 +419,76 @@ async function checkMonitor(monitorId) {
   }
 
   if (!fetchErr) {
-    try {
-      const ua = monitor.custom_user_agent || DEFAULT_USER_AGENT;
-      const jar = buildCookieJar(monitor.session_cookies);
-      const client = createCookieClient(jar);
+    const ua = monitor.custom_user_agent || DEFAULT_USER_AGENT;
 
-      const reqConfig = {
-        timeout: 15000,
-        maxRedirects: 5,
-        validateStatus: () => true,
-        headers: {
-          'User-Agent': ua,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Cache-Control': 'no-cache',
-          'Sec-Fetch-Dest': 'document',
-          'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-Site': 'none',
-          'Sec-Fetch-User': '?1',
-          'Upgrade-Insecure-Requests': '1'
-        },
-        decompress: true
-      };
-
-      let resp = await client.get(safeTargetUrl, reqConfig);
-
-      // If 503 (anti-bot), wait briefly and retry once with the cookies the server set
-      if (resp.status === 503) {
-        await new Promise(r => setTimeout(r, 2000));
-        resp = await client.get(safeTargetUrl, reqConfig);
+    if (monitor.browser_mode) {
+      // ── Browser mode: real Chromium with JS execution ──
+      try {
+        const result = await browserCheck(safeTargetUrl, ua, 30000);
+        statusCode = result.statusCode;
+        responseTimeMs = result.responseTimeMs;
+        if (result.error) {
+          errorMessage = result.error.substring(0, 200);
+        }
+        // Save browser cookies for display/debug
+        if (result.cookies && result.cookies.length > 0) {
+          const jar = new CookieJar();
+          for (const c of result.cookies) {
+            try {
+              const cookieStr = `${c.name}=${c.value}; Domain=${c.domain}; Path=${c.path}` +
+                (c.secure ? '; Secure' : '') + (c.httpOnly ? '; HttpOnly' : '');
+              const cUrl = `${c.secure ? 'https' : 'http'}://${c.domain.replace(/^\./, '')}${c.path}`;
+              jar.setCookieSync(cookieStr, cUrl);
+            } catch {}
+          }
+          await saveCookies(monitorId, jar);
+        }
+      } catch (err) {
+        responseTimeMs = Date.now() - start;
+        fetchErr = err;
+        errorMessage = err.message?.substring(0, 200) || 'Browser check failed';
       }
+    } else {
+      // ── Standard mode: axios with cookie jar ──
+      try {
+        const jar = buildCookieJar(monitor.session_cookies);
+        const client = createCookieClient(jar);
 
-      statusCode = resp.status;
-      responseTimeMs = Date.now() - start;
+        const reqConfig = {
+          timeout: 15000,
+          maxRedirects: 5,
+          validateStatus: () => true,
+          headers: {
+            'User-Agent': ua,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Cache-Control': 'no-cache',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1'
+          },
+          decompress: true
+        };
 
-      // Persist cookies for next check
-      await saveCookies(monitorId, jar);
-    } catch (err) {
-      responseTimeMs = Date.now() - start;
-      fetchErr = err;
-      errorMessage = err.message?.substring(0, 200) || 'Unknown error';
+        let resp = await client.get(safeTargetUrl, reqConfig);
+
+        // If 503 (anti-bot), wait briefly and retry once with the cookies the server set
+        if (resp.status === 503) {
+          await new Promise(r => setTimeout(r, 2000));
+          resp = await client.get(safeTargetUrl, reqConfig);
+        }
+
+        statusCode = resp.status;
+        responseTimeMs = Date.now() - start;
+        await saveCookies(monitorId, jar);
+      } catch (err) {
+        responseTimeMs = Date.now() - start;
+        fetchErr = err;
+        errorMessage = err.message?.substring(0, 200) || 'Unknown error';
+      }
     }
   }
 

@@ -717,6 +717,10 @@ async function migrate() {
     await client.query(
       'ALTER TABLE uptime_monitors ADD COLUMN IF NOT EXISTS session_cookies TEXT'
     );
+    // uptime_monitors: browser mode — use Puppeteer for checks (anti-bot)
+    await client.query(
+      'ALTER TABLE uptime_monitors ADD COLUMN IF NOT EXISTS browser_mode BOOLEAN NOT NULL DEFAULT false'
+    );
 
     // ─── scale indexes ────────────────────────────────────────────────────────
     const scaleIndexes = [

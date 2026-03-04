@@ -108,6 +108,14 @@
              placeholder="Mozilla/5.0 ..." value="<%= isCustom ? savedUA : '' %>">
     </div>
 
+    <div class="form-group" style="margin-top:12px">
+      <label class="checkbox-label">
+        <input type="checkbox" name="browser_mode" value="1" <%= monitor.browser_mode ? 'checked' : '' %>>
+        <span>Browser Mode (anti-bot bypass)</span>
+      </label>
+      <p class="form-hint">Uses real Chromium for each check. Bypasses JS challenges (NGENIX, Cloudflare etc.). Slower, uses more resources.</p>
+    </div>
+
     <div class="form-section-title">Alerts</div>
 
     <div class="form-group">
