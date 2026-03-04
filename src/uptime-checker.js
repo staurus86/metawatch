@@ -537,6 +537,7 @@ async function refreshSession(monitorId) {
 
   let browser;
   try {
+    const fs = require('fs');
     const launchArgs = [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -545,7 +546,20 @@ async function refreshSession(monitorId) {
       '--single-process'
     ];
 
-    const execPath = process.env.PUPPETEER_EXECUTABLE_PATH || null;
+    // Find Chromium: env var → common system paths → Puppeteer's bundled
+    const candidatePaths = [
+      process.env.PUPPETEER_EXECUTABLE_PATH,
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable'
+    ].filter(Boolean);
+
+    let execPath = null;
+    for (const p of candidatePaths) {
+      try { if (fs.existsSync(p)) { execPath = p; break; } } catch {}
+    }
+
     browser = await puppeteer.launch({
       headless: 'new',
       args: launchArgs,
