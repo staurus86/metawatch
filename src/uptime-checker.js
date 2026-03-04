@@ -7,6 +7,8 @@ const { sendAlert: sendEmail } = require('./mailer');
 const { enqueueNotification, isQueueEnabled } = require('./queue');
 const { assertSafeOutboundUrl } = require('./net-safety');
 
+const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
 // Classify a check result
 function classifyStatus(statusCode, responseTimeMs, thresholdMs) {
   if (!statusCode || statusCode === 0) return 'down';
@@ -273,12 +275,13 @@ async function checkMonitor(monitorId) {
 
   if (!fetchErr) {
     try {
+      const ua = monitor.custom_user_agent || DEFAULT_USER_AGENT;
       const resp = await axios.get(safeTargetUrl, {
         timeout: 15000,
         maxRedirects: 5,
         validateStatus: () => true,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          'User-Agent': ua,
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
           'Accept-Language': 'en-US,en;q=0.9',
           'Accept-Encoding': 'gzip, deflate, br',

@@ -147,6 +147,17 @@
           </div>
         </div>
       <% } %>
+
+      <!-- User-Agent info -->
+      <div class="section-label" style="margin:20px 0 10px">Request Settings</div>
+      <div class="info-grid" style="grid-template-columns:1fr">
+        <div class="card info-card">
+          <div class="info-label">User-Agent</div>
+          <div class="info-value" style="font-size:12px;word-break:break-all">
+            <%= monitor.custom_user_agent || 'Chrome 131 / Windows (default)' %>
+          </div>
+        </div>
+      </div>
     </div>
 
   <!-- INCIDENTS TAB -->

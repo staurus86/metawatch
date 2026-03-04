@@ -709,6 +709,11 @@ async function migrate() {
       )
     `);
 
+    // uptime_monitors: custom User-Agent for anti-bot bypass
+    await client.query(
+      'ALTER TABLE uptime_monitors ADD COLUMN IF NOT EXISTS custom_user_agent TEXT'
+    );
+
     // ─── scale indexes ────────────────────────────────────────────────────────
     const scaleIndexes = [
       'CREATE INDEX IF NOT EXISTS idx_monitored_urls_user_active_created ON monitored_urls(user_id, is_active, created_at DESC)',

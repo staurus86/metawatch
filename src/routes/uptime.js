@@ -175,7 +175,8 @@ router.post('/add', requireAuth, async (req, res) => {
   const {
     name, url, interval_minutes, threshold_ms,
     alert_email, telegram_token, telegram_chat_id, webhook_url, discord_webhook_url,
-    is_public, maintenance_cron, maintenance_duration_minutes
+    is_public, maintenance_cron, maintenance_duration_minutes,
+    ua_preset, custom_user_agent_text
   } = req.body;
 
   const renderAddError = (error, { status = 200, upgradePrompt = null } = {}) => res.status(status).render('uptime-add', {
@@ -220,13 +221,21 @@ router.post('/add', requireAuth, async (req, res) => {
       ? maintenanceDuration
       : null;
 
+    // Resolve User-Agent: preset or custom
+    let resolvedUA = null;
+    if (ua_preset === 'custom') {
+      resolvedUA = custom_user_agent_text?.trim() || null;
+    } else if (ua_preset && ua_preset !== 'default') {
+      resolvedUA = ua_preset;
+    }
+
     const slug = generateSlug();
     const { rows: [monitor] } = await pool.query(
       `INSERT INTO uptime_monitors
          (user_id, name, url, slug, interval_minutes, threshold_ms,
           alert_email, telegram_token, telegram_chat_id, webhook_url, discord_webhook_url, is_public,
-          maintenance_cron, maintenance_duration_minutes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+          maintenance_cron, maintenance_duration_minutes, custom_user_agent)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        RETURNING *`,
       [
         req.user.id, name.trim(), safeUrl, slug,
@@ -239,7 +248,8 @@ router.post('/add', requireAuth, async (req, res) => {
         discord_webhook_url?.trim() || null,
         !!is_public,
         maintenance_cron?.trim() || null,
-        safeMaintenanceDuration
+        safeMaintenanceDuration,
+        resolvedUA
       ]
     );
 
@@ -363,7 +373,8 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
   const {
     name, url, interval_minutes, threshold_ms,
     alert_email, telegram_token, telegram_chat_id, webhook_url, discord_webhook_url,
-    is_public, silenced_until, maintenance_cron, maintenance_duration_minutes
+    is_public, silenced_until, maintenance_cron, maintenance_duration_minutes,
+    ua_preset, custom_user_agent_text
   } = req.body;
 
   try {
@@ -388,27 +399,35 @@ router.post('/:id/edit', requireAuth, async (req, res) => {
       ? maintenanceDuration
       : null;
 
+    // Resolve User-Agent: preset or custom
+    let resolvedUA = null;
+    if (ua_preset === 'custom') {
+      resolvedUA = custom_user_agent_text?.trim() || null;
+    } else if (ua_preset && ua_preset !== 'default') {
+      resolvedUA = ua_preset;
+    }
+
     const isAdmin = req.user.role === 'admin';
     const { rows: [updated] } = await pool.query(
       `UPDATE uptime_monitors SET
          name = $1, url = $2, interval_minutes = $3, threshold_ms = $4,
          alert_email = $5, telegram_token = $6, telegram_chat_id = $7,
          webhook_url = $8, discord_webhook_url = $9, is_public = $10, silenced_until = $11,
-         maintenance_cron = $12, maintenance_duration_minutes = $13
-       WHERE id = $14 ${!isAdmin ? 'AND user_id = $15' : ''}
+         maintenance_cron = $12, maintenance_duration_minutes = $13, custom_user_agent = $14
+       WHERE id = $15 ${!isAdmin ? 'AND user_id = $16' : ''}
        RETURNING *`,
       !isAdmin
         ? [name?.trim(), safeUrl, intervalValue,
           parseInt(threshold_ms || '3000', 10), alert_email?.trim() || null,
           telegram_token?.trim() || null, telegram_chat_id?.trim() || null,
           webhook_url?.trim() || null, discord_webhook_url?.trim() || null, !!is_public, silenced_until?.trim() || null,
-          maintenance_cron?.trim() || null, safeMaintenanceDuration,
+          maintenance_cron?.trim() || null, safeMaintenanceDuration, resolvedUA,
           monitorId, req.user.id]
         : [name?.trim(), safeUrl, intervalValue,
           parseInt(threshold_ms || '3000', 10), alert_email?.trim() || null,
           telegram_token?.trim() || null, telegram_chat_id?.trim() || null,
           webhook_url?.trim() || null, discord_webhook_url?.trim() || null, !!is_public, silenced_until?.trim() || null,
-          maintenance_cron?.trim() || null, safeMaintenanceDuration,
+          maintenance_cron?.trim() || null, safeMaintenanceDuration, resolvedUA,
           monitorId]
     );
     if (!updated) return res.status(404).render('error', { title: 'Not Found', error: 'Monitor not found' });

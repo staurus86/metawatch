@@ -70,6 +70,44 @@
       </div>
     </div>
 
+    <div class="form-section-title">Anti-Bot / User-Agent</div>
+    <p class="form-hint" style="margin-top:-8px;margin-bottom:10px">
+      Some sites block monitoring bots (503 errors). Choose a browser User-Agent to bypass basic anti-bot checks.
+    </p>
+
+    <%
+      const UA_PRESETS = {
+        'default': null,
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36': 'chrome_mac',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0': 'firefox',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15': 'safari',
+        'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36': 'android',
+        'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)': 'googlebot'
+      };
+      const savedUA = monitor.custom_user_agent || '';
+      const isPreset = !savedUA || Object.keys(UA_PRESETS).includes(savedUA);
+      const isCustom = savedUA && !isPreset;
+      const selectedPreset = isCustom ? 'custom' : (savedUA || 'default');
+    %>
+
+    <div class="form-group">
+      <label class="form-label" for="ua_preset">User-Agent</label>
+      <select id="ua_preset" name="ua_preset" class="form-select" onchange="document.getElementById('ua-custom-wrap').style.display=this.value==='custom'?'block':'none'">
+        <option value="default" <%= selectedPreset === 'default' ? 'selected' : '' %>>Chrome 131 / Windows (default)</option>
+        <option value="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36" <%= selectedPreset.includes('Macintosh') && selectedPreset.includes('Chrome') ? 'selected' : '' %>>Chrome 131 / macOS</option>
+        <option value="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0" <%= selectedPreset.includes('Firefox') ? 'selected' : '' %>>Firefox 133 / Windows</option>
+        <option value="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15" <%= selectedPreset.includes('Safari') && !selectedPreset.includes('Chrome') ? 'selected' : '' %>>Safari 18 / macOS</option>
+        <option value="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36" <%= selectedPreset.includes('Android') ? 'selected' : '' %>>Chrome Mobile / Android</option>
+        <option value="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" <%= selectedPreset.includes('Googlebot') ? 'selected' : '' %>>Googlebot 2.1</option>
+        <option value="custom" <%= isCustom ? 'selected' : '' %>>Custom...</option>
+      </select>
+    </div>
+    <div class="form-group" id="ua-custom-wrap" style="display:<%= isCustom ? 'block' : 'none' %>">
+      <label class="form-label" for="custom_user_agent_text">Custom User-Agent string</label>
+      <input type="text" id="custom_user_agent_text" name="custom_user_agent_text" class="form-input"
+             placeholder="Mozilla/5.0 ..." value="<%= isCustom ? savedUA : '' %>">
+    </div>
+
     <div class="form-section-title">Alerts</div>
 
     <div class="form-group">

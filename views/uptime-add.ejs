@@ -62,6 +62,29 @@
       </div>
     </div>
 
+    <div class="form-section-title">Anti-Bot / User-Agent</div>
+    <p class="form-hint" style="margin-top:-8px;margin-bottom:10px">
+      Some sites block monitoring bots (503 errors). Choose a browser User-Agent to bypass basic anti-bot checks.
+    </p>
+
+    <div class="form-group">
+      <label class="form-label" for="ua_preset">User-Agent</label>
+      <select id="ua_preset" name="ua_preset" class="form-select" onchange="document.getElementById('ua-custom-wrap').style.display=this.value==='custom'?'block':'none'">
+        <option value="default" <%= !values.ua_preset || values.ua_preset === 'default' ? 'selected' : '' %>>Chrome 131 / Windows (default)</option>
+        <option value="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36" <%= values.ua_preset && values.ua_preset.includes('Macintosh') && values.ua_preset.includes('Chrome') ? 'selected' : '' %>>Chrome 131 / macOS</option>
+        <option value="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0" <%= values.ua_preset && values.ua_preset.includes('Firefox') ? 'selected' : '' %>>Firefox 133 / Windows</option>
+        <option value="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15" <%= values.ua_preset && values.ua_preset.includes('Safari') && !values.ua_preset.includes('Chrome') ? 'selected' : '' %>>Safari 18 / macOS</option>
+        <option value="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36" <%= values.ua_preset && values.ua_preset.includes('Android') ? 'selected' : '' %>>Chrome Mobile / Android</option>
+        <option value="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" <%= values.ua_preset && values.ua_preset.includes('Googlebot') ? 'selected' : '' %>>Googlebot 2.1</option>
+        <option value="custom" <%= values.ua_preset === 'custom' ? 'selected' : '' %>>Custom...</option>
+      </select>
+    </div>
+    <div class="form-group" id="ua-custom-wrap" style="display:<%= values.ua_preset === 'custom' ? 'block' : 'none' %>">
+      <label class="form-label" for="custom_user_agent_text">Custom User-Agent string</label>
+      <input type="text" id="custom_user_agent_text" name="custom_user_agent_text" class="form-input"
+             placeholder="Mozilla/5.0 ..." value="<%= values.custom_user_agent_text || '' %>">
+    </div>
+
     <div class="form-section-title">Alerts</div>
 
     <div class="form-group">
