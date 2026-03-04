@@ -1,4 +1,6 @@
 const axios = require('axios');
+const { wrapper: axiosCookieJar } = require('axios-cookiejar-support');
+const { CookieJar, Cookie } = require('tough-cookie');
 const cron = require('node-cron');
 const pool = require('./db');
 const { checkSsl } = require('./scraper');
@@ -8,6 +10,39 @@ const { enqueueNotification, isQueueEnabled } = require('./queue');
 const { assertSafeOutboundUrl } = require('./net-safety');
 
 const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
+// ─── Cookie helpers ──────────────────────────────────────────────────────────
+
+function buildCookieJar(savedCookiesJson) {
+  const jar = new CookieJar();
+  if (!savedCookiesJson) return jar;
+  try {
+    const cookies = JSON.parse(savedCookiesJson);
+    for (const c of cookies) {
+      try {
+        jar.setCookieSync(Cookie.fromJSON(c), c.domain ? `https://${c.domain.replace(/^\./, '')}` : 'https://example.com');
+      } catch { /* skip bad cookies */ }
+    }
+  } catch { /* invalid JSON — start fresh */ }
+  return jar;
+}
+
+function serializeCookieJar(jar) {
+  try {
+    const serialized = jar.serializeSync();
+    return JSON.stringify(serialized.cookies || []);
+  } catch { return null; }
+}
+
+async function saveCookies(monitorId, jar) {
+  const json = serializeCookieJar(jar);
+  if (json) {
+    await pool.query(
+      'UPDATE uptime_monitors SET session_cookies = $1 WHERE id = $2',
+      [json, monitorId]
+    ).catch(() => {});
+  }
+}
 
 // Classify a check result
 function classifyStatus(statusCode, responseTimeMs, thresholdMs) {
@@ -276,7 +311,10 @@ async function checkMonitor(monitorId) {
   if (!fetchErr) {
     try {
       const ua = monitor.custom_user_agent || DEFAULT_USER_AGENT;
-      const resp = await axios.get(safeTargetUrl, {
+      const jar = buildCookieJar(monitor.session_cookies);
+      const client = axiosCookieJar(axios.create({ jar }));
+
+      const reqConfig = {
         timeout: 15000,
         maxRedirects: 5,
         validateStatus: () => true,
@@ -293,9 +331,21 @@ async function checkMonitor(monitorId) {
           'Upgrade-Insecure-Requests': '1'
         },
         decompress: true
-      });
+      };
+
+      let resp = await client.get(safeTargetUrl, reqConfig);
+
+      // If 503 (anti-bot), wait briefly and retry once with the cookies the server set
+      if (resp.status === 503) {
+        await new Promise(r => setTimeout(r, 2000));
+        resp = await client.get(safeTargetUrl, reqConfig);
+      }
+
       statusCode = resp.status;
       responseTimeMs = Date.now() - start;
+
+      // Persist cookies for next check
+      await saveCookies(monitorId, jar);
     } catch (err) {
       responseTimeMs = Date.now() - start;
       fetchErr = err;
@@ -420,4 +470,70 @@ async function checkMonitor(monitorId) {
   }
 }
 
-module.exports = { checkMonitor };
+// ─── Refresh session: fetch the page with a clean cookie jar, save cookies ───
+async function refreshSession(monitorId) {
+  const { rows } = await pool.query(
+    'SELECT * FROM uptime_monitors WHERE id = $1',
+    [monitorId]
+  );
+  const monitor = rows[0];
+  if (!monitor) return { ok: false, error: 'Monitor not found' };
+
+  const ua = monitor.custom_user_agent || DEFAULT_USER_AGENT;
+  const jar = new CookieJar();
+  const client = axiosCookieJar(axios.create({ jar }));
+
+  let safeUrl;
+  try {
+    safeUrl = await assertSafeOutboundUrl(monitor.url);
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+
+  const reqConfig = {
+    timeout: 20000,
+    maxRedirects: 10,
+    validateStatus: () => true,
+    headers: {
+      'User-Agent': ua,
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Cache-Control': 'no-cache',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
+      'Upgrade-Insecure-Requests': '1'
+    },
+    decompress: true
+  };
+
+  try {
+    // First request — may get challenge page with set-cookie
+    let resp = await client.get(safeUrl, reqConfig);
+
+    // If 503 — wait and retry (some anti-bot set cookies then redirect)
+    if (resp.status === 503) {
+      await new Promise(r => setTimeout(r, 3000));
+      resp = await client.get(safeUrl, reqConfig);
+    }
+
+    // Save cookies
+    await saveCookies(monitorId, jar);
+
+    const cookieCount = (jar.serializeSync().cookies || []).length;
+    return {
+      ok: true,
+      statusCode: resp.status,
+      cookiesSaved: cookieCount,
+      message: resp.status < 400
+        ? `Session refreshed — ${cookieCount} cookie(s) saved`
+        : `Got HTTP ${resp.status}, ${cookieCount} cookie(s) saved`
+    };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+module.exports = { checkMonitor, refreshSession };

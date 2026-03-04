@@ -713,6 +713,10 @@ async function migrate() {
     await client.query(
       'ALTER TABLE uptime_monitors ADD COLUMN IF NOT EXISTS custom_user_agent TEXT'
     );
+    // uptime_monitors: cookie persistence for anti-bot session
+    await client.query(
+      'ALTER TABLE uptime_monitors ADD COLUMN IF NOT EXISTS session_cookies TEXT'
+    );
 
     // ─── scale indexes ────────────────────────────────────────────────────────
     const scaleIndexes = [

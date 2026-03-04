@@ -148,7 +148,7 @@
         </div>
       <% } %>
 
-      <!-- User-Agent info -->
+      <!-- Request Settings / Anti-Bot -->
       <div class="section-label" style="margin:20px 0 10px">Request Settings</div>
       <div class="info-grid" style="grid-template-columns:1fr">
         <div class="card info-card">
@@ -158,6 +158,35 @@
           </div>
         </div>
       </div>
+
+      <%
+        let cookieCount = 0;
+        try {
+          if (monitor.session_cookies) {
+            cookieCount = JSON.parse(monitor.session_cookies).length;
+          }
+        } catch {}
+      %>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap">
+        <button id="refresh-session-btn" class="btn btn-ghost" style="font-size:12px" data-id="<%= monitor.id %>">
+          🔄 Refresh Session
+        </button>
+        <% if (cookieCount > 0) { %>
+          <button id="clear-cookies-btn" class="btn btn-ghost" style="font-size:12px" data-id="<%= monitor.id %>">
+            🗑 Clear Cookies
+          </button>
+        <% } %>
+        <span class="text-muted" style="font-size:12px" id="session-cookie-info">
+          <% if (cookieCount > 0) { %>
+            <%= cookieCount %> cookie(s) saved
+          <% } else { %>
+            No saved cookies
+          <% } %>
+        </span>
+      </div>
+      <p class="form-hint" style="margin-top:6px">
+        "Refresh Session" visits the page and saves cookies from anti-bot checks for future monitoring requests.
+      </p>
     </div>
 
   <!-- INCIDENTS TAB -->

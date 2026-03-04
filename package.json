@@ -21,6 +21,7 @@
     "@bull-board/api": "^6.20.3",
     "@bull-board/express": "^6.20.3",
     "axios": "^1.6.8",
+    "axios-cookiejar-support": "^6.0.5",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.70.1",
     "cheerio": "^1.0.0",
@@ -42,6 +43,7 @@
     "pdfkit": "^0.17.2",
     "pg": "^8.11.3",
     "stripe": "^17.4.0",
+    "tough-cookie": "^6.0.0",
     "web-push": "^3.6.7",
     "xlsx": "^0.18.5"
   },

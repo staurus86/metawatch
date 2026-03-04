@@ -537,6 +537,48 @@ if (uptimeTestBtn) {
   });
 }
 
+// ─── Refresh session button ──────────────────────────────────────────────────
+const refreshSessionBtn = document.getElementById('refresh-session-btn');
+if (refreshSessionBtn) {
+  refreshSessionBtn.addEventListener('click', async function () {
+    const id = this.getAttribute('data-id');
+    const orig = this.textContent;
+    this.textContent = 'Refreshing…';
+    this.disabled = true;
+    try {
+      const r = await fetch('/uptime/' + id + '/refresh-session', { method: 'POST', headers: csrfHeaders() });
+      const data = await r.json();
+      const info = document.getElementById('session-cookie-info');
+      if (data.ok) {
+        this.textContent = '✓ ' + data.message;
+        if (info) info.textContent = data.cookiesSaved + ' cookie(s) saved';
+      } else {
+        this.textContent = '⚠ ' + (data.error || 'Failed');
+      }
+      setTimeout(() => { this.textContent = orig; this.disabled = false; }, 5000);
+    } catch (e) {
+      this.textContent = '⚠ Error';
+      setTimeout(() => { this.textContent = orig; this.disabled = false; }, 3000);
+    }
+  });
+}
+
+const clearCookiesBtn = document.getElementById('clear-cookies-btn');
+if (clearCookiesBtn) {
+  clearCookiesBtn.addEventListener('click', async function () {
+    const id = this.getAttribute('data-id');
+    try {
+      const r = await fetch('/uptime/' + id + '/clear-cookies', { method: 'POST', headers: csrfHeaders() });
+      const data = await r.json();
+      const info = document.getElementById('session-cookie-info');
+      if (data.ok) {
+        if (info) info.textContent = 'No saved cookies';
+        this.remove();
+      }
+    } catch {}
+  });
+}
+
 // ─── Dark mode ───────────────────────────────────────────────────────────────
 const darkBtn = document.getElementById('dark-mode-toggle');
 const themeIcon = document.getElementById('theme-icon');

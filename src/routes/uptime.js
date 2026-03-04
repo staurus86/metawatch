@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const pool = require('../db');
 const { requireAuth } = require('../auth');
 const { scheduleMonitor, unscheduleMonitor, triggerMonitorCheckNow } = require('../scheduler');
+const { refreshSession } = require('../uptime-checker');
 const { notify: notifyMeta } = require('../notifier');
 const { sendTelegram, sendWebhook, sendDiscord } = require('../notifier');
 const { sendAlert: sendEmail } = require('../mailer');
@@ -531,6 +532,36 @@ router.post('/:id/test-notify', requireAuth, async (req, res) => {
     res.json({ ok: true, message: `Test sent via: ${channels.join(', ')}` });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /uptime/:id/refresh-session ────────────────────────────────────────
+router.post('/:id/refresh-session', requireAuth, async (req, res) => {
+  const monitorId = parseInt(req.params.id, 10);
+  try {
+    const { query, params } = ownedMonitorQuery(monitorId, req);
+    const { rows: [monitor] } = await pool.query(query, params);
+    if (!monitor) return res.status(404).json({ error: 'Not found' });
+
+    const result = await refreshSession(monitorId);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /uptime/:id/clear-cookies ─────────────────────────────────────────
+router.post('/:id/clear-cookies', requireAuth, async (req, res) => {
+  const monitorId = parseInt(req.params.id, 10);
+  try {
+    const { query, params } = ownedMonitorQuery(monitorId, req);
+    const { rows: [monitor] } = await pool.query(query, params);
+    if (!monitor) return res.status(404).json({ error: 'Not found' });
+
+    await pool.query('UPDATE uptime_monitors SET session_cookies = NULL WHERE id = $1', [monitorId]);
+    res.json({ ok: true, message: 'Cookies cleared' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
