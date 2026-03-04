@@ -579,6 +579,69 @@ if (clearCookiesBtn) {
   });
 }
 
+// ─── Manual Cookies modal ────────────────────────────────────────────────────
+const manualCookiesBtn = document.getElementById('manual-cookies-btn');
+const manualCookiesModal = document.getElementById('manual-cookies-modal');
+if (manualCookiesBtn && manualCookiesModal) {
+  manualCookiesBtn.addEventListener('click', () => {
+    manualCookiesModal.style.display = 'flex';
+  });
+
+  document.getElementById('manual-cookies-close').addEventListener('click', () => {
+    manualCookiesModal.style.display = 'none';
+  });
+
+  manualCookiesModal.addEventListener('click', (e) => {
+    if (e.target === manualCookiesModal) manualCookiesModal.style.display = 'none';
+  });
+
+  // Copy snippet button
+  const copySnippetBtn = document.getElementById('copy-snippet-btn');
+  if (copySnippetBtn) {
+    copySnippetBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText('document.cookie').then(() => {
+        copySnippetBtn.textContent = '✓';
+        setTimeout(() => { copySnippetBtn.textContent = 'Copy'; }, 2000);
+      });
+    });
+  }
+
+  // Save cookies
+  const saveCookiesBtn = document.getElementById('manual-cookies-save');
+  if (saveCookiesBtn) {
+    saveCookiesBtn.addEventListener('click', async function () {
+      const id = this.getAttribute('data-id');
+      const input = document.getElementById('manual-cookies-input');
+      const status = document.getElementById('manual-cookies-status');
+      const raw = (input.value || '').trim();
+
+      if (!raw) { status.textContent = 'Paste cookies first'; return; }
+
+      this.disabled = true;
+      status.textContent = 'Saving…';
+      try {
+        const r = await fetch('/uptime/' + id + '/manual-cookies', {
+          method: 'POST',
+          headers: { ...csrfHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cookies: raw })
+        });
+        const data = await r.json();
+        if (data.ok) {
+          status.textContent = '✓ ' + data.message;
+          const info = document.getElementById('session-cookie-info');
+          if (info) info.textContent = data.cookiesSaved + ' cookie(s) saved';
+          setTimeout(() => { manualCookiesModal.style.display = 'none'; }, 1500);
+        } else {
+          status.textContent = '⚠ ' + (data.error || 'Failed');
+        }
+      } catch (e) {
+        status.textContent = '⚠ Error';
+      }
+      this.disabled = false;
+    });
+  }
+}
+
 // ─── Dark mode ───────────────────────────────────────────────────────────────
 const darkBtn = document.getElementById('dark-mode-toggle');
 const themeIcon = document.getElementById('theme-icon');

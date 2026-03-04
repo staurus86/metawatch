@@ -550,6 +550,55 @@ router.post('/:id/refresh-session', requireAuth, async (req, res) => {
   }
 });
 
+// ─── POST /uptime/:id/manual-cookies ─────────────────────────────────────────
+router.post('/:id/manual-cookies', requireAuth, async (req, res) => {
+  const monitorId = parseInt(req.params.id, 10);
+  try {
+    const { query, params } = ownedMonitorQuery(monitorId, req);
+    const { rows: [monitor] } = await pool.query(query, params);
+    if (!monitor) return res.status(404).json({ error: 'Not found' });
+
+    const { cookies: cookieString } = req.body;
+    if (!cookieString || !cookieString.trim()) {
+      return res.json({ ok: false, error: 'No cookies provided' });
+    }
+
+    // Parse "name1=value1; name2=value2" format into tough-cookie jar
+    const { CookieJar } = require('tough-cookie');
+    const jar = new CookieJar();
+    const domain = new URL(monitor.url).hostname;
+    const url = `https://${domain}`;
+
+    const pairs = cookieString.split(';').map(s => s.trim()).filter(Boolean);
+    let saved = 0;
+    for (const pair of pairs) {
+      const eq = pair.indexOf('=');
+      if (eq < 1) continue;
+      const name = pair.substring(0, eq).trim();
+      const value = pair.substring(eq + 1).trim();
+      try {
+        jar.setCookieSync(`${name}=${value}; Domain=${domain}; Path=/`, url);
+        saved++;
+      } catch { /* skip */ }
+    }
+
+    if (saved === 0) {
+      return res.json({ ok: false, error: 'Could not parse any cookies' });
+    }
+
+    const serialized = jar.serializeSync();
+    const json = JSON.stringify(serialized.cookies || []);
+    await pool.query(
+      'UPDATE uptime_monitors SET session_cookies = $1 WHERE id = $2',
+      [json, monitorId]
+    );
+
+    res.json({ ok: true, cookiesSaved: saved, message: `${saved} cookie(s) saved` });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // ─── POST /uptime/:id/clear-cookies ─────────────────────────────────────────
 router.post('/:id/clear-cookies', requireAuth, async (req, res) => {
   const monitorId = parseInt(req.params.id, 10);
