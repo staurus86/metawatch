@@ -21,7 +21,6 @@
     "@bull-board/api": "^6.20.3",
     "@bull-board/express": "^6.20.3",
     "axios": "^1.6.8",
-    "axios-cookiejar-support": "^6.0.5",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.70.1",
     "cheerio": "^1.0.0",

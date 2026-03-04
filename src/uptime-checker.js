@@ -1,5 +1,4 @@
 const axios = require('axios');
-const { wrapper: axiosCookieJar } = require('axios-cookiejar-support');
 const { CookieJar, Cookie } = require('tough-cookie');
 const cron = require('node-cron');
 const pool = require('./db');
@@ -11,7 +10,7 @@ const { assertSafeOutboundUrl } = require('./net-safety');
 
 const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
-// ─── Cookie helpers ──────────────────────────────────────────────────────────
+// ─── Cookie helpers (pure tough-cookie, no ESM wrapper) ──────────────────────
 
 function buildCookieJar(savedCookiesJson) {
   const jar = new CookieJar();
@@ -20,7 +19,11 @@ function buildCookieJar(savedCookiesJson) {
     const cookies = JSON.parse(savedCookiesJson);
     for (const c of cookies) {
       try {
-        jar.setCookieSync(Cookie.fromJSON(c), c.domain ? `https://${c.domain.replace(/^\./, '')}` : 'https://example.com');
+        const cookie = Cookie.fromJSON(c);
+        if (cookie) {
+          const url = c.domain ? `https://${c.domain.replace(/^\./, '')}` : 'https://example.com';
+          jar.setCookieSync(cookie, url);
+        }
       } catch { /* skip bad cookies */ }
     }
   } catch { /* invalid JSON — start fresh */ }
@@ -42,6 +45,40 @@ async function saveCookies(monitorId, jar) {
       [json, monitorId]
     ).catch(() => {});
   }
+}
+
+// Create an axios instance that uses a tough-cookie jar (CommonJS-safe)
+function createCookieClient(jar) {
+  const client = axios.create();
+
+  // Request interceptor: inject Cookie header from jar
+  client.interceptors.request.use((config) => {
+    try {
+      const cookieString = jar.getCookieStringSync(config.url);
+      if (cookieString) {
+        config.headers = config.headers || {};
+        config.headers['Cookie'] = cookieString;
+      }
+    } catch { /* ignore */ }
+    return config;
+  });
+
+  // Response interceptor: store set-cookie headers into jar
+  client.interceptors.response.use((response) => {
+    try {
+      const setCookies = response.headers['set-cookie'];
+      if (setCookies) {
+        const url = response.config.url;
+        const arr = Array.isArray(setCookies) ? setCookies : [setCookies];
+        for (const raw of arr) {
+          try { jar.setCookieSync(raw, url); } catch { /* skip */ }
+        }
+      }
+    } catch { /* ignore */ }
+    return response;
+  });
+
+  return client;
 }
 
 // Classify a check result
@@ -312,7 +349,7 @@ async function checkMonitor(monitorId) {
     try {
       const ua = monitor.custom_user_agent || DEFAULT_USER_AGENT;
       const jar = buildCookieJar(monitor.session_cookies);
-      const client = axiosCookieJar(axios.create({ jar }));
+      const client = createCookieClient(jar);
 
       const reqConfig = {
         timeout: 15000,
@@ -481,7 +518,7 @@ async function refreshSession(monitorId) {
 
   const ua = monitor.custom_user_agent || DEFAULT_USER_AGENT;
   const jar = new CookieJar();
-  const client = axiosCookieJar(axios.create({ jar }));
+  const client = createCookieClient(jar);
 
   let safeUrl;
   try {
