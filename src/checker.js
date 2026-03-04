@@ -1062,8 +1062,8 @@ async function checkUrl(urlId) {
       }
     }
 
-    // JS-rendered warning state (first detection only, then cooldown based)
-    if (snap.js_rendered && !currentChallenge.detected) {
+    // JS-rendered warning state (only for static mode — skip if already using headless)
+    if (snap.js_rendered && !currentChallenge.detected && renderMode !== 'headless') {
       const jsState = await evaluateAlertState({
         urlId,
         fieldKey: 'JS Render Warning',

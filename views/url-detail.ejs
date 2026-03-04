@@ -195,7 +195,8 @@
         Anti-bot/browser verification page detected (<%= accessChallengeReason || 'access challenge' %>). Metadata can be temporary until the challenge is cleared.
       </div>
       <% } %>
-      <% if (latest.js_rendered && !accessChallengeDetected) { %>
+      <% const isHeadlessMode = String(urlRecord.render_mode || 'static').toLowerCase() === 'headless'; %>
+      <% if (latest.js_rendered && !accessChallengeDetected && !isHeadlessMode) { %>
       <div class="alert-banner alert-banner--info" style="margin:16px 20px 0">
         Static check captured minimal HTML. This page may require JS rendering for accurate metadata.
       </div>
