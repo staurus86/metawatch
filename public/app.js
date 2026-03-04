@@ -543,7 +543,7 @@ if (refreshSessionBtn) {
   refreshSessionBtn.addEventListener('click', async function () {
     const id = this.getAttribute('data-id');
     const orig = this.textContent;
-    this.textContent = 'Refreshing…';
+    this.textContent = '🌐 Launching browser…';
     this.disabled = true;
     try {
       const r = await fetch('/uptime/' + id + '/refresh-session', { method: 'POST', headers: csrfHeaders() });
@@ -555,7 +555,7 @@ if (refreshSessionBtn) {
       } else {
         this.textContent = '⚠ ' + (data.error || 'Failed');
       }
-      setTimeout(() => { this.textContent = orig; this.disabled = false; }, 5000);
+      setTimeout(() => { this.textContent = orig; this.disabled = false; }, 6000);
     } catch (e) {
       this.textContent = '⚠ Error';
       setTimeout(() => { this.textContent = orig; this.disabled = false; }, 3000);

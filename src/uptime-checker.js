@@ -507,7 +507,10 @@ async function checkMonitor(monitorId) {
   }
 }
 
-// ─── Refresh session: fetch the page with a clean cookie jar, save cookies ───
+// ─── Refresh session via headless browser ────────────────────────────────────
+// Launches Puppeteer, navigates to the URL, waits for JS challenges to resolve,
+// then extracts cookies and saves them for future axios-based checks.
+
 async function refreshSession(monitorId) {
   const { rows } = await pool.query(
     'SELECT * FROM uptime_monitors WHERE id = $1',
@@ -516,10 +519,6 @@ async function refreshSession(monitorId) {
   const monitor = rows[0];
   if (!monitor) return { ok: false, error: 'Monitor not found' };
 
-  const ua = monitor.custom_user_agent || DEFAULT_USER_AGENT;
-  const jar = new CookieJar();
-  const client = createCookieClient(jar);
-
   let safeUrl;
   try {
     safeUrl = await assertSafeOutboundUrl(monitor.url);
@@ -527,48 +526,89 @@ async function refreshSession(monitorId) {
     return { ok: false, error: err.message };
   }
 
-  const reqConfig = {
-    timeout: 20000,
-    maxRedirects: 10,
-    validateStatus: () => true,
-    headers: {
-      'User-Agent': ua,
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Cache-Control': 'no-cache',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'none',
-      'Sec-Fetch-User': '?1',
-      'Upgrade-Insecure-Requests': '1'
-    },
-    decompress: true
-  };
+  const ua = monitor.custom_user_agent || DEFAULT_USER_AGENT;
 
+  let puppeteer;
   try {
-    // First request — may get challenge page with set-cookie
-    let resp = await client.get(safeUrl, reqConfig);
+    puppeteer = require('puppeteer');
+  } catch {
+    return { ok: false, error: 'Puppeteer is not installed on this server' };
+  }
 
-    // If 503 — wait and retry (some anti-bot set cookies then redirect)
-    if (resp.status === 503) {
-      await new Promise(r => setTimeout(r, 3000));
-      resp = await client.get(safeUrl, reqConfig);
+  let browser;
+  try {
+    const launchArgs = [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--single-process'
+    ];
+
+    const execPath = process.env.PUPPETEER_EXECUTABLE_PATH || null;
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: launchArgs,
+      ...(execPath ? { executablePath: execPath } : {})
+    });
+
+    const page = await browser.newPage();
+    await page.setUserAgent(ua);
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'en-US,en;q=0.9'
+    });
+
+    // Navigate and wait for network to settle (JS challenges need time)
+    const response = await page.goto(safeUrl, {
+      waitUntil: 'networkidle2',
+      timeout: 30000
+    });
+
+    const statusCode = response ? response.status() : 0;
+
+    // If we got a challenge page, wait extra time for it to resolve
+    if (statusCode === 403 || statusCode === 503) {
+      await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => {});
     }
 
-    // Save cookies
-    await saveCookies(monitorId, jar);
+    const finalStatus = (await page.evaluate(() => {
+      // Check if we're on a real page or still on challenge
+      return document.title;
+    }));
 
-    const cookieCount = (jar.serializeSync().cookies || []).length;
+    // Extract all cookies from the browser
+    const browserCookies = await page.cookies();
+
+    // Convert browser cookies to tough-cookie format and save
+    const jar = new CookieJar();
+    for (const c of browserCookies) {
+      try {
+        const cookieStr = `${c.name}=${c.value}; Domain=${c.domain}; Path=${c.path}` +
+          (c.secure ? '; Secure' : '') +
+          (c.httpOnly ? '; HttpOnly' : '') +
+          (c.sameSite && c.sameSite !== 'None' ? `; SameSite=${c.sameSite}` : '') +
+          (c.expires > 0 ? `; Expires=${new Date(c.expires * 1000).toUTCString()}` : '');
+        const url = `${c.secure ? 'https' : 'http'}://${c.domain.replace(/^\./, '')}${c.path}`;
+        jar.setCookieSync(cookieStr, url);
+      } catch { /* skip problematic cookies */ }
+    }
+
+    await saveCookies(monitorId, jar);
+    await browser.close();
+
+    const cookieCount = browserCookies.length;
+    const currentStatus = response ? response.status() : 0;
     return {
       ok: true,
-      statusCode: resp.status,
+      statusCode: currentStatus,
       cookiesSaved: cookieCount,
-      message: resp.status < 400
-        ? `Session refreshed — ${cookieCount} cookie(s) saved`
-        : `Got HTTP ${resp.status}, ${cookieCount} cookie(s) saved`
+      pageTitle: finalStatus || null,
+      message: currentStatus < 400
+        ? `Browser session OK (HTTP ${currentStatus}) — ${cookieCount} cookie(s) saved`
+        : `Browser got HTTP ${currentStatus} — ${cookieCount} cookie(s) saved. Anti-bot may require manual cookies.`
     };
   } catch (err) {
+    if (browser) await browser.close().catch(() => {});
     return { ok: false, error: err.message };
   }
 }

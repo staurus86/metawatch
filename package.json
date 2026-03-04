@@ -41,6 +41,7 @@
     "nodemailer": "^6.9.9",
     "pdfkit": "^0.17.2",
     "pg": "^8.11.3",
+    "puppeteer": "^24.37.5",
     "stripe": "^17.4.0",
     "tough-cookie": "^6.0.0",
     "web-push": "^3.6.7",
