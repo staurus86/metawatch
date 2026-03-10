@@ -601,9 +601,8 @@ async function migrate() {
     );
 
     // performance indexes (dashboard + latest snapshot/alerts queries)
-    await client.query(
-      'CREATE INDEX IF NOT EXISTS idx_snapshots_url_id_checked_at ON snapshots(url_id, checked_at DESC)'
-    );
+    // NOTE: idx_snapshots_url_id_checked_at is same as idx_snapshots_url_checked — drop duplicate
+    await client.query('DROP INDEX IF EXISTS idx_snapshots_url_id_checked_at');
     await client.query(
       'CREATE INDEX IF NOT EXISTS idx_alerts_url_id_detected_at ON alerts(url_id, detected_at DESC)'
     );
@@ -723,6 +722,13 @@ async function migrate() {
     );
 
     // ─── scale indexes ────────────────────────────────────────────────────────
+    // Drop redundant indexes that waste disk space
+    const dropRedundant = [
+      'DROP INDEX IF EXISTS idx_alerts_detected_url',         // covered by idx_alerts_url_id_detected_at
+      'DROP INDEX IF EXISTS idx_alerts_url_field_new_detected' // overly specific, rarely used
+    ];
+    for (const sql of dropRedundant) await client.query(sql);
+
     const scaleIndexes = [
       'CREATE INDEX IF NOT EXISTS idx_monitored_urls_user_active_created ON monitored_urls(user_id, is_active, created_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_monitored_urls_user_project_created ON monitored_urls(user_id, project_id, created_at DESC)',
@@ -731,9 +737,7 @@ async function migrate() {
       'CREATE INDEX IF NOT EXISTS idx_uptime_monitors_user_active_created ON uptime_monitors(user_id, is_active, created_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_snapshots_checked_at ON snapshots(checked_at)',
       'CREATE INDEX IF NOT EXISTS idx_alerts_detected_at ON alerts(detected_at DESC)',
-      'CREATE INDEX IF NOT EXISTS idx_alerts_detected_url ON alerts(detected_at DESC, url_id)',
       'CREATE INDEX IF NOT EXISTS idx_alerts_url_field_detected_at ON alerts(url_id, field_changed, detected_at DESC)',
-      'CREATE INDEX IF NOT EXISTS idx_alerts_url_field_new_detected ON alerts(url_id, field_changed, new_value, detected_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_monitored_urls_user_health ON monitored_urls(user_id, health_score)',
       'CREATE INDEX IF NOT EXISTS idx_notification_log_status_sent ON notification_log(status, sent_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_audit_log_user_created ON audit_log(user_id, created_at DESC)',

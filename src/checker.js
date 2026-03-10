@@ -597,6 +597,10 @@ async function checkUrl(urlId) {
       ? JSON.stringify(scraped.textRuleResults)
       : null;
 
+    // Deduplicate raw_robots_txt — only store full text when hash changed vs last snapshot
+    const robotsHashChanged = !lastSnapshot || lastSnapshot.robots_txt_hash !== robotsData.hash;
+    const rawRobotsToStore = robotsHashChanged ? robotsData.raw : null;
+
     // Save new snapshot
     const { rows: [snap] } = await pool.query(
       `INSERT INTO snapshots
@@ -622,7 +626,7 @@ async function checkUrl(urlId) {
         scraped.canonical_issue,
         !!scraped.indexability_conflict,
         robotsData.hash,
-        robotsData.raw,
+        rawRobotsToStore,
         !!robotsBlocked,
         scraped.hreflang,
         scraped.og_title,
@@ -636,6 +640,8 @@ async function checkUrl(urlId) {
         !!scraped.js_rendered
       ]
     );
+    // For notification display, ensure snap has full robots text even if deduped
+    if (!snap.raw_robots_txt && robotsData.raw) snap.raw_robots_txt = robotsData.raw;
 
     // First snapshot: set as reference automatically
     if (!refSnapshot) {

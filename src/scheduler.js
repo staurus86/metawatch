@@ -332,58 +332,125 @@ async function startScheduler() {
   const alertRetentionDays = parseInt(process.env.ALERT_RETENTION_DAYS || '180', 10);
   const notificationRetentionDays = parseInt(process.env.NOTIFICATION_LOG_RETENTION_DAYS || '180', 10);
   const webhookLogRetentionDays = parseInt(process.env.WEBHOOK_LOG_RETENTION_DAYS || '30', 10);
+  const auditLogRetentionDays = parseInt(process.env.AUDIT_LOG_RETENTION_DAYS || '90', 10);
+  const competitorRetentionDays = parseInt(process.env.COMPETITOR_RETENTION_DAYS || '60', 10);
+  const incidentRetentionDays = parseInt(process.env.INCIDENT_RETENTION_DAYS || '180', 10);
+  const BATCH_SIZE = 5000;
+
+  // Batched delete helper — deletes up to BATCH_SIZE rows per iteration to avoid long locks
+  async function batchDelete(label, query) {
+    let totalDeleted = 0;
+    let deleted;
+    do {
+      const res = await pool.query(query);
+      deleted = res.rowCount || 0;
+      totalDeleted += deleted;
+    } while (deleted >= BATCH_SIZE);
+    if (totalDeleted > 0) {
+      console.log(`[Retention] Deleted ${totalDeleted} ${label}`);
+    }
+    return totalDeleted;
+  }
 
   cron.schedule('0 3 * * *', async () => {
+    let tablesWithDeletes = [];
     try {
       if (retentionDays > 0) {
-        const snapshotRes = await pool.query(
-          `DELETE FROM snapshots
-           WHERE checked_at < NOW() - INTERVAL '${retentionDays} days'
-             AND id NOT IN (
-               SELECT DISTINCT reference_snapshot_id
-               FROM monitored_urls
-               WHERE reference_snapshot_id IS NOT NULL
-             )`
-        );
-        if (snapshotRes.rowCount > 0) {
-          console.log(`[Retention] Deleted ${snapshotRes.rowCount} snapshots older than ${retentionDays} days`);
-        }
+        if (await batchDelete('snapshots', `
+          DELETE FROM snapshots WHERE id IN (
+            SELECT id FROM snapshots
+            WHERE checked_at < NOW() - INTERVAL '${retentionDays} days'
+              AND id NOT IN (
+                SELECT DISTINCT reference_snapshot_id
+                FROM monitored_urls
+                WHERE reference_snapshot_id IS NOT NULL
+              )
+            LIMIT ${BATCH_SIZE}
+          )`) > 0) tablesWithDeletes.push('snapshots');
 
-        const upRes = await pool.query(
-          `DELETE FROM uptime_checks WHERE checked_at < NOW() - INTERVAL '${retentionDays} days'`
-        );
-        if (upRes.rowCount > 0) {
-          console.log(`[Retention] Deleted ${upRes.rowCount} uptime_checks older than ${retentionDays} days`);
-        }
+        if (await batchDelete('uptime_checks', `
+          DELETE FROM uptime_checks WHERE id IN (
+            SELECT id FROM uptime_checks
+            WHERE checked_at < NOW() - INTERVAL '${retentionDays} days'
+            LIMIT ${BATCH_SIZE}
+          )`) > 0) tablesWithDeletes.push('uptime_checks');
+
+        if (await batchDelete('competitor_snapshots',
+          `DELETE FROM competitor_snapshots WHERE id IN (
+            SELECT id FROM competitor_snapshots
+            WHERE checked_at < NOW() - INTERVAL '${competitorRetentionDays} days'
+            LIMIT ${BATCH_SIZE}
+          )`) > 0) tablesWithDeletes.push('competitor_snapshots');
       }
 
       if (alertRetentionDays > 0) {
-        const alertRes = await pool.query(
-          `DELETE FROM alerts WHERE detected_at < NOW() - INTERVAL '${alertRetentionDays} days'`
-        );
-        if (alertRes.rowCount > 0) {
-          console.log(`[Retention] Deleted ${alertRes.rowCount} alerts older than ${alertRetentionDays} days`);
-        }
+        if (await batchDelete('alerts', `
+          DELETE FROM alerts WHERE id IN (
+            SELECT id FROM alerts
+            WHERE detected_at < NOW() - INTERVAL '${alertRetentionDays} days'
+            LIMIT ${BATCH_SIZE}
+          )`) > 0) tablesWithDeletes.push('alerts');
       }
 
       if (notificationRetentionDays > 0) {
-        const logRes = await pool.query(
-          `DELETE FROM notification_log WHERE sent_at < NOW() - INTERVAL '${notificationRetentionDays} days'`
-        );
-        if (logRes.rowCount > 0) {
-          console.log(`[Retention] Deleted ${logRes.rowCount} notification logs older than ${notificationRetentionDays} days`);
-        }
+        if (await batchDelete('notification_log', `
+          DELETE FROM notification_log WHERE id IN (
+            SELECT id FROM notification_log
+            WHERE sent_at < NOW() - INTERVAL '${notificationRetentionDays} days'
+            LIMIT ${BATCH_SIZE}
+          )`) > 0) tablesWithDeletes.push('notification_log');
       }
 
       if (webhookLogRetentionDays > 0) {
-        const whRes = await pool.query(
-          `DELETE FROM webhook_delivery_log
-           WHERE created_at < NOW() - INTERVAL '${webhookLogRetentionDays} days'
-             AND status IN ('delivered', 'failed')`
-        );
-        if (whRes.rowCount > 0) {
-          console.log(`[Retention] Deleted ${whRes.rowCount} webhook logs older than ${webhookLogRetentionDays} days`);
+        if (await batchDelete('webhook_delivery_log', `
+          DELETE FROM webhook_delivery_log WHERE id IN (
+            SELECT id FROM webhook_delivery_log
+            WHERE created_at < NOW() - INTERVAL '${webhookLogRetentionDays} days'
+              AND status IN ('delivered', 'failed')
+            LIMIT ${BATCH_SIZE}
+          )`) > 0) tablesWithDeletes.push('webhook_delivery_log');
+      }
+
+      // audit_log — was previously unbounded
+      if (auditLogRetentionDays > 0) {
+        if (await batchDelete('audit_log', `
+          DELETE FROM audit_log WHERE id IN (
+            SELECT id FROM audit_log
+            WHERE created_at < NOW() - INTERVAL '${auditLogRetentionDays} days'
+            LIMIT ${BATCH_SIZE}
+          )`) > 0) tablesWithDeletes.push('audit_log');
+      }
+
+      // uptime_incidents — keep resolved incidents for limited time
+      if (incidentRetentionDays > 0) {
+        if (await batchDelete('uptime_incidents (resolved)', `
+          DELETE FROM uptime_incidents WHERE id IN (
+            SELECT id FROM uptime_incidents
+            WHERE resolved_at IS NOT NULL
+              AND resolved_at < NOW() - INTERVAL '${incidentRetentionDays} days'
+            LIMIT ${BATCH_SIZE}
+          )`) > 0) tablesWithDeletes.push('uptime_incidents');
+      }
+
+      // Cleanup orphaned alert_state for deleted URLs
+      const orphanedRes = await pool.query(`
+        DELETE FROM alert_state
+        WHERE url_id NOT IN (SELECT id FROM monitored_urls)
+      `);
+      if (orphanedRes.rowCount > 0) {
+        console.log(`[Retention] Cleaned ${orphanedRes.rowCount} orphaned alert_state rows`);
+      }
+
+      // VACUUM tables that had deletes to reclaim disk space
+      if (tablesWithDeletes.length > 0) {
+        for (const table of tablesWithDeletes) {
+          try {
+            await pool.query(`VACUUM ${table}`);
+          } catch (vacErr) {
+            console.error(`[Retention] VACUUM ${table} error:`, vacErr.message);
+          }
         }
+        console.log(`[Retention] VACUUM completed for: ${tablesWithDeletes.join(', ')}`);
       }
     } catch (err) {
       console.error('[Retention] Error:', err.message);

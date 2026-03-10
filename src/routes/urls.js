@@ -1091,9 +1091,13 @@ router.get('/:id', requireAuth, async (req, res) => {
     }
 
     // robots.txt diff between reference and latest
+    // raw_robots_txt may be null if deduped (hash unchanged) — find nearest snapshot with data
     let robotsDiff = null;
-    if (refSnapshot?.raw_robots_txt && snapshots[0]?.raw_robots_txt) {
-      robotsDiff = Diff.diffLines(refSnapshot.raw_robots_txt, snapshots[0].raw_robots_txt);
+    const latestRobotsTxt = snapshots[0]?.raw_robots_txt
+      || (snapshots.find(s => s.raw_robots_txt)?.raw_robots_txt);
+    const refRobotsTxt = refSnapshot?.raw_robots_txt || latestRobotsTxt;
+    if (refRobotsTxt && latestRobotsTxt) {
+      robotsDiff = Diff.diffLines(refRobotsTxt, latestRobotsTxt);
     }
 
     const latestSnapshot = snapshots[0] || null;
