@@ -24,6 +24,7 @@
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.70.1",
     "cheerio": "^1.0.0",
+    "compression": "^1.8.1",
     "cookie-parser": "^1.4.6",
     "diff": "^5.2.0",
     "dotenv": "^16.4.1",

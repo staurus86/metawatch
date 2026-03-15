@@ -84,9 +84,27 @@ function createCookieClient(jar) {
 // ─── Persistent browser pool for browser_mode checks ─────────────────────────
 let _browser = null;
 let _browserLaunching = false;
+let _browserIdleTimer = null;
+const BROWSER_IDLE_TIMEOUT_MS = 3 * 60 * 1000; // Close browser after 3 min idle
+
+function resetBrowserIdleTimer() {
+  if (_browserIdleTimer) clearTimeout(_browserIdleTimer);
+  _browserIdleTimer = setTimeout(async () => {
+    if (_browser && _browser.isConnected()) {
+      console.log('[Browser] Closing idle Puppeteer instance to free RAM');
+      try { await _browser.close(); } catch {}
+      _browser = null;
+    }
+    _browserIdleTimer = null;
+  }, BROWSER_IDLE_TIMEOUT_MS);
+  _browserIdleTimer.unref();
+}
 
 async function getBrowser() {
-  if (_browser && _browser.isConnected()) return _browser;
+  if (_browser && _browser.isConnected()) {
+    resetBrowserIdleTimer();
+    return _browser;
+  }
   if (_browserLaunching) {
     // Wait for ongoing launch
     for (let i = 0; i < 30; i++) {
@@ -110,6 +128,7 @@ async function getBrowser() {
       ]
     });
     _browser.on('disconnected', () => { _browser = null; });
+    resetBrowserIdleTimer();
     return _browser;
   } finally {
     _browserLaunching = false;

@@ -10,6 +10,22 @@ let browser = null;
 let launchPromise = null;
 let activePages = 0;
 const pageWaiters = [];
+const MAX_PAGE_WAITERS = 50;
+let browserIdleTimer = null;
+const BROWSER_IDLE_TIMEOUT_MS = 3 * 60 * 1000; // Close after 3 min idle
+
+function resetIdleTimer() {
+  if (browserIdleTimer) clearTimeout(browserIdleTimer);
+  browserIdleTimer = setTimeout(async () => {
+    if (browser && browser.isConnected() && activePages === 0) {
+      console.log('[HeadlessScraper] Closing idle Puppeteer instance to free RAM');
+      try { await browser.close(); } catch {}
+      browser = null;
+    }
+    browserIdleTimer = null;
+  }, BROWSER_IDLE_TIMEOUT_MS);
+  browserIdleTimer.unref();
+}
 
 function sha256(text) {
   return crypto.createHash('sha256').update(String(text || '')).digest('hex');
@@ -72,6 +88,10 @@ async function acquirePageSlot() {
     return () => releasePageSlot();
   }
 
+  if (pageWaiters.length >= MAX_PAGE_WAITERS) {
+    throw new Error('Headless page queue full — too many concurrent requests');
+  }
+
   await new Promise(resolve => pageWaiters.push(resolve));
   activePages += 1;
   return () => releasePageSlot();
@@ -80,7 +100,11 @@ async function acquirePageSlot() {
 function releasePageSlot() {
   activePages = Math.max(0, activePages - 1);
   const next = pageWaiters.shift();
-  if (next) next();
+  if (next) {
+    next();
+  } else if (activePages === 0) {
+    resetIdleTimer();
+  }
 }
 
 function buildTextRuleResults(bodyText, textRules) {
@@ -120,7 +144,10 @@ async function loadPuppeteer() {
 }
 
 async function ensureBrowser() {
-  if (browser && browser.isConnected()) return browser;
+  if (browser && browser.isConnected()) {
+    resetIdleTimer();
+    return browser;
+  }
   if (launchPromise) return launchPromise;
 
   launchPromise = (async () => {
@@ -140,6 +167,7 @@ async function ensureBrowser() {
       browser = null;
     });
     browser = launched;
+    resetIdleTimer();
     return browser;
   })();
 

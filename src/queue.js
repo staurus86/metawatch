@@ -39,6 +39,17 @@ class Semaphore {
 const domainLastRequest = new Map();
 const userLastRequest = new Map();
 
+// Periodic cleanup: remove entries older than 5 minutes to prevent unbounded growth
+setInterval(() => {
+  const cutoff = Date.now() - 5 * 60 * 1000;
+  for (const [key, ts] of domainLastRequest) {
+    if (ts < cutoff) domainLastRequest.delete(key);
+  }
+  for (const [key, ts] of userLastRequest) {
+    if (ts < cutoff) userLastRequest.delete(key);
+  }
+}, 60 * 1000).unref();
+
 async function domainRateLimit(url) {
   let hostname;
   try {

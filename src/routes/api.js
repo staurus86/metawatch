@@ -50,6 +50,9 @@ function pruneStatsCache() {
   oldest.forEach(([key]) => statsCache.delete(key));
 }
 
+// Periodic cleanup even if /api/stats is never called
+setInterval(() => pruneStatsCache(), 2 * 60 * 1000).unref();
+
 function buildHealthPayload({
   ok,
   dbLatencyMs = null,
@@ -131,8 +134,17 @@ function buildHealthPayload({
   return payload;
 }
 
-// GET /api/health — Railway health check
+// GET /api/health — Railway health check (cached 10s to reduce DB load + egress)
+let healthCache = { payload: null, ts: 0 };
+const HEALTH_CACHE_TTL_MS = 10 * 1000;
+
 router.get('/health', async (req, res) => {
+  const now = Date.now();
+  if (healthCache.payload && (now - healthCache.ts) < HEALTH_CACHE_TTL_MS) {
+    res.set('Cache-Control', 'public, max-age=10');
+    return res.json(healthCache.payload);
+  }
+
   try {
     const t0 = Date.now();
     await pool.query('SELECT 1');
@@ -177,7 +189,7 @@ router.get('/health', async (req, res) => {
 
     const pendingWebhooks = webhookRow?.pending_webhooks || 0;
     const pendingChecks = queueRow?.pending_checks || 0;
-    res.json(buildHealthPayload({
+    const payload = buildHealthPayload({
       ok: true,
       dbLatencyMs,
       scheduler,
@@ -186,7 +198,10 @@ router.get('/health', async (req, res) => {
       pendingChecks,
       pendingWebhooks,
       lastCheckRanAt: lastCheckRow?.last_check_ran_at || null
-    }));
+    });
+    healthCache = { payload, ts: Date.now() };
+    res.set('Cache-Control', 'public, max-age=10');
+    res.json(payload);
   } catch (err) {
     const scheduler = getSchedulerStatus();
     const workerStatus = getWorkerStatus();

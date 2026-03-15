@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const ejsLayouts = require('express-ejs-layouts');
 const cookieParser = require('cookie-parser');
+const compression = require('compression');
 const helmet = require('helmet');
 const path = require('path');
 const pool = require('./db');
@@ -17,7 +18,22 @@ const { csrfProtection } = require('./csrf');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const CUSTOM_DOMAIN_CACHE_TTL_MS = 60 * 1000;
+const CUSTOM_DOMAIN_CACHE_MAX = 500;
 const customDomainCache = new Map();
+
+// Periodic cleanup of expired entries to prevent unbounded growth
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of customDomainCache) {
+    if (value.expiresAt <= now) customDomainCache.delete(key);
+  }
+  // Hard cap: evict oldest if still over limit
+  if (customDomainCache.size > CUSTOM_DOMAIN_CACHE_MAX) {
+    const excess = customDomainCache.size - CUSTOM_DOMAIN_CACHE_MAX;
+    const keys = [...customDomainCache.keys()].slice(0, excess);
+    for (const k of keys) customDomainCache.delete(k);
+  }
+}, 5 * 60 * 1000).unref();
 
 function parseEnvBool(value, fallback = false) {
   if (value == null || value === '') return fallback;
@@ -58,6 +74,9 @@ app.set('views', path.join(__dirname, '..', 'views'));
 app.use(ejsLayouts);
 app.set('layout', 'layout');
 
+// Gzip/Brotli compression — reduces network egress ~80%
+app.use(compression({ threshold: 512 }));
+
 // Security headers
 app.use(helmet({
   contentSecurityPolicy: {
@@ -83,7 +102,10 @@ app.use(express.json({
   }
 }));
 app.use(cookieParser());
-app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  maxAge: '7d',
+  etag: true
+}));
 
 // Load current user into req.user + res.locals.user for all routes
 app.use(loadUserMiddleware);
@@ -195,6 +217,13 @@ async function start() {
       server.close(() => {
         console.log('[Shutdown] HTTP server closed');
       });
+
+      // Close headless browsers to free RAM
+      try {
+        const { closeHeadlessBrowser } = require('./headless-scraper');
+        await closeHeadlessBrowser();
+        console.log('[Shutdown] Headless browser closed');
+      } catch { /* may not be running */ }
 
       // Close queue connections
       try {
